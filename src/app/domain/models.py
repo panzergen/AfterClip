@@ -23,6 +23,7 @@ class TranscriptionRequest:
     clip_end: float | None = None
     extract_frames: bool = False
     frame_interval: int = 10
+    highlight_times: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)

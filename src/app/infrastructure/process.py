@@ -49,13 +49,21 @@ def get_media_metadata(input_path: Path) -> dict[str, object]:
         if result.returncode == 0:
             data = json.loads(result.stdout)
             fmt = data.get("format", {})
+            streams = data.get("streams", [])
+            creation_date = fmt.get("tags", {}).get("creation_time")
+            if not creation_date:
+                creation_date = next(
+                    (stream.get("tags", {}).get("creation_time") for stream in streams if stream.get("tags", {}).get("creation_time")),
+                    "Unknown",
+                )
             metadata.update({
                 "duration": fmt.get("duration", "Unknown"),
                 "format": fmt.get("format_name", "Unknown"),
                 "bit_rate": fmt.get("bit_rate", "Unknown"),
+                "creation_date": creation_date,
                 "streams": [
                     {"type": stream.get("codec_type"), "codec": stream.get("codec_name"), "width": stream.get("width"), "height": stream.get("height"), "sample_rate": stream.get("sample_rate")}
-                    for stream in data.get("streams", [])
+                    for stream in streams
                 ],
             })
         else:

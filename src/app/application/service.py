@@ -215,6 +215,7 @@ def write_report(path: Path, request: TranscriptionRequest, status: str, metadat
         f"- **File name:** `{metadata.get('file_name', request.input_path.name)}`\n"
         f"- **File size (MB):** `{metadata.get('file_size_mb', 'Unknown')}`\n"
         f"- **Duration (seconds):** `{metadata.get('duration', 'Unknown')}`\n"
+        f"- **Creation date:** `{metadata.get('creation_date', 'Unknown')}`\n"
         f"- **Format:** `{metadata.get('format', 'Unknown')}`\n"
         f"- **Bit rate:** `{metadata.get('bit_rate', 'Unknown')}`\n"
         f"- **Streams:** `{'; '.join(stream_lines) or 'Unknown'}`\n\n"

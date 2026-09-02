@@ -197,3 +197,4 @@ market-strategy-plan/
 *.mov
 *.m4a
 app.log
+.cache/

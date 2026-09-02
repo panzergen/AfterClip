@@ -1,0 +1,162 @@
+import logging
+import os
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import json
+from collections.abc import Callable
+from pathlib import Path
+
+from app.application.ports import CancelToken, ProcessingCancelled
+from app.domain.models import TranscriptionResult
+
+LOGGER = logging.getLogger(__name__)
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def executable_available(name: str) -> bool:
+    return shutil.which(name) is not None
+
+
+def find_whisper_executable() -> str | None:
+    candidates = [
+        Path(sys.executable).parent / "Scripts" / "whisper.exe",
+        Path(sys.executable).parent / "Scripts" / "whisper",
+    ]
+    return next((str(path) for path in candidates if path.is_file()), None) or shutil.which("whisper")
+
+
+def get_media_metadata(input_path: Path) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "file_name": input_path.name,
+        "file_size_mb": round(input_path.stat().st_size / (1024 * 1024), 2),
+    }
+    if not executable_available("ffprobe"):
+        metadata["probe_status"] = "FFprobe not available"
+        return metadata
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", str(input_path)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            creationflags=CREATE_NO_WINDOW,
+        )
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            fmt = data.get("format", {})
+            metadata.update({
+                "duration": fmt.get("duration", "Unknown"),
+                "format": fmt.get("format_name", "Unknown"),
+                "bit_rate": fmt.get("bit_rate", "Unknown"),
+                "streams": [
+                    {"type": stream.get("codec_type"), "codec": stream.get("codec_name"), "width": stream.get("width"), "height": stream.get("height"), "sample_rate": stream.get("sample_rate")}
+                    for stream in data.get("streams", [])
+                ],
+            })
+        else:
+            metadata["probe_status"] = "FFprobe failed"
+    except Exception as error:
+        LOGGER.warning("Could not read media metadata: %s", error)
+        metadata["probe_status"] = "Metadata unavailable"
+    return metadata
+
+
+class ProcessRunner:
+    def run(self, command: list[str], cancel_token: CancelToken) -> subprocess.CompletedProcess[str]:
+        LOGGER.info("Running %s", command[0])
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
+                creationflags=CREATE_NO_WINDOW,
+            )
+        except FileNotFoundError as error:
+            LOGGER.error("Executable not found: %s", command[0])
+            raise RuntimeError(
+                f"Required program was not found: {command[0]}. "
+                "Install it and ensure it is available in PATH."
+            ) from error
+
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
+
+        def drain(stream, target: list[str]) -> None:
+            for line in iter(stream.readline, ""):
+                target.append(line)
+            stream.close()
+
+        stdout_thread = threading.Thread(target=drain, args=(process.stdout, stdout_lines), daemon=True)
+        stderr_thread = threading.Thread(target=drain, args=(process.stderr, stderr_lines), daemon=True)
+        stdout_thread.start()
+        stderr_thread.start()
+        while process.poll() is None:
+            if cancel_token.is_cancelled():
+                process.terminate()
+                LOGGER.warning("Process cancelled: %s", command[0])
+                process.wait()
+                stdout_thread.join(timeout=2)
+                stderr_thread.join(timeout=2)
+                raise ProcessingCancelled
+            # `poll()` is the non-blocking check. Do not use `wait(timeout=...)`
+            # here: its TimeoutExpired exception is expected for long media jobs.
+            time.sleep(0.1)
+        stdout_thread.join()
+        stderr_thread.join()
+        stdout = "".join(stdout_lines)
+        stderr = "".join(stderr_lines)
+        if process.returncode:
+            LOGGER.error(
+                "Process failed with exit code %s: %s\n%s",
+                process.returncode,
+                command[0],
+                (stderr or stdout or "").strip(),
+            )
+        else:
+            LOGGER.info("Process completed successfully: %s", command[0])
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+class FfmpegMediaTool:
+    def __init__(self, runner: ProcessRunner | None = None):
+        self.runner = runner or ProcessRunner()
+
+    def prepare_audio(self, input_path: Path, work_dir: Path, cancel_token: CancelToken) -> Path:
+        if input_path.suffix.lower() == ".wav":
+            return input_path
+        output = work_dir / "converted_audio.wav"
+        result = self.runner.run(
+            ["ffmpeg", "-y", "-i", str(input_path), "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", str(output)],
+            cancel_token,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"FFmpeg audio conversion failed: {result.stderr.strip()}")
+        return output
+
+
+class WhisperCliProvider:
+    def __init__(self, runner: ProcessRunner | None = None, executable: str | None = None):
+        self.runner = runner or ProcessRunner()
+        self.executable = executable or find_whisper_executable() or "whisper"
+
+    def transcribe(self, request, on_progress: Callable[[str], None], cancel_token: CancelToken):
+        command = [self.executable, str(request.input_path), "--model", request.model, "--output_dir", str(request.output_dir), "--output_format", "all"]
+        if request.language.strip():
+            command += ["--language", request.language.strip()]
+        on_progress("Whisper is running")
+        result = self.runner.run(command, cancel_token)
+        if result.returncode != 0:
+            raise RuntimeError(f"Whisper failed: {(result.stderr or result.stdout).strip()}")
+        files = tuple(sorted(request.output_dir.glob(f"{request.input_path.stem}.*")))
+        if not files:
+            raise RuntimeError("Whisper completed but produced no transcript files.")
+        return TranscriptionResult(request.output_dir, files)

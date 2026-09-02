@@ -1,0 +1,1 @@
+"""AfterClip application package."""

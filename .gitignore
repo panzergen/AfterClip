@@ -179,3 +179,21 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# Local media and generated processing results
+Input-Folder/
+Output-Folder/
+input-folder/
+output-folder/
+market-strategy-plan/
+**/input-folder/
+**/output-folder/
+**/market-strategy-plan/
+*.wav
+*.mp3
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.m4a
+app.log

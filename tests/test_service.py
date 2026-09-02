@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-from app.application.service import TranscriptionService, next_available_job_dir
+from app.application.service import TranscriptionService, next_available_job_dir, parse_clip_time
 from app.domain.models import TranscriptionRequest, TranscriptionResult
 from app.infrastructure.process import ProcessRunner
 
@@ -17,8 +17,14 @@ class Token:
 
 
 class FakeMedia:
-    def prepare_audio(self, input_path, work_dir, cancel_token):
+    def prepare_audio(self, input_path, work_dir, cancel_token, clip_start=None, clip_end=None):
         return input_path
+
+    def extract_interval_frames(self, input_path, frames_dir, interval, cancel_token, clip_start=None, clip_end=None):
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        frame = frames_dir / "frame_000000.png"
+        frame.write_bytes(b"frame")
+        return (frame,)
 
 
 class FakeProvider:
@@ -56,6 +62,31 @@ def test_next_available_job_dir_increments_without_overwriting(tmp_path: Path):
     (tmp_path / "example").mkdir()
     (tmp_path / "example1").mkdir()
     assert next_available_job_dir(tmp_path, "example") == tmp_path / "example2"
+
+
+def test_clip_time_parsing_and_validation(tmp_path: Path):
+    assert parse_clip_time("01:30") == 90
+    assert parse_clip_time("1:02:03") == 3723
+    with pytest.raises(ValueError):
+        parse_clip_time("not-a-time")
+    source = tmp_path / "clip.wav"
+    source.write_bytes(b"fixture")
+    with pytest.raises(ValueError, match="greater"):
+        TranscriptionService(FakeProvider(), FakeMedia()).run(
+            TranscriptionRequest(source, tmp_path / "out", clip_start=10, clip_end=5), lambda _: None, Token()
+        )
+
+
+def test_frame_extraction_is_checkpointed(tmp_path: Path):
+    source = tmp_path / "sample.mp4"
+    source.write_bytes(b"fixture")
+    result = TranscriptionService(FakeProvider(), FakeMedia()).run(
+        TranscriptionRequest(source, tmp_path / "out", extract_frames=True), lambda _: None, Token()
+    )
+    job_dir = result.output_dir.parent
+    report = (job_dir / "Summary_Report.md").read_text(encoding="utf-8")
+    assert "Frame extraction" in report
+    assert '"frame_extraction"' in (job_dir / "job_state.json").read_text(encoding="utf-8")
 
 
 def test_process_runner_drains_large_child_output():

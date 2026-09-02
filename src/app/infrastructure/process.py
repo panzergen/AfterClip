@@ -130,17 +130,38 @@ class FfmpegMediaTool:
     def __init__(self, runner: ProcessRunner | None = None):
         self.runner = runner or ProcessRunner()
 
-    def prepare_audio(self, input_path: Path, work_dir: Path, cancel_token: CancelToken) -> Path:
-        if input_path.suffix.lower() == ".wav":
+    def prepare_audio(self, input_path: Path, work_dir: Path, cancel_token: CancelToken, clip_start=None, clip_end=None) -> Path:
+        if input_path.suffix.lower() == ".wav" and clip_start is None and clip_end is None:
             return input_path
         output = work_dir / "converted_audio.wav"
+        seek_args = []
+        if clip_start is not None:
+            seek_args += ["-ss", str(clip_start)]
+        if clip_end is not None:
+            seek_args += ["-to", str(clip_end)]
         result = self.runner.run(
-            ["ffmpeg", "-y", "-i", str(input_path), "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", str(output)],
+            ["ffmpeg", "-y", *seek_args, "-i", str(input_path), "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", str(output)],
             cancel_token,
         )
         if result.returncode != 0:
             raise RuntimeError(f"FFmpeg audio conversion failed: {result.stderr.strip()}")
         return output
+
+    def extract_interval_frames(self, input_path, frames_dir, interval, cancel_token, clip_start=None, clip_end=None):
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        seek_args = []
+        if clip_start is not None:
+            seek_args += ["-ss", str(clip_start)]
+        if clip_end is not None:
+            seek_args += ["-to", str(clip_end)]
+        output_pattern = frames_dir / "frame_%06d.png"
+        result = self.runner.run(
+            ["ffmpeg", "-y", *seek_args, "-i", str(input_path), "-vf", f"fps=1/{max(1, interval)}", str(output_pattern)],
+            cancel_token,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"FFmpeg frame extraction failed: {result.stderr.strip()}")
+        return tuple(sorted(frames_dir.glob("frame_*.png")))
 
 
 class WhisperCliProvider:

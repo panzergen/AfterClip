@@ -19,6 +19,10 @@ class TranscriptionRequest:
     model: str = "turbo"
     language: str = ""
     user_task: str = ""
+    clip_start: float | None = None
+    clip_end: float | None = None
+    extract_frames: bool = False
+    frame_interval: int = 10
 
 
 @dataclass(frozen=True)

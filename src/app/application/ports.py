@@ -23,7 +23,9 @@ class TranscriptionProvider(Protocol):
 
 
 class MediaTool(Protocol):
-    def prepare_audio(self, input_path: Path, work_dir: Path, cancel_token: CancelToken) -> Path: ...
+    def prepare_audio(self, input_path: Path, work_dir: Path, cancel_token: CancelToken, clip_start: float | None = None, clip_end: float | None = None) -> Path: ...
+
+    def extract_interval_frames(self, input_path: Path, frames_dir: Path, interval: int, cancel_token: CancelToken, clip_start: float | None = None, clip_end: float | None = None) -> tuple[Path, ...]: ...
 
 
 class SecretStore(Protocol):

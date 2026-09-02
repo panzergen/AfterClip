@@ -45,7 +45,7 @@ class TranscriptionService:
         if "audio_path" not in locals():
             audio_path = run_step(
                 "media_preparation", "Media preparation", 5,
-                lambda: self.media_tool.prepare_audio(request.input_path, work_dir, cancel_token),
+                lambda: self.media_tool.prepare_audio(request.input_path, work_dir, cancel_token, request.clip_start, request.clip_end),
                 steps, state, state_path, report_path, request, metadata, on_event,
             )
             state["audio_path"] = str(audio_path)
@@ -74,6 +74,15 @@ class TranscriptionService:
                 steps["transcription"] = {"name": "Transcription", "status": "completed", "duration_seconds": round(time.monotonic() - started, 2)}
                 save_state(state_path, {**state, "steps": steps, "current_step": None})
                 on_event(ProgressEvent(f"Transcription finished in {steps['transcription']['duration_seconds']} seconds", 95))
+            if request.extract_frames:
+                run_step(
+                    "frame_extraction", "Frame extraction", 98,
+                    lambda: self.media_tool.extract_interval_frames(
+                        request.input_path, job_dir / "Vision" / "frames", request.frame_interval,
+                        cancel_token, request.clip_start, request.clip_end,
+                    ),
+                    steps, state, state_path, report_path, request, metadata, on_event,
+                )
         except ProcessingCancelled as error:
             mark_finished(state, state_path, report_path, request, metadata, steps, "Cancelled")
             raise JobCancelled from error
@@ -95,6 +104,33 @@ def validate_request(request: TranscriptionRequest) -> None:
         raise ValueError(f"Input file was not found: {request.input_path}")
     if not request.model.strip():
         raise ValueError("A Whisper model is required.")
+    if request.clip_start is not None and request.clip_start < 0:
+        raise ValueError("Clip start cannot be negative.")
+    if request.clip_end is not None and request.clip_end < 0:
+        raise ValueError("Clip end cannot be negative.")
+    if request.clip_start is not None and request.clip_end is not None and request.clip_end <= request.clip_start:
+        raise ValueError("Clip end must be greater than clip start.")
+
+
+def parse_clip_time(value: str) -> float | None:
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        parts = [float(part) for part in text.split(":")]
+    except ValueError as error:
+        raise ValueError("Clip times must use seconds, MM:SS, or HH:MM:SS.") from error
+    if len(parts) == 1:
+        result = parts[0]
+    elif len(parts) == 2:
+        result = parts[0] * 60 + parts[1]
+    elif len(parts) == 3:
+        result = parts[0] * 3600 + parts[1] * 60 + parts[2]
+    else:
+        raise ValueError("Clip times must use seconds, MM:SS, or HH:MM:SS.")
+    if result < 0:
+        raise ValueError("Clip times cannot be negative.")
+    return result
 
 
 def next_available_job_dir(output_dir: Path, base_name: str) -> Path:
@@ -190,6 +226,7 @@ def write_report(path: Path, request: TranscriptionRequest, status: str, metadat
         f"- **Updated:** `{datetime.datetime.now().isoformat(timespec='seconds')}`\n"
         f"- **Input:** `{request.input_path}`\n"
         f"- **Model:** `{request.model}`\n"
-        f"- **Language:** `{request.language or 'Auto-detect'}`\n",
+        f"- **Language:** `{request.language or 'Auto-detect'}`\n"
+        f"- **Clip range:** `{request.clip_start if request.clip_start is not None else 0} -> {request.clip_end if request.clip_end is not None else 'end'}`\n",
         encoding="utf-8",
     )

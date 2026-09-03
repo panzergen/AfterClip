@@ -13,6 +13,7 @@ class PreviewWorker(QObject):
     @Slot()
     def run(self):
         try:
-            self.succeeded.emit(self.extractor.extract(self.input_path))
+            frames = self.extractor.extract(self.input_path)
+            self.succeeded.emit({"frames": frames, "metadata": self.extractor.last_metadata})
         except Exception as error:
             self.failed.emit(str(error))

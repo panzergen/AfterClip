@@ -38,11 +38,13 @@ class TranscriptionService:
         state.update({"status": "running", "user_task": request.user_task, "input_path": str(request.input_path), "steps": steps})
         save_state(state_path, state)
 
-        if steps.get("media_preparation", {}).get("status") == "completed":
+        audio_path = None
+        if steps.get("media_preparation", {}).get("status") == "completed" and state.get("audio_path"):
             audio_path = Path(state["audio_path"])
             if not audio_path.exists():
+                audio_path = None
                 steps.pop("media_preparation", None)
-        if "audio_path" not in locals():
+        if audio_path is None:
             audio_path = run_step(
                 "media_preparation", "Media preparation", 5,
                 lambda: self.media_tool.prepare_audio(request.input_path, work_dir, cancel_token, request.clip_start, request.clip_end),
@@ -54,6 +56,7 @@ class TranscriptionService:
             mark_finished(state, state_path, report_path, request, metadata, steps, "Cancelled")
             raise JobCancelled
         on_event(ProgressEvent("Transcription", 20))
+        result = None
         try:
             if steps.get("transcription", {}).get("status") == "completed":
                 files = tuple(sorted(transcript_dir.glob(f"{audio_path.stem}.*")))
@@ -61,7 +64,7 @@ class TranscriptionService:
                     steps.pop("transcription", None)
                 else:
                     result = TranscriptionResult(transcript_dir, files)
-            if "result" not in locals():
+            if result is None:
                 started = time.monotonic()
                 steps["transcription"] = {"name": "Transcription", "status": "running"}
                 save_state(state_path, {**state, "steps": steps, "current_step": "transcription"})
@@ -79,7 +82,7 @@ class TranscriptionService:
                     "frame_extraction", "Frame extraction", 98,
                     lambda: self.media_tool.extract_interval_frames(
                         request.input_path, job_dir / "Vision" / "frames", request.frame_interval,
-                        cancel_token, request.clip_start, request.clip_end,
+                        cancel_token, request.clip_start, request.clip_end, request.highlight_times,
                     ),
                     steps, state, state_path, report_path, request, metadata, on_event,
                 )
@@ -211,6 +214,7 @@ def write_report(path: Path, request: TranscriptionRequest, status: str, metadat
         step_lines.append(f"| {step.get('name', 'Unknown')} | {step.get('status', 'unknown')} | {step.get('duration_seconds', '')} |")
     path.write_text(
         "# AfterClip Processing Report\n\n"
+        "- **Report version:** `1`\n\n"
         "## Input Media Metadata\n\n"
         f"- **File name:** `{metadata.get('file_name', request.input_path.name)}`\n"
         f"- **File size (MB):** `{metadata.get('file_size_mb', 'Unknown')}`\n"

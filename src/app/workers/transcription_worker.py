@@ -3,7 +3,7 @@ import logging
 from PySide6.QtCore import QObject, Signal, Slot
 
 from app.application.service import JobCancelled, TranscriptionService
-from app.domain.models import JobState, ProgressEvent, TranscriptionRequest
+from app.domain.models import ProgressEvent, TranscriptionRequest
 
 LOGGER = logging.getLogger(__name__)
 

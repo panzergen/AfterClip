@@ -6,6 +6,7 @@ import pytest
 from app.application.service import TranscriptionService, next_available_job_dir, parse_clip_time
 from app.domain.models import TranscriptionRequest, TranscriptionResult
 from app.infrastructure.process import ProcessRunner
+from app.infrastructure.recorder import AudioRecorder
 
 
 class Token:
@@ -20,7 +21,7 @@ class FakeMedia:
     def prepare_audio(self, input_path, work_dir, cancel_token, clip_start=None, clip_end=None):
         return input_path
 
-    def extract_interval_frames(self, input_path, frames_dir, interval, cancel_token, clip_start=None, clip_end=None):
+    def extract_interval_frames(self, input_path, frames_dir, interval, cancel_token, clip_start=None, clip_end=None, highlight_times=()):
         frames_dir.mkdir(parents=True, exist_ok=True)
         frame = frames_dir / "frame_000000.png"
         frame.write_bytes(b"frame")
@@ -97,3 +98,14 @@ def test_process_runner_drains_large_child_output():
     assert result.returncode == 0
     assert len(result.stdout) == 100000
     assert len(result.stderr) == 100000
+
+
+def test_recorder_requires_an_audio_source(tmp_path: Path):
+    with pytest.raises(ValueError, match="Select microphone"):
+        AudioRecorder().start(tmp_path / "recording.wav", False, False)
+
+
+def test_recorder_rejects_unavailable_system_audio(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("app.infrastructure.recorder.supports_system_audio", lambda: False)
+    with pytest.raises(RuntimeError, match="WASAPI support"):
+        AudioRecorder().start(tmp_path / "recording.wav", False, True)

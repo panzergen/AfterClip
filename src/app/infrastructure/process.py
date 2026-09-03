@@ -14,6 +14,7 @@ from app.domain.models import TranscriptionResult
 
 LOGGER = logging.getLogger(__name__)
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
 
 def executable_available(name: str) -> bool:
@@ -86,7 +87,7 @@ class ProcessRunner:
                 encoding="utf-8",
                 errors="replace",
                 env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
-                creationflags=CREATE_NO_WINDOW,
+                creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
             )
         except FileNotFoundError as error:
             LOGGER.error("Executable not found: %s", command[0])
@@ -109,7 +110,7 @@ class ProcessRunner:
         stderr_thread.start()
         while process.poll() is None:
             if cancel_token.is_cancelled():
-                process.terminate()
+                terminate_process_tree(process)
                 LOGGER.warning("Process cancelled: %s", command[0])
                 process.wait()
                 stdout_thread.join(timeout=2)
@@ -134,6 +135,13 @@ class ProcessRunner:
         return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
+def terminate_process_tree(process: subprocess.Popen) -> None:
+    if os.name == "nt" and process.pid:
+        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        process.terminate()
+
+
 class FfmpegMediaTool:
     def __init__(self, runner: ProcessRunner | None = None):
         self.runner = runner or ProcessRunner()
@@ -155,7 +163,7 @@ class FfmpegMediaTool:
             raise RuntimeError(f"FFmpeg audio conversion failed: {result.stderr.strip()}")
         return output
 
-    def extract_interval_frames(self, input_path, frames_dir, interval, cancel_token, clip_start=None, clip_end=None):
+    def extract_interval_frames(self, input_path, frames_dir, interval, cancel_token, clip_start=None, clip_end=None, highlight_times=()):
         frames_dir.mkdir(parents=True, exist_ok=True)
         seek_args = []
         if clip_start is not None:
@@ -169,7 +177,19 @@ class FfmpegMediaTool:
         )
         if result.returncode != 0:
             raise RuntimeError(f"FFmpeg frame extraction failed: {result.stderr.strip()}")
-        return tuple(sorted(frames_dir.glob("frame_*.png")))
+        for index, timestamp in enumerate(highlight_times, 1):
+            if clip_start is not None and timestamp < clip_start:
+                continue
+            if clip_end is not None and timestamp > clip_end:
+                continue
+            frame = frames_dir / f"highlight_{index:03d}.png"
+            result = self.runner.run(
+                ["ffmpeg", "-y", "-ss", str(timestamp), "-i", str(input_path), "-frames:v", "1", str(frame)],
+                cancel_token,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"FFmpeg highlighted frame extraction failed: {result.stderr.strip()}")
+        return tuple(sorted(frames_dir.glob("*.png")))
 
 
 class WhisperCliProvider:

@@ -12,9 +12,10 @@ from app.infrastructure.process import FfmpegMediaTool, WhisperCliProvider
 from app.infrastructure.diagnostics import check_environment
 from app.infrastructure.process import get_media_metadata
 from app.infrastructure.preview import VideoPreviewExtractor
-from app.infrastructure.recorder import AudioRecorder
+from app.infrastructure.recorder import AudioRecorder, list_microphone_devices, supports_system_audio
 from app.workers.transcription_worker import TranscriptionWorker
 from app.workers.preview_worker import PreviewWorker
+from app.workers.recorder_worker import RecorderStopWorker
 
 
 class DualRangeSlider(QWidget):
@@ -118,7 +119,9 @@ class PlaybackTimeline(QWidget):
         self.update()
 
     def _position(self, seconds):
-        return 10 + int((self.width() - 20) * seconds / max(0.001, self.maximum / 1000))
+        if self.maximum <= 0:
+            return 10
+        return 10 + int((self.width() - 20) * seconds / (self.maximum / 1000))
 
     def _seconds(self, x):
         return max(0, min(self.maximum / 1000, (x - 10) * (self.maximum / 1000) / max(1, self.width() - 20)))
@@ -187,6 +190,9 @@ class MainWindow(QMainWindow):
         self.preview_index = 0
         self.highlight_times = []
         self.recorder = AudioRecorder()
+        self.recorder_thread = None
+        self.recorder_worker = None
+        self.playback_speed = 1.0
         repository_dir = Path(__file__).resolve().parents[3]
         workspace_dir = repository_dir.parent
         self.project_dir = workspace_dir if (workspace_dir / "Input-Folder").exists() else repository_dir
@@ -318,10 +324,12 @@ class MainWindow(QMainWindow):
         for editor in (self.clip_start_edit, self.clip_end_edit):
             editor.setDisplayFormat("HH:mm:ss")
             editor.setKeyboardTracking(False)
+            editor.setFixedWidth(105)
         range_row = QHBoxLayout()
         range_row.addWidget(self.clip_start_edit)
         range_row.addWidget(QLabel("-"))
         range_row.addWidget(self.clip_end_edit)
+        range_row.addStretch(1)
         body.addLayout(range_row)
         self.clip_body.setVisible(False)
         layout.addWidget(self.clip_body)
@@ -330,12 +338,6 @@ class MainWindow(QMainWindow):
         self.clip_start_edit.timeChanged.connect(self._edit_values_changed)
         self.clip_end_edit.timeChanged.connect(self._edit_values_changed)
         return section
-
-    def _time_row(self, title, editor):
-        row = QHBoxLayout()
-        row.addWidget(QLabel(f"{title}:"))
-        row.addWidget(editor)
-        return row
 
     def _toggle_clip_section(self, expanded):
         self.clip_body.setVisible(expanded)
@@ -483,7 +485,15 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Record audio to the selected output folder"))
         self.record_mic = QCheckBox("Microphone")
         self.record_system = QCheckBox("System audio")
-        self.record_mic_device = QLineEdit("default")
+        if not supports_system_audio():
+            self.record_system.setEnabled(False)
+            self.record_system.setToolTip("Unavailable: this FFmpeg build does not support Windows WASAPI audio capture.")
+        self.record_mic_device = QComboBox()
+        self.record_mic_device.addItem("default")
+        microphone_devices = list_microphone_devices()
+        self.record_mic_device.addItems(microphone_devices)
+        if microphone_devices:
+            self.record_mic_device.setCurrentIndex(1)
         self.record_mic_device.setPlaceholderText("Windows microphone device name")
         layout.addWidget(self.record_mic)
         layout.addWidget(self.record_system)
@@ -509,7 +519,7 @@ class MainWindow(QMainWindow):
         output_dir.mkdir(parents=True, exist_ok=True)
         filename = f"recording_{QTime.currentTime().toString('HHmmss')}.wav"
         try:
-            self.recorder.start(output_dir / filename, self.record_mic.isChecked(), self.record_system.isChecked(), self.record_mic_device.text().strip())
+            recording_path = self.recorder.start(output_dir / filename, self.record_mic.isChecked(), self.record_system.isChecked(), self.record_mic_device.currentText().strip())
         except Exception as error:
             self.record_status.setText(f"Recording failed: {error}")
             return
@@ -519,13 +529,32 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(2)
 
     def _stop_recording(self):
-        try:
-            self.recorder.stop()
-            self.record_status.setText("Recording saved to the output folder.")
-        except Exception as error:
-            self.record_status.setText(f"Could not stop recording: {error}")
+        self.record_status.setText("Stopping recording...")
+        self.stop_record_button.setEnabled(False)
+        self.recorder_thread = QThread(self)
+        self.recorder_worker = RecorderStopWorker(self.recorder)
+        self.recorder_worker.moveToThread(self.recorder_thread)
+        self.recorder_thread.started.connect(self.recorder_worker.run)
+        self.recorder_worker.succeeded.connect(self._recording_saved)
+        self.recorder_worker.failed.connect(self._recording_failed)
+        self.recorder_worker.succeeded.connect(self.recorder_thread.quit)
+        self.recorder_worker.failed.connect(lambda _: self.recorder_thread.quit())
+        self.recorder_thread.finished.connect(self._recording_finished)
+        self.recorder_thread.start()
+
+    def _recording_saved(self, recording_path):
+        self._select_input_path(recording_path)
+        self.record_status.setText(f"Recording saved: {recording_path.name}")
+
+    def _recording_failed(self, message):
+        self.record_status.setText(f"Could not stop recording: {message}")
+
+    def _recording_finished(self):
         self.record_button.setEnabled(True)
         self.stop_record_button.setEnabled(False)
+        self.recorder_worker = None
+        self.recorder_thread.deleteLater()
+        self.recorder_thread = None
 
     def _open_play_tab(self):
         if self.media_player.source().isEmpty():
@@ -544,8 +573,8 @@ class MainWindow(QMainWindow):
 
     def _cycle_playback_speed(self):
         speeds = (1.0, 1.2, 1.5)
-        current = float(self.speed_button.text().lstrip("x"))
-        speed = speeds[(speeds.index(current) + 1) % len(speeds)]
+        speed = speeds[(speeds.index(self.playback_speed) + 1) % len(speeds)]
+        self.playback_speed = speed
         self.speed_button.setText(f"x{speed:g}")
         self.media_player.setPlaybackRate(speed)
 
@@ -578,15 +607,6 @@ class MainWindow(QMainWindow):
         else:
             self.play_toggle.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
 
-    def _load_input_files(self):
-        self.input_dir.mkdir(parents=True, exist_ok=True)
-        files = sorted(
-            path for path in self.input_dir.iterdir()
-            if path.is_file() and path.suffix.lower() in {".mp4", ".mkv", ".avi", ".mov", ".wav", ".mp3", ".m4a"}
-        )
-        for path in files:
-            self.input_edit.addItem(path.name, str(path.resolve()))
-
     def _choose_input(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select media", str(self.input_dir), "Media (*.mp4 *.mkv *.avi *.mov *.wav *.mp3 *.m4a)")
         if path:
@@ -615,11 +635,11 @@ class MainWindow(QMainWindow):
         self.tabs.setTabEnabled(1, is_video)
         if not is_video:
             self.preview_status.setText("Audio selected; video preview is unavailable.")
-            self._set_start_enabled(True)
-            return
-        self.media_player.setSource(QUrl.fromLocalFile(str(path)))
-        self.media_player.pause()
-        self.preview_status.setText("Preparing 10 preview frames...")
+        else:
+            self.media_player.setSource(QUrl.fromLocalFile(str(path)))
+            self.media_player.pause()
+        if is_video:
+            self.preview_status.setText("Preparing 10 preview frames...")
         self.preview_counter.setText("00:00:00")
         self._set_start_enabled(False)
         self.preview_thread = QThread(self)
@@ -635,10 +655,14 @@ class MainWindow(QMainWindow):
         self.preview_thread.start()
 
     def _preview_ready(self, frames):
+        metadata = frames.get("metadata", {}) if isinstance(frames, dict) else {}
+        frames = frames.get("frames", ()) if isinstance(frames, dict) else frames
+        self._apply_media_metadata(metadata)
         self.preview_frames = tuple(frames)
         self.preview_index = 0
-        self.preview_status.setText("Preview ready. Use the arrows to browse frames.")
-        self._show_preview(0)
+        self.preview_status.setText("Preview ready. Use the arrows to browse frames." if frames else "Audio selected; video preview is unavailable.")
+        if frames:
+            self._show_preview(0)
         self._set_start_enabled(True)
 
     def _preview_failed(self, message):
@@ -669,15 +693,21 @@ class MainWindow(QMainWindow):
         if not path or not Path(path).is_file():
             self._update_clip_label()
             return
-        metadata = get_media_metadata(Path(path))
+        self.preview_duration_seconds = 0
+        self.clip_duration_seconds = 0
+        self.clip_toggle.setText("")
+        self.clip_warning.setVisible(False)
+        self.metadata_text = "Loading media metadata..."
+
+    def _apply_media_metadata(self, metadata):
         duration = metadata.get("duration")
-        self.preview_duration_seconds = float(metadata.get("duration", 0) or 0)
         self.metadata_text = (
             "\n".join(f"{key.replace('_', ' ').title()}: {value}" for key, value in metadata.items() if key != "streams")
             + ("\nStreams:\n" + "\n".join(str(stream) for stream in metadata.get("streams", [])) if metadata.get("streams") else "")
         )
         try:
             self.clip_duration_seconds = float(duration)
+            self.preview_duration_seconds = self.clip_duration_seconds
             self.play_position_slider.setRange(0, int(self.clip_duration_seconds * 1000))
             self.clip_start_edit.setTime(QTime(0, 0, 0))
             self.clip_end_edit.setTime(self._seconds_to_time(self.clip_duration_seconds))
@@ -685,6 +715,7 @@ class MainWindow(QMainWindow):
             self._update_clip_label()
         except (TypeError, ValueError):
             self.clip_duration_seconds = 0
+            self.preview_duration_seconds = 0
             self._update_clip_label()
 
     @staticmethod

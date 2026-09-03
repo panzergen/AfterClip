@@ -19,5 +19,5 @@ class KeyringSecretStore:
 
         try:
             keyring.delete_password(self.service, name)
-        except Exception:
-            pass
+        except keyring.errors.PasswordDeleteError:
+            return

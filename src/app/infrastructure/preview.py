@@ -9,9 +9,11 @@ from app.infrastructure.process import CREATE_NO_WINDOW, get_media_metadata
 class VideoPreviewExtractor:
     def __init__(self, cache_root: Path):
         self.cache_root = cache_root
+        self.last_metadata = {}
 
     def extract(self, input_path: Path) -> tuple[Path, ...]:
         metadata = get_media_metadata(input_path)
+        self.last_metadata = metadata
         streams = metadata.get("streams", [])
         if not any(stream.get("type") == "video" for stream in streams):
             return ()

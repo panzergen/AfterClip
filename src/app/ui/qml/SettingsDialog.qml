@@ -158,6 +158,30 @@ Dialog {
                     wrapMode: Text.Wrap
                     Layout.fillWidth: true
                 }
+
+                Text {
+                    text: settings.cloudConsentText
+                    font.pixelSize: Theme.fontSizeCaption
+                    color: settings.cloudConsentGranted ? Theme.ok : Theme.muted
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+
+                Row {
+                    spacing: 8
+                    Button {
+                        text: qsTr("Grant consent")
+                        font.pixelSize: Theme.fontSizeSmall
+                        enabled: !settings.cloudConsentGranted
+                        onClicked: settings.grantGeminiConsent()
+                    }
+                    Button {
+                        text: qsTr("Revoke consent")
+                        font.pixelSize: Theme.fontSizeSmall
+                        enabled: settings.cloudConsentGranted
+                        onClicked: settings.revokeGeminiConsent()
+                    }
+                }
             }
         }
 

@@ -250,6 +250,51 @@ ApplicationWindow {
             alertDialog.alertText = text
             alertDialog.open()
         }
+        function onCloudConsentRequested(provider, model, summary) {
+            cloudConsentDialog.detailText = summary + "\n\nProvider: " + provider
+                    + (model.length > 0 ? "\nModel: " + model : "")
+                    + "\n\nCloud API usage may incur charges. You can revoke consent in Settings."
+            cloudConsentDialog.open()
+        }
+    }
+
+    Dialog {
+        id: cloudConsentDialog
+        modal: true
+        title: qsTr("Cloud AI consent required")
+        anchors.centerIn: parent
+        property string detailText: ""
+        standardButtons: Dialog.NoButton
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Text {
+                text: cloudConsentDialog.detailText
+                wrapMode: Text.Wrap
+                width: 380
+                font.pixelSize: Theme.fontSizeSmall
+            }
+
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: 8
+
+                Button {
+                    text: qsTr("Cancel")
+                    font.pixelSize: Theme.fontSizeSmall
+                    onClicked: cloudConsentDialog.close()
+                }
+                Button {
+                    text: qsTr("Continue with cloud AI")
+                    font.pixelSize: Theme.fontSizeSmall
+                    onClicked: {
+                        cloudConsentDialog.close()
+                        session.grantCloudConsentAndStart()
+                    }
+                }
+            }
+        }
     }
 
     Loader {

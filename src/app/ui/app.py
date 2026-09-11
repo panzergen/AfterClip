@@ -74,7 +74,7 @@ def build_controllers(
     batch = BatchController(BatchStore(batch_store_path or output_dir / "batch_queue.json"))
     history = HistoryController(history_output_dir or output_dir, log_path)
     settings = SettingsController(store=settings_store, key_store=key_store)
-    session = SessionController(media, job_form, batch, history, environment, record)
+    session = SessionController(media, job_form, batch, history, environment, record, settings)
     controllers = AppControllers(
         environment=environment,
         job_form=job_form,

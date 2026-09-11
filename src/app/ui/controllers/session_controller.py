@@ -5,6 +5,7 @@ from PySide6.QtCore import Property, QObject, QThread, QTimer, QUrl, Signal, Slo
 from PySide6.QtGui import QDesktopServices
 
 import app.app_paths as app_paths
+from app.application.cloud_consent import payload_summary
 from app.application.service_io import find_reusable_job_dir
 from app.domain.constants import VIDEO_SUFFIXES
 from app.domain.models import ProgressEvent, TranscriptionRequest
@@ -24,8 +25,9 @@ class SessionController(QObject):
     """App-level session state: input selection, single-job lifecycle, exclusivity."""
 
     alert = Signal(str, str)
+    cloudConsentRequested = Signal(str, str, str)
 
-    def __init__(self, media, job_form, batch, history, env, record, parent=None):
+    def __init__(self, media, job_form, batch, history, env, record, settings=None, parent=None):
         super().__init__(parent)
         self.media = media
         self.job_form = job_form
@@ -33,6 +35,7 @@ class SessionController(QObject):
         self.history = history
         self.env = env
         self.record = record
+        self.settings = settings
         self.thread = None
         self.worker = None
         self.output_name = ""
@@ -50,6 +53,7 @@ class SessionController(QObject):
         self._output_folder = ""
         self._input_paths: list[dict] = []
         self._current_input = ""
+        self._pending_consent_provider = None
 
     # -- Qt properties --------------------------------------------------------
 
@@ -274,6 +278,15 @@ class SessionController(QObject):
         conditions = self._validate_start_conditions()
         if conditions is None:
             return
+        cloud_provider = self._cloud_provider_in_use()
+        if cloud_provider and not self._has_cloud_consent(cloud_provider):
+            self._pending_consent_provider = cloud_provider
+            self.cloudConsentRequested.emit(
+                cloud_provider,
+                self._cloud_model_in_use(cloud_provider),
+                payload_summary(self.job_form.analysisEnabled, self.job_form.visionEnabled),
+            )
+            return
         text_provider, vision_provider = self._resolve_providers()
         if text_provider is False or vision_provider is False:
             return
@@ -315,6 +328,45 @@ class SessionController(QObject):
         self._job_running = True
         self.jobRunningChanged.emit()
         self.thread.start()
+
+    @Slot()
+    def grantCloudConsentAndStart(self) -> None:
+        """QML consent dialog accepted: persist consent and retry the start."""
+        provider = self._pending_consent_provider
+        if not provider:
+            return
+        self._pending_consent_provider = None
+        if self.settings is not None:
+            self.settings.grant_cloud_consent(provider)
+        self.startJob()
+
+    def _cloud_provider_in_use(self) -> str | None:
+        """Cloud provider selected for this job, or None when fully local."""
+        form = self.job_form
+        if not (form.analysisEnabled or form.visionEnabled):
+            return None
+        if form.is_gemini_selected():
+            return "gemini"
+        for enabled, selection in (
+            (form.analysisEnabled, form.selected_ai_model()),
+            (form.visionEnabled, form.selected_vision_model()),
+        ):
+            if enabled and selection and selection[0] == "gemini":
+                return "gemini"
+        return None
+
+    def _cloud_model_in_use(self, provider: str) -> str:
+        form = self.job_form
+        for enabled, selection in (
+            (form.analysisEnabled, form.selected_ai_model()),
+            (form.visionEnabled, form.selected_vision_model()),
+        ):
+            if enabled and selection and selection[0] == provider:
+                return selection[1]
+        return ""
+
+    def _has_cloud_consent(self, provider: str) -> bool:
+        return self.settings is not None and self.settings.has_cloud_consent(provider)
 
     def _resolve_resume_dir(self, input_path: Path) -> Path | None:
         """Job folder to reuse when "reuse existing transcription" is enabled.

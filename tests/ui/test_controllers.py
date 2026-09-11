@@ -63,6 +63,8 @@ def controllers(qapp, monkeypatch, tmp_path):
         batch_store_path=tmp_path / "out" / "batch_queue.json",
         history_output_dir=tmp_path / "out",
         log_path=tmp_path / "out" / "app.log",
+        settings_store=InMemorySettingsStore(),
+        key_store=NoKeyStore(),
     )
 
 
@@ -434,3 +436,48 @@ def test_batch_snapshot_captures_form_settings(controllers):
     form.analysisModelText = ""  # cleared text -> no selection -> analysis disabled
     snapshot = form.snapshot()
     assert snapshot["analyze_text"] is False
+
+
+def test_settings_consent_grant_and_revoke(controllers):
+    settings = controllers.settings
+    assert settings.cloudConsentGranted is False
+    assert settings.has_cloud_consent("gemini") is False
+
+    settings.grantGeminiConsent()
+    assert settings.cloudConsentGranted is True
+    assert settings.has_cloud_consent("gemini") is True
+
+    settings.revokeGeminiConsent()
+    assert settings.cloudConsentGranted is False
+    assert settings.has_cloud_consent("gemini") is False
+
+
+def test_local_provider_needs_no_consent(controllers):
+    assert controllers.settings.has_cloud_consent("ollama") is True
+
+
+def test_start_gates_cloud_job_behind_consent(controllers, monkeypatch, tmp_path):
+    session = controllers.session
+    form = controllers.job_form
+    form.cloudSelected = True
+    form.analysisEnabled = True
+
+    requests = []
+    session.cloudConsentRequested.connect(
+        lambda provider, model, summary: requests.append((provider, summary))
+    )
+    monkeypatch.setattr(
+        session,
+        "_validate_start_conditions",
+        lambda: (tmp_path / "in.mp4", tmp_path / "out", None, None),
+    )
+
+    session.startJob()
+    assert requests and requests[0][0] == "gemini"
+    assert "transcript text" in requests[0][1]
+    assert session.worker is None  # gated before a worker was created
+
+    session.grantCloudConsentAndStart()
+    assert session._pending_consent_provider is None
+    assert controllers.settings.has_cloud_consent("gemini") is True
+

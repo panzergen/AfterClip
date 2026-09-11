@@ -1,7 +1,9 @@
 import logging
+from datetime import datetime
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
+from app.application.cloud_consent import grant_consent, has_consent, revoke_consent
 from app.infrastructure.gemini import GEMINI_KEY_NAME, GeminiClient, GeminiKeyMissing
 from app.infrastructure.secrets import KeyringSecretStore, SecretStoreUnavailableError
 from app.infrastructure.settings import JsonSettingsStore
@@ -61,6 +63,7 @@ class SettingsController(QObject):
         )
         self._report_language = str(self.store.get(REPORT_LANGUAGE_SETTINGS_KEY) or "")
         self._gemini_model = str(self.store.get(GEMINI_MODEL_SETTINGS_KEY) or "")
+        self._consent_granted = has_consent(self.store, "gemini")
         self._key_status_text = ""
         self._key_stored = False
         self._key_input = ""
@@ -102,12 +105,27 @@ class SettingsController(QObject):
     def _get_model_options(self) -> list:
         return getattr(self, "_model_options", list(GEMINI_MODEL_CHOICES))
 
+    def _get_cloud_consent_granted(self) -> bool:
+        return self._consent_granted
+
+    def _get_cloud_consent_text(self) -> str:
+        if self._consent_granted:
+            return (
+                "Consent granted: transcript text and/or extracted frames may be sent to "
+                "Google Gemini. Revoke to require confirmation again."
+            )
+        return (
+            "Consent not granted. Before the first cloud job AfterClip asks for explicit "
+            "confirmation of what leaves this machine."
+        )
+
     segmentIndexChanged = Signal()
     reportLanguageChanged = Signal()
     geminiModelChanged = Signal()
     keyStatusChanged = Signal()
     modelOptionsChanged = Signal()
     keyInputChanged = Signal()
+    cloudConsentChanged = Signal()
 
     segmentIndex = Property(int, _get_segment_index, _set_segment_index, notify=segmentIndexChanged)
     reportLanguage = Property(
@@ -119,6 +137,10 @@ class SettingsController(QObject):
     keyStatusText = Property(str, _get_key_status_text, notify=keyStatusChanged)
     keyStored = Property(bool, _get_key_stored, notify=keyStatusChanged)
     modelOptions = Property("QVariantList", _get_model_options, notify=modelOptionsChanged)
+    cloudConsentGranted = Property(
+        bool, _get_cloud_consent_granted, notify=cloudConsentChanged
+    )
+    cloudConsentText = Property(str, _get_cloud_consent_text, notify=cloudConsentChanged)
 
     def _get_key_input(self) -> str:
         return self._key_input
@@ -153,6 +175,29 @@ class SettingsController(QObject):
             self._set_key_status(str(error), ok=False)
             return
         self._refresh_key_status()
+
+    def has_cloud_consent(self, provider: str) -> bool:
+        return has_consent(self.store, provider)
+
+    def grant_cloud_consent(self, provider: str) -> None:
+        grant_consent(self.store, provider, datetime.now().isoformat(timespec="seconds"))
+        if provider == "gemini":
+            self._consent_granted = True
+            self.cloudConsentChanged.emit()
+
+    def revoke_cloud_consent(self, provider: str) -> None:
+        revoke_consent(self.store, provider)
+        if provider == "gemini":
+            self._consent_granted = False
+            self.cloudConsentChanged.emit()
+
+    @Slot()
+    def grantGeminiConsent(self) -> None:
+        self.grant_cloud_consent("gemini")
+
+    @Slot()
+    def revokeGeminiConsent(self) -> None:
+        self.revoke_cloud_consent("gemini")
 
     @Slot()
     def loadModels(self) -> None:

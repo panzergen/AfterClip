@@ -73,6 +73,7 @@ FFmpeg/Whisper bundling).
 - Transcript segments merged into readable paragraphs (30s default, speaker-aware breaks)
 - Optional AI text analysis (summary and timestamped highlights) via **Ollama (local)** or **Gemini (cloud)** behind a `TextAnalysisProvider` port
 - Optional AI vision analysis (frame descriptions) via the same providers behind a `VisionProvider` port; video uploads are impossible by policy
+- Explicit, revocable cloud consent: a pre-job confirmation names the provider/model and what leaves the machine, blocks the job until accepted, and warns about API charges (see `docs/PRIVACY.md`)
 - Provider-grouped model dropdowns with live model lists and capability filtering (vision dropdown only shows image-capable models)
 - Separate transcription language and report language (summaries, highlights, vision text)
 - `FullReportAndTimeline.htm` human-readable report with summary, highlights, full transcript and embedded frames; `Master_Timeline.md` stays lean for AI consumption

@@ -1,7 +1,9 @@
+import logging
+
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from app.infrastructure.gemini import GEMINI_KEY_NAME, GeminiClient, GeminiKeyMissing
-from app.infrastructure.secrets import KeyringSecretStore
+from app.infrastructure.secrets import KeyringSecretStore, SecretStoreUnavailableError
 from app.infrastructure.settings import JsonSettingsStore
 
 SEGMENT_CHOICES = (
@@ -43,6 +45,12 @@ class SettingsController(QObject):
         super().__init__(parent)
         self.store = store or JsonSettingsStore()
         self.key_store = key_store or KeyringSecretStore()
+        migrate = getattr(self.store, "migrate", None)
+        if callable(migrate):
+            try:
+                migrate()
+            except Exception as error:  # a broken settings file must not stop startup
+                logging.getLogger(__name__).warning("Settings migration failed: %s", error)
         try:
             current = float(self.store.get(SEGMENT_SETTINGS_KEY) or DEFAULT_SEGMENT_SECONDS)
         except (TypeError, ValueError):
@@ -54,6 +62,7 @@ class SettingsController(QObject):
         self._report_language = str(self.store.get(REPORT_LANGUAGE_SETTINGS_KEY) or "")
         self._gemini_model = str(self.store.get(GEMINI_MODEL_SETTINGS_KEY) or "")
         self._key_status_text = ""
+        self._key_stored = False
         self._key_input = ""
         self._refresh_key_status()
 
@@ -88,7 +97,7 @@ class SettingsController(QObject):
         return self._key_status_text
 
     def _get_key_stored(self) -> bool:
-        return "stored in Windows Credential Manager" in self._key_status_text
+        return self._key_stored
 
     def _get_model_options(self) -> list:
         return getattr(self, "_model_options", list(GEMINI_MODEL_CHOICES))
@@ -127,14 +136,22 @@ class SettingsController(QObject):
         if not key:
             self._set_key_status("Paste a key first.", ok=False)
             return
-        self.key_store.set(GEMINI_KEY_NAME, key)
+        try:
+            self.key_store.set(GEMINI_KEY_NAME, key)
+        except SecretStoreUnavailableError as error:
+            self._set_key_status(str(error), ok=False)
+            return
         self._key_input = ""
         self.keyInputChanged.emit()
         self._refresh_key_status()
 
     @Slot()
     def deleteKey(self) -> None:
-        self.key_store.delete(GEMINI_KEY_NAME)
+        try:
+            self.key_store.delete(GEMINI_KEY_NAME)
+        except SecretStoreUnavailableError as error:
+            self._set_key_status(str(error), ok=False)
+            return
         self._refresh_key_status()
 
     @Slot()
@@ -154,9 +171,19 @@ class SettingsController(QObject):
             self._set_key_status(f"Loaded {len(models)} models from the Gemini API.", ok=True)
 
     def _refresh_key_status(self) -> None:
-        if self.key_store.get(GEMINI_KEY_NAME):
+        available = getattr(self.key_store, "available", lambda: True)()
+        if not available:
+            self._key_stored = False
             self._set_key_status(
-                "A Gemini API key is stored in Windows Credential Manager.", ok=True
+                "No OS credential manager is available; API keys cannot be stored "
+                "on this system.",
+                ok=False,
+            )
+            return
+        self._key_stored = bool(self.key_store.get(GEMINI_KEY_NAME))
+        if self._key_stored:
+            self._set_key_status(
+                "A Gemini API key is stored in the OS credential manager.", ok=True
             )
         else:
             self._set_key_status(

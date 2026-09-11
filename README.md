@@ -81,8 +81,17 @@ FFmpeg/Whisper bundling).
 
 ## Where things are stored
 
-- **Settings:** `%LOCALAPPDATA%/AfterClip/settings.json` (non-secret preferences only)
-- **Gemini API key:** Windows Credential Manager (service `afterclip`, name `gemini_api_key`) — never written to disk in plaintext, redacted from logs
-- **Application log:** `%LOCALAPPDATA%/AfterClip/logs/app.log`
+- **Settings:** per-user data directory — `%LOCALAPPDATA%\AfterClip\settings.json`
+  on Windows, `~/Library/Application Support/AfterClip/settings.json` on macOS and
+  `$XDG_DATA_HOME/AfterClip/settings.json` (or `~/.local/share/...`) on Linux.
+  Non-secret preferences only; `settings.json` is schema-versioned and migrated
+  automatically.
+- **API keys:** OS credential manager via `keyring` (Windows Credential Manager,
+  macOS Keychain, Linux Secret Service) — service `afterclip`, name `gemini_api_key`.
+  Never written to disk in plaintext, redacted from logs.
+- **Application log:** `<data directory>/logs/app.log`
+
+See `docs/PLATFORMS.md` for the platform support matrix, path/secret-backend
+mapping and current gaps.
 
 The next planned development slice is the batch queue (T08b/T26b), followed by job history and a log panel.

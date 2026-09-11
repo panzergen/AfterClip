@@ -331,7 +331,7 @@ def test_settings_saves_and_deletes_gemini_key(qapp, monkeypatch):
     controller.keyInput = "sk-ui-gemini-key"
     controller.saveKey()
     assert store[("afterclip-test", GEMINI_KEY_NAME)] == "sk-ui-gemini-key"
-    assert "stored in Windows Credential Manager" in controller.keyStatusText
+    assert "stored in the OS credential manager" in controller.keyStatusText
     controller.deleteKey()
     assert ("afterclip-test", GEMINI_KEY_NAME) not in store
     controller.geminiModel = "gemini-2.5-flash"

@@ -122,7 +122,7 @@ Dialog {
                         id: keyField
                         Layout.fillWidth: true
                         echoMode: TextInput.Password
-                        placeholderText: qsTr("Paste API key (stored in Windows Credential Manager)")
+                        placeholderText: qsTr("Paste API key (stored in the OS credential manager)")
                         font.pixelSize: Theme.fontSizeSmall
                         selectByMouse: true
                         onTextEdited: settings.keyInput = text

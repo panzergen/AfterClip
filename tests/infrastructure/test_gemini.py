@@ -224,7 +224,7 @@ def test_highlights_partial_section_failure_keeps_partial_output():
 def test_missing_key_raises_without_request():
     request = RecordingRequest([])
     client = GeminiClient(key_getter=lambda: None, request_fn=request)
-    with pytest.raises(GeminiKeyMissing, match="Credential Manager"):
+    with pytest.raises(GeminiKeyMissing, match="credential manager"):
         client.generate([{"text": "hi"}])
     assert request.calls == []
 

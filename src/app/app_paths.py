@@ -36,9 +36,20 @@ def package_dir() -> Path:
 
 
 def app_data_dir() -> Path:
-    """Per-user writable directory for settings, logs and caches."""
-    base = os.environ.get("LOCALAPPDATA")
-    root = Path(base) if base else Path.home() / "AppData" / "Local"
+    """Per-user writable directory for settings, logs and caches.
+
+    Follows each platform's convention so a macOS/Linux build writes where
+    users (and backup tools) expect it, while Windows keeps the existing
+    ``%LOCALAPPDATA%\\AfterClip`` location.
+    """
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / APP_NAME
+    if sys.platform.startswith("win"):
+        base = os.environ.get("LOCALAPPDATA")
+        root = Path(base) if base else Path.home() / "AppData" / "Local"
+        return root / APP_NAME
+    xdg = os.environ.get("XDG_DATA_HOME")
+    root = Path(xdg) if xdg else Path.home() / ".local" / "share"
     return root / APP_NAME
 
 

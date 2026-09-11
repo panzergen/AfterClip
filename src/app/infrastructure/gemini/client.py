@@ -94,7 +94,7 @@ class GeminiClient:
     def generate(self, parts: list[dict], cancel_token: CancelToken | None = None) -> str:
         key = self.key_getter()
         if not key:
-            raise GeminiKeyMissing("No Gemini API key is stored. Add one in Settings; it is kept in Windows Credential Manager.")
+            raise GeminiKeyMissing("No Gemini API key is stored. Add one in Settings; it is kept in the OS credential manager.")
         SECRET_REDACTOR.register(key)
         payload = {
             "contents": [{"parts": parts}],
@@ -152,7 +152,7 @@ class GeminiClient:
         """Generate-capable model names from the live API (Settings 'Load models')."""
         key = self.key_getter()
         if not key:
-            raise GeminiKeyMissing("No Gemini API key is stored. Add one in Settings; it is kept in Windows Credential Manager.")
+            raise GeminiKeyMissing("No Gemini API key is stored. Add one in Settings; it is kept in the OS credential manager.")
         request = urllib.request.Request(f"{self.base_url}/v1beta/models?key={key}&pageSize=1000")
         with urllib.request.urlopen(request, timeout=30) as response:
             data = json.loads(response.read().decode("utf-8"))

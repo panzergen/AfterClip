@@ -42,6 +42,19 @@ pytest -m ui            # opt-in Qt UI tests (set QT_QPA_PLATFORM=offscreen for 
 pytest --cov=app.application --cov=app.infrastructure   # coverage
 ```
 
+## Build a Windows release
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1 -Clean -Zip
+```
+
+This produces `release\AfterClip\AfterClip.exe` (one-directory bundle) and, with
+`-Zip`, `release\AfterClip-<version>-win64.zip`. The application version lives in
+`src/app/version.py` and is the single source of truth for package metadata and
+the executable version resource. See `docs/PACKAGING.md` for the full build,
+clean-machine smoke test and current release gaps (code signing, installer,
+FFmpeg/Whisper bundling).
+
 ## Current Features
 
 - PySide6 Qt Quick (QML) two-column Windows-first desktop UI; all UI state lives in

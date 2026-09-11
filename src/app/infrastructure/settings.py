@@ -1,8 +1,9 @@
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Any
+
+from app.app_paths import app_data_dir
 
 LOGGER = logging.getLogger(__name__)
 
@@ -25,9 +26,7 @@ class JsonSettingsStore:
 
     def __init__(self, path: Path | None = None):
         if path is None:
-            base = os.environ.get("LOCALAPPDATA")
-            root = Path(base) if base else Path.home() / "AppData" / "Local"
-            path = root / "AfterClip" / "settings.json"
+            path = app_data_dir() / "settings.json"
         self.path = path
 
     def get(self, key: str) -> Any:

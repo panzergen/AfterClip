@@ -203,3 +203,8 @@ scene_*.png
 interval_*.png
 .highlight_*.png
 .coverage
+
+# Packaging: keep the hand-written spec, ignore generated build output
+!packaging/AfterClip.spec
+release/
+

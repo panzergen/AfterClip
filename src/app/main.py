@@ -1,9 +1,9 @@
 import faulthandler
 import logging
 import sys
-from pathlib import Path
 
 import app.app_paths as app_paths
+from app.version import version_string
 
 
 def main() -> int:
@@ -28,13 +28,14 @@ def main() -> int:
     # crash.log; a windowed launch shows no console, so this is the only
     # place a crash report can be recovered from.
     try:
-        faulthandler.enable(file=open(log_path.parent / "crash.log", "a"), all_threads=True)
+        faulthandler.enable(file=open(app_paths.crash_file(), "a"), all_threads=True)
     except OSError:
         pass
 
     QQuickStyle.setStyle("Fusion")
     application = QGuiApplication(sys.argv)
     application.setApplicationName("AfterClip")
+    application.setApplicationVersion(version_string())
     # Readable list selection everywhere: the default palette renders the
     # active (highlighted) row with poor contrast in the dropdowns.
     palette = application.palette()
@@ -53,7 +54,7 @@ def main() -> int:
     context.setContextProperty("env", controllers.environment)
     context.setContextProperty("jobForm", controllers.job_form)
     context.setContextProperty("settings", controllers.settings)
-    qml_path = Path(__file__).resolve().parent / "ui" / "qml" / "Main.qml"
+    qml_path = app_paths.package_dir() / "ui" / "qml" / "Main.qml"
     engine.load(QUrl.fromLocalFile(str(qml_path)))
     if not engine.rootObjects():
         return 1

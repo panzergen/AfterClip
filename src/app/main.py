@@ -8,7 +8,7 @@ import app.app_paths as app_paths
 
 def main() -> int:
     from PySide6.QtCore import QTimer, QUrl
-    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtGui import QColor, QGuiApplication, QPalette
     from PySide6.QtQml import QQmlApplicationEngine
     from PySide6.QtQuickControls2 import QQuickStyle
 
@@ -35,6 +35,12 @@ def main() -> int:
     QQuickStyle.setStyle("Fusion")
     application = QGuiApplication(sys.argv)
     application.setApplicationName("AfterClip")
+    # Readable list selection everywhere: the default palette renders the
+    # active (highlighted) row with poor contrast in the dropdowns.
+    palette = application.palette()
+    palette.setColor(QPalette.Highlight, QColor("#0a7bd6"))
+    palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
+    application.setPalette(palette)
     controllers = build_controllers()
 
     engine = QQmlApplicationEngine()

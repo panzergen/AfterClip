@@ -34,8 +34,25 @@ FieldRow {
             width: combo.width
             enabled: !modelData.header
             highlighted: combo.highlightedIndex === index
-            text: modelData.label
             font.pixelSize: Theme.fontSizeSmall
+
+            // Explicit colours: the highlighted row otherwise inherits a
+            // combination where the active model becomes unreadable.
+            contentItem: Text {
+                text: entryDelegate.modelData.label
+                font: entryDelegate.font
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+                color: entryDelegate.highlighted
+                       ? "#ffffff"
+                       : (entryDelegate.enabled ? Theme.text : Theme.muted)
+            }
+
+            background: Rectangle {
+                color: entryDelegate.highlighted
+                       ? Theme.primary
+                       : (entryDelegate.enabled ? "transparent" : Theme.panel)
+            }
         }
 
         onActivated: (index) => {

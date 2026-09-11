@@ -148,6 +148,10 @@ class SessionController(QObject):
         # QVariant, not str: converting a QML `url` argument into a Python str
         # crashes in this PySide6 build (faults in Shiboken::String::toCString).
         path = Path(local_path(path)).resolve()
+        if str(path) != self._current_input:
+            # Support files (speaker VTT, references) belong to the previous
+            # media; start clean for the newly selected file.
+            self.job_form.clear_support_files()
         self.media.name = path.stem
         self.output_name = ""
         self._input_basename = path.name

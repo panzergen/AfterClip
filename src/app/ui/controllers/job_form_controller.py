@@ -387,6 +387,12 @@ class JobFormController(QObject):
             del self._support_files[row]
             self.supportFilesChanged.emit()
 
+    def clear_support_files(self) -> None:
+        """Drop every support file (called when the input media changes)."""
+        if self._support_files:
+            self._support_files = []
+            self.supportFilesChanged.emit()
+
     def support_files(self) -> tuple[str, ...]:
         return tuple(entry["path"] for entry in self._support_files)
 

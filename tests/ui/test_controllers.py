@@ -266,6 +266,23 @@ def test_batch_start_refreshes_pending_settings(controllers, tmp_path):
     assert controllers.batch.store.load()[-1].embed_frames is True
 
 
+def test_support_files_cleared_when_input_changes(controllers, tmp_path):
+    """Support files belong to one media; changing the input clears them."""
+    form = controllers.job_form
+    session = controllers.session
+    first = tmp_path / "first.mp4"
+    first.write_bytes(b"x")
+    second = tmp_path / "second.mp4"
+    second.write_bytes(b"x")
+    session.select_input_path(str(first))
+    form.add_support_files([str(tmp_path / "talk.vtt")])
+    assert form.support_files()
+    session.select_input_path(str(first))  # same file: kept
+    assert form.support_files()
+    session.select_input_path(str(second))  # different file: cleared
+    assert form.support_files() == ()
+
+
 def test_reuse_transcription_resolves_cached_job(controllers, tmp_path):
     """The reuse option targets the job folder matching the selected input."""
     source = tmp_path / "meeting.mp4"

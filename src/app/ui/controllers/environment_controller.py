@@ -1,12 +1,14 @@
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
-from app.infrastructure.diagnostics import check_environment
+import app.app_paths as app_paths
+from app.infrastructure.diagnostics import check_environment, detect_gpu, disk_space
 from app.infrastructure.ollama import check_ollama_service
 
 
 class EnvironmentController(QObject):
     """Environment checks behind the status LED; green only when all pass."""
 
+    environmentChanged = Signal()
     ollamaAvailabilityChanged = Signal(bool)
 
     def __init__(self, parent=None):
@@ -24,8 +26,8 @@ class EnvironmentController(QObject):
     def _get_ollama_available(self) -> bool:
         return self._ollama_available
 
-    ok = Property(bool, _get_ok, notify=ollamaAvailabilityChanged)
-    checksText = Property(str, _get_checks_text, constant=True)
+    ok = Property(bool, _get_ok, notify=environmentChanged)
+    checksText = Property(str, _get_checks_text, notify=environmentChanged)
     ollamaAvailable = Property(bool, _get_ollama_available, notify=ollamaAvailabilityChanged)
 
     @Slot()
@@ -38,8 +40,13 @@ class EnvironmentController(QObject):
             ("Whisper", status.whisper, "MISSING"),
             ("Ollama", self._ollama_available, "OFFLINE"),
         ]
-        self._checks_text = "\n".join(
-            f"{name}: {'OK' if ok else fallback}" for name, ok, fallback in checks
-        )
+        lines = [f"{name}: {'OK' if ok else fallback}" for name, ok, fallback in checks]
+        gpu = detect_gpu()
+        lines.append(f"GPU: {gpu.name} ({gpu.memory_mb} MB)" if gpu else "GPU: not detected")
+        space = disk_space(app_paths.project_dir())
+        if space is not None:
+            lines.append(f"Disk free: {space.free_gb} GB")
+        self._checks_text = "\n".join(lines)
         self._ok = all(ok for _, ok, _ in checks)
+        self.environmentChanged.emit()
         self.ollamaAvailabilityChanged.emit(self._ollama_available)

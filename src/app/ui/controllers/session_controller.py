@@ -8,7 +8,7 @@ import app.app_paths as app_paths
 from app.application.service_io import find_reusable_job_dir
 from app.domain.constants import VIDEO_SUFFIXES
 from app.domain.models import ProgressEvent, TranscriptionRequest
-from app.infrastructure.diagnostics import check_environment
+from app.infrastructure.diagnostics import check_environment, check_output_dir
 from app.infrastructure.gemini import GEMINI_KEY_NAME, GeminiTextProvider, GeminiVisionProvider
 from app.infrastructure.model_catalog import collect_catalog
 from app.infrastructure.ollama import OllamaTextProvider, OllamaVisionProvider, check_ollama_service
@@ -362,6 +362,10 @@ class SessionController(QObject):
             self.alert.emit(
                 "Invalid input", "Select an existing media file and an output directory."
             )
+            return None
+        problem = check_output_dir(output_dir)
+        if problem:
+            self.alert.emit("Output directory problem", problem)
             return None
         status = check_environment()
         if not status.whisper:

@@ -3,11 +3,16 @@ import logging
 import re
 from functools import lru_cache
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.infrastructure.process import CREATE_NO_WINDOW
 
 LOGGER = logging.getLogger(__name__)
+
+# 'q' + ffmpeg finalization (header rewrite, flush) can stall briefly on
+# glitching audio devices; killing earlier truncates the WAV header.
+RECORD_STOP_GRACE_SECONDS = 30
 
 
 def list_microphone_devices() -> list[str]:
@@ -40,22 +45,26 @@ class AudioRecorder:
         self.process = None
         self.output_path = None
         self.stderr_lines = []
+        self._stderr_lock = threading.Lock()
 
     def start(self, output_path: Path, microphone: bool, system_audio: bool, microphone_device: str = "default"):
         if not microphone and not system_audio:
             raise ValueError("Select microphone audio, system audio, or both.")
         if system_audio and not supports_system_audio():
             raise RuntimeError("System audio recording is unavailable because this FFmpeg build has no WASAPI support.")
+        creation_time = datetime.now(timezone.utc).isoformat()
+        # WAV stores this value in its INFO date field rather than creation_time.
+        metadata_args = ["-metadata", f"date={creation_time}"]
         if microphone and system_audio:
             command = [
                 "ffmpeg", "-y", "-f", "dshow", "-i", f'audio={microphone_device}',
                 "-f", "wasapi", "-i", "default", "-filter_complex", "amix=inputs=2:duration=longest",
-                "-ac", "2", "-ar", "48000", str(output_path),
+                "-ac", "2", "-ar", "48000", *metadata_args, str(output_path),
             ]
         elif microphone:
-            command = ["ffmpeg", "-y", "-f", "dshow", "-i", f'audio={microphone_device}', "-ac", "1", "-ar", "16000", str(output_path)]
+            command = ["ffmpeg", "-y", "-f", "dshow", "-i", f'audio={microphone_device}', "-ac", "1", "-ar", "16000", *metadata_args, str(output_path)]
         else:
-            command = ["ffmpeg", "-y", "-f", "wasapi", "-i", "default", "-ac", "2", "-ar", "48000", str(output_path)]
+            command = ["ffmpeg", "-y", "-f", "wasapi", "-i", "default", "-ac", "2", "-ar", "48000", *metadata_args, str(output_path)]
         self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", creationflags=CREATE_NO_WINDOW)
         self.output_path = output_path
         self.stderr_lines = []
@@ -64,28 +73,32 @@ class AudioRecorder:
         return output_path
 
     def stop(self):
-        if not self.process:
-            return None
-        if self.process.poll() is None and self.process.stdin:
-            self.process.stdin.write("q\n")
-            self.process.stdin.flush()
-        try:
-            self.process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait()
         process = self.process
-        output_path = self.output_path
+        if not process:
+            return None
+        if process.poll() is None and process.stdin:
+            try:
+                process.stdin.write("q\n")
+                process.stdin.flush()
+            except OSError:
+                pass
+        try:
+            process.wait(timeout=RECORD_STOP_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        process_path = self.output_path
         self.process = None
         self.output_path = None
-        if process.returncode != 0 or not output_path.is_file() or output_path.stat().st_size == 0:
+        with self._stderr_lock:
             detail = "".join(self.stderr_lines)
+        if process.returncode != 0 or not process_path.is_file() or process_path.stat().st_size == 0:
             LOGGER.error("Audio recording failed with exit code %s: %s", process.returncode, detail.strip())
             raise RuntimeError(f"FFmpeg could not create the recording. {detail.strip()[-500:]}")
-        LOGGER.info("Audio recording saved: %s (%s bytes)", output_path, output_path.stat().st_size)
-        return output_path
+        LOGGER.info("Audio recording saved: %s (%s bytes)", process_path, process_path.stat().st_size)
+        return process_path
 
     def _drain_stderr(self):
-        if self.process and self.process.stderr:
-            for line in self.process.stderr:
+        for line in self.process.stderr if self.process else ():
+            with self._stderr_lock:
                 self.stderr_lines.append(line)

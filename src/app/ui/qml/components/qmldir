@@ -1,0 +1,3 @@
+module AfterClip.UI.Components
+
+singleton Theme 1.0 Theme.qml

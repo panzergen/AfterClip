@@ -198,3 +198,8 @@ market-strategy-plan/
 *.m4a
 app.log
 .cache/
+
+scene_*.png
+interval_*.png
+.highlight_*.png
+.coverage

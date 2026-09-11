@@ -1,0 +1,8 @@
+from typing import Any, Protocol
+
+
+class SettingsStore(Protocol):
+    """Key/value persistence for user settings (Phase 3 settings screens)."""
+
+    def get(self, key: str) -> Any: ...
+    def set(self, key: str, value: Any) -> None: ...

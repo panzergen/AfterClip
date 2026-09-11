@@ -1,15 +1,15 @@
+import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
 import threading
-import time
-import json
 from collections.abc import Callable
 from pathlib import Path
 
-from app.application.ports import CancelToken, ProcessingCancelled
+from app.application.cancellation import CancelToken, ProcessingCancelled, wait_for_cancellation
 from app.domain.models import TranscriptionResult
 
 LOGGER = logging.getLogger(__name__)
@@ -26,7 +26,9 @@ def find_whisper_executable() -> str | None:
         Path(sys.executable).parent / "Scripts" / "whisper.exe",
         Path(sys.executable).parent / "Scripts" / "whisper",
     ]
-    return next((str(path) for path in candidates if path.is_file()), None) or shutil.which("whisper")
+    return next((str(path) for path in candidates if path.is_file()), None) or shutil.which(
+        "whisper"
+    )
 
 
 def get_media_metadata(input_path: Path) -> dict[str, object]:
@@ -39,7 +41,16 @@ def get_media_metadata(input_path: Path) -> dict[str, object]:
         return metadata
     try:
         result = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", str(input_path)],
+            [
+                "ffprobe",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
+                "-show_format",
+                "-show_streams",
+                str(input_path),
+            ],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -51,22 +62,38 @@ def get_media_metadata(input_path: Path) -> dict[str, object]:
             data = json.loads(result.stdout)
             fmt = data.get("format", {})
             streams = data.get("streams", [])
-            creation_date = fmt.get("tags", {}).get("creation_time")
+            creation_date = fmt.get("tags", {}).get("creation_time") or fmt.get("tags", {}).get(
+                "date"
+            )
             if not creation_date:
                 creation_date = next(
-                    (stream.get("tags", {}).get("creation_time") for stream in streams if stream.get("tags", {}).get("creation_time")),
+                    (
+                        stream.get("tags", {}).get("creation_time")
+                        or stream.get("tags", {}).get("date")
+                        for stream in streams
+                        if stream.get("tags", {}).get("creation_time")
+                        or stream.get("tags", {}).get("date")
+                    ),
                     "Unknown",
                 )
-            metadata.update({
-                "duration": fmt.get("duration", "Unknown"),
-                "format": fmt.get("format_name", "Unknown"),
-                "bit_rate": fmt.get("bit_rate", "Unknown"),
-                "creation_date": creation_date,
-                "streams": [
-                    {"type": stream.get("codec_type"), "codec": stream.get("codec_name"), "width": stream.get("width"), "height": stream.get("height"), "sample_rate": stream.get("sample_rate")}
-                    for stream in streams
-                ],
-            })
+            metadata.update(
+                {
+                    "duration": fmt.get("duration", "Unknown"),
+                    "format": fmt.get("format_name", "Unknown"),
+                    "bit_rate": fmt.get("bit_rate", "Unknown"),
+                    "creation_date": creation_date,
+                    "streams": [
+                        {
+                            "type": stream.get("codec_type"),
+                            "codec": stream.get("codec_name"),
+                            "width": stream.get("width"),
+                            "height": stream.get("height"),
+                            "sample_rate": stream.get("sample_rate"),
+                        }
+                        for stream in streams
+                    ],
+                }
+            )
         else:
             metadata["probe_status"] = "FFprobe failed"
     except Exception as error:
@@ -76,7 +103,9 @@ def get_media_metadata(input_path: Path) -> dict[str, object]:
 
 
 class ProcessRunner:
-    def run(self, command: list[str], cancel_token: CancelToken) -> subprocess.CompletedProcess[str]:
+    def run(
+        self, command: list[str], cancel_token: CancelToken
+    ) -> subprocess.CompletedProcess[str]:
         LOGGER.info("Running %s", command[0])
         try:
             process = subprocess.Popen(
@@ -104,21 +133,22 @@ class ProcessRunner:
                 target.append(line)
             stream.close()
 
-        stdout_thread = threading.Thread(target=drain, args=(process.stdout, stdout_lines), daemon=True)
-        stderr_thread = threading.Thread(target=drain, args=(process.stderr, stderr_lines), daemon=True)
+        stdout_thread = threading.Thread(
+            target=drain, args=(process.stdout, stdout_lines), daemon=True
+        )
+        stderr_thread = threading.Thread(
+            target=drain, args=(process.stderr, stderr_lines), daemon=True
+        )
         stdout_thread.start()
         stderr_thread.start()
         while process.poll() is None:
-            if cancel_token.is_cancelled():
+            if wait_for_cancellation(cancel_token, 0.1):
                 terminate_process_tree(process)
                 LOGGER.warning("Process cancelled: %s", command[0])
                 process.wait()
                 stdout_thread.join(timeout=2)
                 stderr_thread.join(timeout=2)
                 raise ProcessingCancelled
-            # `poll()` is the non-blocking check. Do not use `wait(timeout=...)`
-            # here: its TimeoutExpired exception is expected for long media jobs.
-            time.sleep(0.1)
         stdout_thread.join()
         stderr_thread.join()
         stdout = "".join(stdout_lines)
@@ -137,7 +167,11 @@ class ProcessRunner:
 
 def terminate_process_tree(process: subprocess.Popen) -> None:
     if os.name == "nt" and process.pid:
-        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     else:
         process.terminate()
 
@@ -146,7 +180,14 @@ class FfmpegMediaTool:
     def __init__(self, runner: ProcessRunner | None = None):
         self.runner = runner or ProcessRunner()
 
-    def prepare_audio(self, input_path: Path, work_dir: Path, cancel_token: CancelToken, clip_start=None, clip_end=None) -> Path:
+    def prepare_audio(
+        self,
+        input_path: Path,
+        work_dir: Path,
+        cancel_token: CancelToken,
+        clip_start=None,
+        clip_end=None,
+    ) -> Path:
         if input_path.suffix.lower() == ".wav" and clip_start is None and clip_end is None:
             return input_path
         output = work_dir / "converted_audio.wav"
@@ -156,39 +197,126 @@ class FfmpegMediaTool:
         if clip_end is not None:
             seek_args += ["-to", str(clip_end)]
         result = self.runner.run(
-            ["ffmpeg", "-y", *seek_args, "-i", str(input_path), "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", str(output)],
+            [
+                "ffmpeg",
+                "-y",
+                *seek_args,
+                "-i",
+                str(input_path),
+                "-vn",
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                str(output),
+            ],
             cancel_token,
         )
         if result.returncode != 0:
             raise RuntimeError(f"FFmpeg audio conversion failed: {result.stderr.strip()}")
         return output
 
-    def extract_interval_frames(self, input_path, frames_dir, interval, cancel_token, clip_start=None, clip_end=None, highlight_times=()):
+    def extract_interval_frames(
+        self,
+        input_path: Path,
+        frames_dir: Path,
+        interval: int,
+        cancel_token,
+        clip_start: float | None = None,
+        clip_end: float | None = None,
+        highlight_times: tuple[float, ...] = (),
+        mode: str = "interval",
+        sensitivity: float = 0.35,
+        resolution: str = "full",
+    ) -> tuple[Path, ...]:
         frames_dir.mkdir(parents=True, exist_ok=True)
         seek_args = []
         if clip_start is not None:
             seek_args += ["-ss", str(clip_start)]
         if clip_end is not None:
             seek_args += ["-to", str(clip_end)]
-        output_pattern = frames_dir / "frame_%06d.png"
+        # Vision models downscale internally anyway; scaling shrinks base64
+        # size and speeds up the analysis round-trips.
+        scale_map = {"mid": ",scale=1024:-2", "low": ",scale=768:-2"}
+        scale = scale_map.get(resolution, "")
+        output_pattern = frames_dir / ("scene_%06d.png" if mode == "scene" else "interval_%06d.png")
+        filters = (
+            f"select='gt(scene,{sensitivity})',showinfo{scale}"
+            if mode == "scene"
+            else f"fps=1/{max(1, interval)}{scale}"
+        )
         result = self.runner.run(
-            ["ffmpeg", "-y", *seek_args, "-i", str(input_path), "-vf", f"fps=1/{max(1, interval)}", str(output_pattern)],
+            [
+                "ffmpeg",
+                "-y",
+                *seek_args,
+                "-i",
+                str(input_path),
+                "-vf",
+                filters,
+                "-vsync",
+                "vfr",
+                str(output_pattern),
+            ],
             cancel_token,
         )
         if result.returncode != 0:
             raise RuntimeError(f"FFmpeg frame extraction failed: {result.stderr.strip()}")
+        scene_stderr = result.stderr
+        highlight_scale = scale_map.get(resolution, "")
+        highlight_args = ["-vf", highlight_scale.lstrip(",")] if highlight_scale else []
         for index, timestamp in enumerate(highlight_times, 1):
             if clip_start is not None and timestamp < clip_start:
                 continue
             if clip_end is not None and timestamp > clip_end:
                 continue
-            frame = frames_dir / f"highlight_{index:03d}.png"
+            frame = frames_dir / f"{mode}_highlight_{index:03d}.png"
             result = self.runner.run(
-                ["ffmpeg", "-y", "-ss", str(timestamp), "-i", str(input_path), "-frames:v", "1", str(frame)],
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-ss",
+                    str(timestamp),
+                    "-i",
+                    str(input_path),
+                    "-frames:v",
+                    "1",
+                    *highlight_args,
+                    str(frame),
+                ],
                 cancel_token,
             )
             if result.returncode != 0:
-                raise RuntimeError(f"FFmpeg highlighted frame extraction failed: {result.stderr.strip()}")
+                raise RuntimeError(
+                    f"FFmpeg highlighted frame extraction failed: {result.stderr.strip()}"
+                )
+        if mode == "scene":
+            timestamps = re.findall(r"pts_time:([\d.]+)", scene_stderr)
+            # Remove frames from any earlier run before renaming this run's
+            # output: leftover timestamp-named files otherwise collide (WinError
+            # 183) and shift every subsequent frame to a wrong name.
+            final_name = re.compile(r"scene_\d{2}h\d{2}m\d{2}s(_\d+)?\.png")
+            for stale in list(frames_dir.glob("scene_*.png")):
+                if final_name.fullmatch(stale.name):
+                    stale.unlink(missing_ok=True)
+            raw_name = re.compile(r"scene_\d+\.png")
+            scene_frames = sorted(
+                path for path in frames_dir.glob("scene_*.png") if raw_name.fullmatch(path.name)
+            )
+            for index, frame in enumerate(scene_frames):
+                timestamp = float(timestamps[index]) if index < len(timestamps) else float(index)
+                total = int(timestamp)
+                stamp = f"{total // 3600:02d}h{total % 3600 // 60:02d}m{total % 60:02d}s"
+                # Duplicate timestamps happen at cut boundaries; keep both
+                # frames by suffixing instead of crashing the rename.
+                target = frames_dir / f"scene_{stamp}.png"
+                copy = 1
+                while target.exists():
+                    copy += 1
+                    target = frames_dir / f"scene_{stamp}_{copy}.png"
+                frame.rename(target)
         return tuple(sorted(frames_dir.glob("*.png")))
 
 
@@ -198,7 +326,16 @@ class WhisperCliProvider:
         self.executable = executable or find_whisper_executable() or "whisper"
 
     def transcribe(self, request, on_progress: Callable[[str], None], cancel_token: CancelToken):
-        command = [self.executable, str(request.input_path), "--model", request.model, "--output_dir", str(request.output_dir), "--output_format", "all"]
+        command = [
+            self.executable,
+            str(request.input_path),
+            "--model",
+            request.model,
+            "--output_dir",
+            str(request.output_dir),
+            "--output_format",
+            "all",
+        ]
         if request.language.strip():
             command += ["--language", request.language.strip()]
         on_progress("Whisper is running")

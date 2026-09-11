@@ -1,19 +1,13 @@
 import logging
+from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, Slot
 
+from app.application.cancellation import CancellationToken
 from app.application.service import JobCancelled, TranscriptionService
-from app.domain.models import ProgressEvent, TranscriptionRequest
+from app.domain.models import TranscriptionRequest
 
 LOGGER = logging.getLogger(__name__)
-
-
-class CancellationToken:
-    def __init__(self):
-        self.cancelled = False
-
-    def is_cancelled(self) -> bool:
-        return self.cancelled
 
 
 class TranscriptionWorker(QObject):
@@ -22,16 +16,24 @@ class TranscriptionWorker(QObject):
     failed = Signal(str)
     cancelled = Signal()
 
-    def __init__(self, service: TranscriptionService, request: TranscriptionRequest):
+    def __init__(
+        self,
+        service: TranscriptionService,
+        request: TranscriptionRequest,
+        resume_dir: Path | None = None,
+    ):
         super().__init__()
         self.service = service
         self.request = request
+        self.resume_dir = resume_dir
         self.token = CancellationToken()
 
     @Slot()
     def run(self):
         try:
-            result = self.service.run(self.request, self.progress.emit, self.token)
+            result = self.service.run(
+                self.request, self.progress.emit, self.token, resume_dir=self.resume_dir
+            )
             self.succeeded.emit(result)
         except JobCancelled:
             LOGGER.info("Transcription job cancelled: %s", self.request.input_path)
@@ -41,4 +43,4 @@ class TranscriptionWorker(QObject):
             self.failed.emit(str(error))
 
     def cancel(self):
-        self.token.cancelled = True
+        self.token.cancel()

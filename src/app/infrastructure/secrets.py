@@ -1,3 +1,6 @@
+from app.infrastructure.logging_filter import SECRET_REDACTOR
+
+
 class KeyringSecretStore:
     """Credential Manager-backed store on Windows; import is deferred for testability."""
 
@@ -7,9 +10,17 @@ class KeyringSecretStore:
     def get(self, name: str) -> str | None:
         import keyring
 
-        return keyring.get_password(self.service, name)
+        secret = keyring.get_password(self.service, name)
+        if secret:
+            SECRET_REDACTOR.register(secret)
+        return secret
 
     def set(self, name: str, value: str) -> None:
+        previous = self.get(name)
+        if previous and previous != value:
+            # A rotated-out key must stop redacting log lines (CI #5).
+            SECRET_REDACTOR.unregister(previous)
+        SECRET_REDACTOR.register(value)
         import keyring
 
         keyring.set_password(self.service, name, value)

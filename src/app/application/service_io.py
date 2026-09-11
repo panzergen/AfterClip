@@ -286,6 +286,22 @@ def write_report(
         step_lines.append(
             f"| {step.get('name', 'Unknown')} | {step.get('status', 'unknown')} | {step.get('duration_seconds', '')} |"
         )
+    usage = metadata.get("cloud_usage")
+    usage_lines = ""
+    if usage:
+        cost = usage.get("estimated_cost_usd")
+        cost_text = f"${cost}" if cost is not None else "unavailable for this model"
+        usage_lines = (
+            "\n## Cloud Usage (approximate)\n\n"
+            f"- **Provider:** `{usage.get('provider', '')}`\n"
+            f"- **Model:** `{usage.get('model', '')}`\n"
+            f"- **Requests:** `{usage.get('requests', 0)}`\n"
+            f"- **Input tokens:** `{usage.get('input_tokens', 0)}`\n"
+            f"- **Output tokens:** `{usage.get('output_tokens', 0)}`\n"
+            f"- **Images sent:** `{usage.get('images', 0)}`\n"
+            f"- **Estimated cost:** {cost_text}\n"
+            f"- **Note:** {usage.get('cost_note', 'Approximate; provider pricing applies.')}\n"
+        )
     path.write_text(
         "# AfterClip Processing Report\n\n"
         "- **Report version:** `1`\n\n"
@@ -306,6 +322,7 @@ def write_report(
         f"- **Output name:** `{request.output_name or request.input_path.stem}`\n"
         f"- **Model:** `{request.model}`\n"
         f"- **Language:** `{request.language or 'Auto-detect'}`\n"
-        f"- **Clip range:** `{request.clip_start if request.clip_start is not None else 0} -> {request.clip_end if request.clip_end is not None else 'end'}`\n",
+        f"- **Clip range:** `{request.clip_start if request.clip_start is not None else 0} -> {request.clip_end if request.clip_end is not None else 'end'}`\n"
+        f"{usage_lines}",
         encoding="utf-8",
     )

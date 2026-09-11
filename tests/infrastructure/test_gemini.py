@@ -243,3 +243,34 @@ def test_extract_text_handles_blocked_and_empty_responses():
         extract_text({"candidates": [{"finishReason": "SAFETY", "content": {"parts": []}}]})
     with pytest.raises(GeminiError, match="no candidates"):
         extract_text({})
+
+
+def test_generate_accumulates_token_usage():
+    usage_response = {
+        "candidates": [{"content": {"parts": [{"text": "ok"}]}}],
+        "usageMetadata": {"promptTokenCount": 120, "candidatesTokenCount": 34},
+    }
+    request = RecordingRequest([usage_response, usage_response])
+    client = GeminiClient(
+        key_getter=lambda: "sk-usage-key",
+        request_fn=request,
+        sleep_fn=lambda _seconds: None,
+        min_interval=0,
+    )
+    client.generate([{"text": "a"}])
+    client.generate([{"text": "b"}])
+    assert client.usage.provider == "gemini"
+    assert client.usage.requests == 2
+    assert client.usage.input_tokens == 240
+    assert client.usage.output_tokens == 68
+    assert client.usage.images == 0
+
+
+def test_generate_counts_vision_image_parts():
+    request = RecordingRequest([ok_response("described")])
+    client = GeminiClient(key_getter=lambda: "sk-usage-key", request_fn=request, min_interval=0)
+    parts = [{"text": "prompt"}, inline_data_part("image/png", b"png-bytes")]
+    client.generate(parts)
+    assert client.usage.images == 1
+    assert client.usage.requests == 1
+

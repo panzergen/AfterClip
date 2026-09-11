@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from app.application.cancellation import CancelToken, JobCancelled, ProcessingCancelled
+from app.application.cloud_usage import COST_NOTE, estimate_cost_usd
 from app.application.job_context import JobContext, StepRecorder
 from app.application.ports import (
     MediaTool,
@@ -218,6 +219,7 @@ class TranscriptionService:
                             ProgressEvent("Frame set changed; vision analysis will re-run", 97)
                         )
                     self._run_vision_analysis(recorder, transcript_dir, audio_path, cancel_token)
+            self._record_cloud_usage(recorder)
             self._run_master_timeline_step(recorder, job_dir, base_name, transcript_dir, audio_path)
         except ProcessingCancelled as error:
             recorder.finish("Cancelled")
@@ -232,6 +234,27 @@ class TranscriptionService:
         recorder.finish("Succeeded")
         on_event(ProgressEvent("Transcription complete", 100))
         return result
+
+    def _record_cloud_usage(self, recorder: StepRecorder) -> None:
+        """Persist provider usage/cost metadata when a cloud client ran (Phase 3)."""
+        usages = []
+        for provider in (self.text_provider, self.vision_provider):
+            usage = getattr(getattr(provider, "client", None), "usage", None)
+            if usage is not None and (usage.requests or usage.images):
+                usages.append(usage)
+        if not usages:
+            return
+        merged = usages[0]
+        for extra in usages[1:]:
+            merged = merged.merged(extra)
+        payload = merged.to_dict()
+        cost = estimate_cost_usd(merged)
+        if cost is not None:
+            payload["estimated_cost_usd"] = cost
+        payload["cost_note"] = COST_NOTE
+        recorder.context.metadata["cloud_usage"] = payload
+        recorder.context.state["cloud_usage"] = payload
+        recorder.save()
 
     def _run_text_analysis(
         self,

@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from app.application.cancellation import CancelToken, ProcessingCancelled, wait_for_cancellation
+from app.domain.models import CloudUsage
 from app.infrastructure.gemini.permissions import assert_not_video_file, inline_data_part
 from app.infrastructure.llm.transport import clean_thinking_tags, post_json_cancellable
 from app.infrastructure.logging_filter import SECRET_REDACTOR
@@ -90,6 +91,25 @@ class GeminiClient:
         self.sleep_fn = sleep_fn or time.sleep
         self.clock_fn = clock_fn or time.monotonic
         self._last_request_time: float | None = None
+        self.usage = CloudUsage(provider="gemini", model=model)
+
+    def _accumulate_usage(self, response: dict, parts: list[dict]) -> None:
+        usage = (response.get("usageMetadata") or {}) if isinstance(response, dict) else {}
+        images = sum(
+            1
+            for part in parts
+            if isinstance(part, dict) and ("inline_data" in part or "inlineData" in part)
+        )
+        self.usage = self.usage.merged(
+            CloudUsage(
+                provider="gemini",
+                model=self.model,
+                requests=1,
+                input_tokens=int(usage.get("promptTokenCount") or 0),
+                output_tokens=int(usage.get("candidatesTokenCount") or 0),
+                images=images,
+            )
+        )
 
     def generate(self, parts: list[dict], cancel_token: CancelToken | None = None) -> str:
         key = self.key_getter()
@@ -104,7 +124,11 @@ class GeminiClient:
         for attempt in range(self.max_retries + 1):
             self._throttle(cancel_token)
             try:
-                result = extract_text(post_json_cancellable(url, payload, self.timeout, cancel_token, self.request_fn))
+                raw = post_json_cancellable(
+                    url, payload, self.timeout, cancel_token, self.request_fn
+                )
+                self._accumulate_usage(raw, parts)
+                result = extract_text(raw)
                 self._last_request_time = self.clock_fn()
                 return result
             except ProcessingCancelled:

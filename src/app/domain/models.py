@@ -82,3 +82,37 @@ class TimelineEntry:
     end_str: str
     context_type: str
     text: str
+
+
+@dataclass(frozen=True)
+class CloudUsage:
+    """Provider usage counters recorded for a job (Phase 3 cost metadata)."""
+
+    provider: str = ""
+    model: str = ""
+    requests: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    images: int = 0
+
+    def merged(self, other: "CloudUsage | None") -> "CloudUsage":
+        if other is None:
+            return self
+        return CloudUsage(
+            provider=self.provider or other.provider,
+            model=self.model or other.model,
+            requests=self.requests + other.requests,
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+            images=self.images + other.images,
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "requests": self.requests,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "images": self.images,
+        }

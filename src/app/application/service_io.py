@@ -1,6 +1,7 @@
 import datetime
 import json
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -12,6 +13,18 @@ LOGGER = logging.getLogger(__name__)
 SCENE_TIMESTAMP_PATTERN = re.compile(r"(\d{2})h(\d{2})m(\d{2})s")
 INTERVAL_FRAME_PATTERN = re.compile(r"interval_(\d+)$")
 HIGHLIGHT_FRAME_PATTERN = re.compile(r"highlight_(\d+)$")
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write text via a temp file + replace so a crash cannot truncate it.
+
+    ``os.replace`` is atomic on the same filesystem, so readers (resume,
+    history) always see either the old or the new complete file.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.tmp")
+    temp.write_text(text, encoding="utf-8")
+    os.replace(temp, path)
 
 
 def validate_request(request: TranscriptionRequest) -> None:
@@ -117,7 +130,7 @@ def load_state(path: Path) -> dict:
 
 
 def save_state(path: Path, state: dict) -> None:
-    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(path, json.dumps(state, ensure_ascii=False, indent=2))
 
 
 def srt_transcript_text(srt_path: Path | None) -> str:
@@ -302,7 +315,7 @@ def write_report(
             f"- **Estimated cost:** {cost_text}\n"
             f"- **Note:** {usage.get('cost_note', 'Approximate; provider pricing applies.')}\n"
         )
-    path.write_text(
+    content = (
         "# AfterClip Processing Report\n\n"
         "- **Report version:** `1`\n\n"
         "## Input Media Metadata\n\n"
@@ -323,6 +336,6 @@ def write_report(
         f"- **Model:** `{request.model}`\n"
         f"- **Language:** `{request.language or 'Auto-detect'}`\n"
         f"- **Clip range:** `{request.clip_start if request.clip_start is not None else 0} -> {request.clip_end if request.clip_end is not None else 'end'}`\n"
-        f"{usage_lines}",
-        encoding="utf-8",
+        f"{usage_lines}"
     )
+    atomic_write_text(path, content)

@@ -91,3 +91,14 @@ def test_set_raises_clear_error_when_backend_fails(fake_keyring):
     module.set_password = boom
     with pytest.raises(SecretStoreUnavailableError):
         KeyringSecretStore(service="test-svc").set("gemini", "sk-unavailable-value")
+
+
+def test_rotating_key_unregisters_previous_from_redaction(fake_keyring):
+    secret_store = KeyringSecretStore(service="test-svc")
+    secret_store.set("gemini", "sk-old-rotation-value")
+    assert SECRET_REDACTOR.redact("sk-old-rotation-value") == REDACTED
+
+    secret_store.set("gemini", "sk-new-rotation-value")
+    # The rotated-out value stops being redacted; the new one is redacted.
+    assert SECRET_REDACTOR.redact("sk-old-rotation-value") == "sk-old-rotation-value"
+    assert SECRET_REDACTOR.redact("sk-new-rotation-value") == REDACTED

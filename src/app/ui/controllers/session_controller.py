@@ -27,7 +27,18 @@ class SessionController(QObject):
     alert = Signal(str, str)
     cloudConsentRequested = Signal(str, str, str)
 
-    def __init__(self, media, job_form, batch, history, env, record, settings=None, parent=None):
+    def __init__(
+        self,
+        media,
+        job_form,
+        batch,
+        history,
+        env,
+        record,
+        settings=None,
+        prompt_store=None,
+        parent=None,
+    ):
         super().__init__(parent)
         self.media = media
         self.job_form = job_form
@@ -36,6 +47,7 @@ class SessionController(QObject):
         self.env = env
         self.record = record
         self.settings = settings
+        self.prompt_store = prompt_store
         self.thread = None
         self.worker = None
         self.output_name = ""
@@ -434,10 +446,21 @@ class SessionController(QObject):
         clip_start, clip_end = self.media.clip_seconds()
         return input_path, output_dir, clip_start, clip_end
 
+    def _provider_prompts(self):
+        """Resolved prompt set for this job, or None to use built-in defaults."""
+        if self.prompt_store is None:
+            return None
+        try:
+            return self.prompt_store.load()
+        except Exception as error:  # a broken prompt file must not block a job
+            LOGGER.warning("Could not load prompts; using defaults: %s", error)
+            return None
+
     def _resolve_providers(self):
         """Resolve (text_provider, vision_provider); False means the user aborted."""
         text_provider = None
         vision_provider = None
+        prompts = self._provider_prompts()
         form = self.job_form
         if form.analysisEnabled:
             selection = form.selected_ai_model()
@@ -452,9 +475,9 @@ class SessionController(QObject):
                         "Store a Gemini API key in Settings (Credential Manager) for cloud AI.",
                     )
                     return False, False
-                text_provider = GeminiTextProvider(analysis_model)
+                text_provider = GeminiTextProvider(analysis_model, prompts=prompts)
             elif check_ollama_service():
-                text_provider = OllamaTextProvider(analysis_model)
+                text_provider = OllamaTextProvider(analysis_model, prompts=prompts)
             else:
                 self.alert.emit(
                     "Ollama unavailable",
@@ -475,9 +498,9 @@ class SessionController(QObject):
                         "Store a Gemini API key in Settings (Credential Manager) for cloud vision.",
                     )
                     return text_provider, False
-                vision_provider = GeminiVisionProvider(vision_model)
+                vision_provider = GeminiVisionProvider(vision_model, prompts=prompts)
             elif check_ollama_service():
-                vision_provider = OllamaVisionProvider(vision_model)
+                vision_provider = OllamaVisionProvider(vision_model, prompts=prompts)
             else:
                 self.alert.emit(
                     "Ollama unavailable",

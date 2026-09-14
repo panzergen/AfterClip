@@ -5,6 +5,7 @@ from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from app.application.cloud_consent import grant_consent, has_consent, revoke_consent
 from app.infrastructure.gemini import GEMINI_KEY_NAME, GeminiClient, GeminiKeyMissing
+from app.infrastructure.prompts import JsonPromptStore
 from app.infrastructure.secrets import KeyringSecretStore, SecretStoreUnavailableError
 from app.infrastructure.settings import JsonSettingsStore
 
@@ -42,11 +43,13 @@ class SettingsController(QObject):
         self,
         store: JsonSettingsStore | None = None,
         key_store: KeyringSecretStore | None = None,
+        prompt_store=None,
         parent=None,
     ):
         super().__init__(parent)
         self.store = store or JsonSettingsStore()
         self.key_store = key_store or KeyringSecretStore()
+        self.prompt_store = prompt_store or JsonPromptStore()
         migrate = getattr(self.store, "migrate", None)
         if callable(migrate):
             try:
@@ -257,3 +260,10 @@ class SettingsController(QObject):
 
     def report_language(self) -> str:
         return self._report_language.strip()
+
+    def prompt_set(self):
+        """Resolved prompt templates used for the next job (Phase 4 WS-B)."""
+        return self.prompt_store.load()
+
+    def save_prompt_set(self, prompt_set) -> None:
+        self.prompt_store.save(prompt_set)

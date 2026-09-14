@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from app.domain.prompts import build_prompt_set
 from app.infrastructure.model_catalog import ModelEntry, ModelSection
+from app.infrastructure.prompts import InMemoryPromptStore
 from app.infrastructure.settings import InMemorySettingsStore
 from app.ui.app import build_controllers
 from app.ui.controllers.batch_controller import BatchController
@@ -65,6 +67,7 @@ def controllers(qapp, monkeypatch, tmp_path):
         log_path=tmp_path / "out" / "app.log",
         settings_store=InMemorySettingsStore(),
         key_store=NoKeyStore(),
+        prompt_store=InMemoryPromptStore(),
     )
 
 
@@ -480,4 +483,23 @@ def test_start_gates_cloud_job_behind_consent(controllers, monkeypatch, tmp_path
     session.grantCloudConsentAndStart()
     assert session._pending_consent_provider is None
     assert controllers.settings.has_cloud_consent("gemini") is True
+
+
+def test_settings_prompt_set_roundtrip(controllers):
+    settings = controllers.settings
+    assert settings.prompt_set().summary  # built-in defaults
+    settings.save_prompt_set(build_prompt_set({"summary": "CUSTOM {lang} {transcript}"}))
+    assert settings.prompt_set().summary == "CUSTOM {lang} {transcript}"
+
+
+def test_session_provider_prompts_uses_store(controllers):
+    controllers.settings.save_prompt_set(
+        build_prompt_set({"summary": "FROM STORE {lang} {transcript}"})
+    )
+    assert controllers.session._provider_prompts().summary == "FROM STORE {lang} {transcript}"
+
+
+def test_session_provider_prompts_none_without_store(controllers):
+    controllers.session.prompt_store = None
+    assert controllers.session._provider_prompts() is None
 

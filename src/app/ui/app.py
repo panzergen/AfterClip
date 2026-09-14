@@ -8,6 +8,7 @@ from pathlib import Path
 
 import app.app_paths as app_paths
 from app.application.batch import BatchStore
+from app.infrastructure.prompts import JsonPromptStore
 from app.ui.controllers.batch_controller import BatchController
 from app.ui.controllers.environment_controller import EnvironmentController
 from app.ui.controllers.history_controller import HistoryController
@@ -61,11 +62,13 @@ def build_controllers(
     log_path: Path | None = None,
     settings_store=None,
     key_store=None,
+    prompt_store=None,
 ) -> AppControllers:
     """Create all controllers with default (or injected) paths and wire them."""
     project_dir = project_dir or app_paths.project_dir()
     output_dir = output_dir or app_paths.default_output_dir()
     log_path = log_path or app_paths.log_file()
+    prompt_store = prompt_store or JsonPromptStore()
 
     environment = EnvironmentController()
     job_form = JobFormController(output_dir, app_paths.default_input_dir())
@@ -73,8 +76,12 @@ def build_controllers(
     record = RecordController()
     batch = BatchController(BatchStore(batch_store_path or output_dir / "batch_queue.json"))
     history = HistoryController(history_output_dir or output_dir, log_path)
-    settings = SettingsController(store=settings_store, key_store=key_store)
-    session = SessionController(media, job_form, batch, history, environment, record, settings)
+    settings = SettingsController(
+        store=settings_store, key_store=key_store, prompt_store=prompt_store
+    )
+    session = SessionController(
+        media, job_form, batch, history, environment, record, settings, prompt_store
+    )
     controllers = AppControllers(
         environment=environment,
         job_form=job_form,

@@ -305,6 +305,7 @@ ApplicationWindow {
     Component {
         id: settingsDialogComponent
         SettingsDialog {
+            objectName: "settingsDialog"
             Component.onCompleted: open()
             onClosed: window.settingsOpen = false
         }

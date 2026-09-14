@@ -34,10 +34,7 @@ def test_multi_file_dialogs_use_selected_files():
     assert not offenders, f"OpenFiles dialogs must consume selectedFiles: {offenders}"
 
 
-def test_main_qml_loads(qapp, monkeypatch, tmp_path):
-    from PySide6.QtQml import QQmlApplicationEngine
-    from PySide6.QtQuickControls2 import QQuickStyle
-
+def _build_controllers(monkeypatch, tmp_path):
     from app.ui.app import build_controllers
 
     class NoKeyStore:
@@ -64,7 +61,7 @@ def test_main_qml_loads(qapp, monkeypatch, tmp_path):
         lambda: InMemorySettingsStore(),
     )
     monkeypatch.setattr("app.ui.controllers.settings_controller.KeyringSecretStore", NoKeyStore)
-    controllers = build_controllers(
+    return build_controllers(
         project_dir=tmp_path,
         output_dir=tmp_path / "out",
         batch_store_path=tmp_path / "out" / "batch_queue.json",
@@ -72,9 +69,8 @@ def test_main_qml_loads(qapp, monkeypatch, tmp_path):
         log_path=tmp_path / "out" / "app.log",
     )
 
-    QQuickStyle.setStyle("Fusion")
-    engine = QQmlApplicationEngine()
-    context = engine.rootContext()
+
+def _set_context(context, controllers):
     context.setContextProperty("session", controllers.session)
     context.setContextProperty("media", controllers.media)
     context.setContextProperty("record", controllers.record)
@@ -83,6 +79,17 @@ def test_main_qml_loads(qapp, monkeypatch, tmp_path):
     context.setContextProperty("env", controllers.environment)
     context.setContextProperty("jobForm", controllers.job_form)
     context.setContextProperty("settings", controllers.settings)
+
+
+def test_main_qml_loads(qapp, monkeypatch, tmp_path):
+    from PySide6.QtQml import QQmlApplicationEngine
+    from PySide6.QtQuickControls2 import QQuickStyle
+
+    controllers = _build_controllers(monkeypatch, tmp_path)
+
+    QQuickStyle.setStyle("Fusion")
+    engine = QQmlApplicationEngine()
+    _set_context(engine.rootContext(), controllers)
     qml_path = Path("src/app/ui/qml/Main.qml").resolve()
     engine.load(qml_path)
     try:
@@ -91,3 +98,61 @@ def test_main_qml_loads(qapp, monkeypatch, tmp_path):
         for root in engine.rootObjects():
             root.close()
         engine.deleteLater()
+
+
+def test_settings_dialog_loads(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QUrl
+    from PySide6.QtQml import QQmlComponent, QQmlEngine
+    from PySide6.QtQuickControls2 import QQuickStyle
+
+    controllers = _build_controllers(monkeypatch, tmp_path)
+
+    QQuickStyle.setStyle("Fusion")
+    engine = QQmlEngine()
+    _set_context(engine.rootContext(), controllers)
+    component = QQmlComponent(
+        engine, QUrl.fromLocalFile(str(QML_DIR / "SettingsDialog.qml"))
+    )
+    dialog = component.create(engine.rootContext())
+    try:
+        assert component.errors() == [], [error.toString() for error in component.errors()]
+        assert dialog is not None
+    finally:
+        if dialog is not None:
+            dialog.deleteLater()
+        engine.deleteLater()
+
+
+def test_settings_dialog_footer_does_not_overlap_content(qapp, monkeypatch, tmp_path):
+    """Regression: growing the Gemini group pushed the OK/Cancel footer over it."""
+    from PySide6.QtCore import QCoreApplication, QObject
+    from PySide6.QtQml import QQmlApplicationEngine
+    from PySide6.QtQuickControls2 import QQuickStyle
+
+    controllers = _build_controllers(monkeypatch, tmp_path)
+
+    QQuickStyle.setStyle("Fusion")
+    engine = QQmlApplicationEngine()
+    _set_context(engine.rootContext(), controllers)
+    engine.load(Path("src/app/ui/qml/Main.qml").resolve())
+    roots = engine.rootObjects()
+    assert roots
+    window = roots[0]
+    window.resize(1180, 720)
+    window.setProperty("settingsOpen", True)
+    for _ in range(10):
+        QCoreApplication.processEvents()
+
+    dialog = window.findChild(QObject, "settingsDialog")
+    try:
+        assert dialog is not None
+        content = dialog.property("contentItem")
+        footer = dialog.property("footer")
+        assert content is not None and footer is not None
+        content_bottom = content.property("y") + content.property("height")
+        assert footer.property("y") >= content_bottom, "settings footer overlaps content"
+    finally:
+        for root in roots:
+            root.close()
+        engine.deleteLater()
+

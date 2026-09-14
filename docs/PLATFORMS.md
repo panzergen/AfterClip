@@ -54,6 +54,24 @@ upgrade on the next write or when `SettingsController` calls `migrate()`.
 A settings file written by a *newer* app version is rejected rather than
 clobbered.
 
+## Memory strategy
+
+`infrastructure/hardware.py` distinguishes unified-memory hosts (Apple Silicon:
+one shared RAM pool for CPU and GPU) from discrete-GPU hosts (dedicated VRAM),
+then produces a conservative recommendation for frame resolution and vision
+concurrency:
+
+- **Unified / large budget (≥ 16 GB):** full-resolution frames, up to 2
+  concurrent vision calls.
+- **Discrete ≥ 8 GB VRAM:** mid-resolution frames, 1 vision call.
+- **No GPU / small budget:** low-resolution frames, 1 vision call.
+
+The recommendation only informs defaults; it never overrides an explicit user
+choice. It is included in `collect_diagnostics()` and shown in the status
+tooltip (`Memory: <n> GB unified|system, frames <mode>`). Oversubscribing a
+small GPU or tripping provider rate limits is worse than running a little
+slower, so the caps are deliberately low.
+
 ## Known gaps
 
 - macOS/Linux have no packaging, installer or release smoke coverage yet.

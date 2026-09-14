@@ -83,3 +83,5 @@ def test_collect_diagnostics_shape(tmp_path, monkeypatch):
     assert payload["gpu"] == {"name": "Test GPU", "memory_mb": 8192}
     assert payload["disk"]["free_gb"] >= 0
     assert payload["output_dir"] == str(tmp_path)
+    assert payload["memory"]["total_ram_gb"] >= 0
+    assert payload["memory"]["recommended_vision_concurrency"] >= 1

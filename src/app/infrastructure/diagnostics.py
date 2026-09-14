@@ -4,6 +4,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.infrastructure.hardware import (
+    detect_memory_profile,
+    recommend_frame_resolution,
+    recommend_vision_concurrency,
+)
 from app.infrastructure.process import (
     CREATE_NO_WINDOW,
     executable_available,
@@ -120,6 +125,10 @@ def collect_diagnostics(output_dir: Path | None = None) -> dict:
     """Redacted diagnostic payload for logs and bug reports (T62)."""
     env = check_environment()
     gpu = detect_gpu()
+    profile = detect_memory_profile(
+        gpu_name=gpu.name if gpu else None,
+        gpu_memory_mb=gpu.memory_mb if gpu else None,
+    )
     payload: dict = {
         "app_version": version_string(),
         "python": sys.version.split()[0],
@@ -128,6 +137,13 @@ def collect_diagnostics(output_dir: Path | None = None) -> dict:
         "ffprobe": env.ffprobe,
         "whisper": env.whisper,
         "gpu": None if gpu is None else {"name": gpu.name, "memory_mb": gpu.memory_mb},
+        "memory": {
+            "unified": profile.unified,
+            "total_ram_gb": profile.total_ram_gb,
+            "effective_gpu_memory_mb": profile.effective_gpu_memory_mb,
+            "recommended_frame_resolution": recommend_frame_resolution(profile),
+            "recommended_vision_concurrency": recommend_vision_concurrency(profile),
+        },
     }
     if output_dir is not None:
         space = disk_space(output_dir)

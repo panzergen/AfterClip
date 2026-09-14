@@ -2,6 +2,7 @@ from PySide6.QtCore import Property, QObject, Signal, Slot
 
 import app.app_paths as app_paths
 from app.infrastructure.diagnostics import check_environment, detect_gpu, disk_space
+from app.infrastructure.hardware import detect_memory_profile, recommend_frame_resolution
 from app.infrastructure.ollama import check_ollama_service
 
 
@@ -43,6 +44,14 @@ class EnvironmentController(QObject):
         lines = [f"{name}: {'OK' if ok else fallback}" for name, ok, fallback in checks]
         gpu = detect_gpu()
         lines.append(f"GPU: {gpu.name} ({gpu.memory_mb} MB)" if gpu else "GPU: not detected")
+        profile = detect_memory_profile(
+            gpu.name if gpu else None, gpu.memory_mb if gpu else None
+        )
+        memory_kind = "unified" if profile.unified else "system"
+        lines.append(
+            f"Memory: {profile.total_ram_gb} GB {memory_kind}, "
+            f"frames {recommend_frame_resolution(profile)}"
+        )
         space = disk_space(app_paths.project_dir())
         if space is not None:
             lines.append(f"Disk free: {space.free_gb} GB")

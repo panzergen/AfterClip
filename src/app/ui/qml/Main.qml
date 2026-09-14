@@ -201,6 +201,51 @@ ApplicationWindow {
         }
     }
 
+    // Global keyboard shortcuts. Tab/arrow navigation is handled by the
+    // controls themselves; these cover the primary actions.
+    Shortcut {
+        sequence: StandardKey.Open
+        context: Qt.WindowShortcut
+        onActivated: mediaDialog.open()
+    }
+    Shortcut {
+        sequence: "Ctrl+,"
+        context: Qt.WindowShortcut
+        onActivated: window.settingsOpen = true
+    }
+    Shortcut {
+        sequence: "Ctrl+Return"
+        enabled: session.startEnabled
+        context: Qt.WindowShortcut
+        onActivated: session.startJob()
+    }
+    Shortcut {
+        sequence: "Ctrl+."
+        enabled: session.cancelEnabled
+        context: Qt.WindowShortcut
+        onActivated: session.cancelJob()
+    }
+    Shortcut {
+        sequence: "Ctrl+1"
+        context: Qt.WindowShortcut
+        onActivated: tabBar.currentIndex = 0
+    }
+    Shortcut {
+        sequence: "Ctrl+2"
+        context: Qt.WindowShortcut
+        onActivated: tabBar.currentIndex = 1
+    }
+    Shortcut {
+        sequence: "Ctrl+3"
+        context: Qt.WindowShortcut
+        onActivated: tabBar.currentIndex = 2
+    }
+    Shortcut {
+        sequence: "Ctrl+4"
+        context: Qt.WindowShortcut
+        onActivated: tabBar.currentIndex = 3
+    }
+
     FileDialog {
         id: mediaDialog
         title: qsTr("Select media")

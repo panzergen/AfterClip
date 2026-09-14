@@ -34,6 +34,13 @@ def test_multi_file_dialogs_use_selected_files():
     assert not offenders, f"OpenFiles dialogs must consume selectedFiles: {offenders}"
 
 
+def test_main_qml_defines_primary_keyboard_shortcuts():
+    text = (QML_DIR / "Main.qml").read_text(encoding="utf-8")
+    assert "StandardKey.Open" in text
+    for sequence in ("Ctrl+,", "Ctrl+Return", "Ctrl+.", "Ctrl+1", "Ctrl+4"):
+        assert f'sequence: "{sequence}"' in text, f"missing shortcut {sequence}"
+
+
 def _build_controllers(monkeypatch, tmp_path):
     from app.ui.app import build_controllers
 

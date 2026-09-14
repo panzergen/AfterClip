@@ -11,12 +11,14 @@ AbstractButton {
     implicitWidth: Theme.iconButtonSize
     implicitHeight: Theme.iconButtonSize
     checkable: showCheckState
+    focusPolicy: Qt.StrongFocus
+    Accessible.role: Accessible.Button
     Accessible.name: root.toolTip || root.glyph
 
     background: Rectangle {
         color: root.pressed ? "#d7dade" : (root.hovered ? "#f2f3f5" : "#e9e9e9")
-        border.color: root.checked ? Theme.primary : "#adadad"
-        border.width: root.checked ? 2 : 1
+        border.color: root.activeFocus || root.checked ? Theme.primary : "#adadad"
+        border.width: root.activeFocus || root.checked ? 2 : 1
         radius: 3
     }
 

@@ -42,6 +42,17 @@ pytest -m ui            # opt-in Qt UI tests (set QT_QPA_PLATFORM=offscreen for 
 pytest --cov=app.application --cov=app.infrastructure   # coverage
 ```
 
+## Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+O` | Browse for a media file |
+| `Ctrl+Enter` | Start processing |
+| `Ctrl+.` | Cancel the running job |
+| `Ctrl+1`..`Ctrl+4` | Switch to Media / Record / Batch / History |
+| `Ctrl+,` | Open Settings |
+| `Tab` / arrows | Move focus between controls |
+
 ## Build a Windows release
 
 ```powershell

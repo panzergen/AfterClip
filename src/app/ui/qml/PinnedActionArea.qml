@@ -35,6 +35,8 @@ ColumnLayout {
             font.pixelSize: Theme.fontSizeSmall
             font.underline: true
             color: Theme.primary
+            Accessible.role: Accessible.Link
+            Accessible.name: text
 
             ToolTip.visible: outputLinkMouse.containsMouse
             ToolTip.delay: 300

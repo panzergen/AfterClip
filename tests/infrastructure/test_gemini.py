@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from app.domain.prompts import build_prompt_set
 from app.infrastructure.gemini import (
     CloudPolicyViolation,
     GeminiClient,
@@ -273,4 +274,20 @@ def test_generate_counts_vision_image_parts():
     client.generate(parts)
     assert client.usage.images == 1
     assert client.usage.requests == 1
+
+
+def test_text_provider_uses_injected_prompt_set():
+    request = RecordingRequest([ok_response("ok")])
+    custom = build_prompt_set({"summary": "CUSTOM {lang} {transcript}"})
+    provider = GeminiTextProvider(
+        key_getter=lambda: "k",
+        request_fn=request,
+        sleep_fn=lambda _seconds: None,
+        min_interval=0,
+        prompts=custom,
+    )
+    provider.summarize("hello", "tr")
+    parts = request.calls[0][1]["contents"][0]["parts"]
+    assert parts[0]["text"] == "CUSTOM tr hello"
+
 

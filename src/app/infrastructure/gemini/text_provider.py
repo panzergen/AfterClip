@@ -2,8 +2,8 @@ import logging
 from collections.abc import Callable
 
 from app.application.cancellation import CancelToken
+from app.domain.prompts import PromptSet
 from app.infrastructure.gemini.client import DEFAULT_GEMINI_MODEL, GeminiClient, GeminiError, GeminiKeyMissing
-from app.infrastructure.llm.prompts import PROMPT_HIGHLIGHTS, PROMPT_SUMMARY, PROMPT_SUMMARY_COMBINE
 from app.infrastructure.llm.transport import chunk_text, clean_highlights_output
 
 LOGGER = logging.getLogger(__name__)
@@ -27,9 +27,11 @@ class GeminiTextProvider:
         request_fn=None,
         sleep_fn=None,
         min_interval: float = 4.0,
+        prompts: PromptSet | None = None,
     ):
         self.model = model
         self.chunk_size = chunk_size
+        self.prompts = prompts or PromptSet()
         self.client = client or GeminiClient(
             model=model,
             key_getter=key_getter,
@@ -45,18 +47,32 @@ class GeminiTextProvider:
         if len(chunks) == 1:
             if on_progress:
                 on_progress("Gemini is summarizing the transcript")
-            return self.client.generate([{"text": PROMPT_SUMMARY.format(lang=language or "en", transcript=chunks[0])}], cancel_token)
+            return self.client.generate(
+                [{"text": self.prompts.render("summary", lang=language or "en", transcript=chunks[0])}],
+                cancel_token,
+            )
         partials = []
         for index, chunk in enumerate(chunks, 1):
             if on_progress:
                 on_progress(f"Gemini is summarizing section {index}/{len(chunks)}")
             partials.append(
-                self.client.generate([{"text": PROMPT_SUMMARY.format(lang=language or "en", transcript=chunk)}], cancel_token)
+                self.client.generate(
+                    [{"text": self.prompts.render("summary", lang=language or "en", transcript=chunk)}],
+                    cancel_token,
+                )
             )
         if on_progress:
             on_progress("Gemini is combining section summaries")
         return self.client.generate(
-            [{"text": PROMPT_SUMMARY_COMBINE.format(lang=language or "en", summaries="\n\n".join(partials))}],
+            [
+                {
+                    "text": self.prompts.render(
+                        "summary_combine",
+                        lang=language or "en",
+                        summaries="\n\n".join(partials),
+                    )
+                }
+            ],
             cancel_token,
         )
 
@@ -70,7 +86,16 @@ class GeminiTextProvider:
                 on_progress(f"Gemini is extracting highlights section {index}/{len(chunks)}")
             try:
                 sections.append(
-                    self.client.generate([{"text": PROMPT_HIGHLIGHTS.format(lang=language or "en", srt_content=chunk)}], cancel_token)
+                    self.client.generate(
+                        [
+                            {
+                                "text": self.prompts.render(
+                                    "highlights", lang=language or "en", srt_content=chunk
+                                )
+                            }
+                        ],
+                        cancel_token,
+                    )
                 )
             except GeminiError as error:
                 LOGGER.error("Highlights section %d/%d failed: %s", index, len(chunks), error)

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from app.application.ports import ProcessingCancelled
+from app.domain.prompts import build_prompt_set
 from app.infrastructure.ollama import (
     OllamaClient,
     OllamaError,
@@ -142,3 +143,19 @@ def test_extract_highlights_empty_content_raises():
     provider = OllamaTextProvider("llama3", client=OllamaClient(request_fn=lambda url, payload, timeout: {}))
     with pytest.raises(OllamaError, match="empty"):
         provider.extract_highlights("   ", "en")
+
+
+def test_text_provider_uses_injected_prompt_set():
+    seen = []
+
+    def fake_request(url, payload, timeout):
+        seen.append(payload["prompt"])
+        return {"response": "summary"}
+
+    custom = build_prompt_set({"summary": "CUSTOM:{lang}:{transcript}"})
+    provider = OllamaTextProvider(
+        "llama3", client=OllamaClient(request_fn=fake_request), prompts=custom
+    )
+    assert provider.summarize("hello world", "tr") == "summary"
+    assert seen == ["CUSTOM:tr:hello world"]
+

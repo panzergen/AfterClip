@@ -3,8 +3,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 from app.application.cancellation import CancelToken
+from app.domain.prompts import PromptSet
 from app.infrastructure.gemini.client import DEFAULT_GEMINI_MODEL, GeminiClient
-from app.infrastructure.llm.prompts import PROMPT_VISION_FRAME
 
 LOGGER = logging.getLogger(__name__)
 
@@ -14,9 +14,15 @@ class GeminiVisionProvider:
 
     provider_name = "gemini"
 
-    def __init__(self, model: str = DEFAULT_GEMINI_MODEL, client: GeminiClient | None = None):
+    def __init__(
+        self,
+        model: str = DEFAULT_GEMINI_MODEL,
+        client: GeminiClient | None = None,
+        prompts: PromptSet | None = None,
+    ):
         self.model = model
         self.client = client or GeminiClient(model=model)
+        self.prompts = prompts or PromptSet()
 
     def analyze_frame(
         self,
@@ -29,6 +35,8 @@ class GeminiVisionProvider:
     ) -> str:
         if on_progress:
             on_progress(f"Gemini vision is analyzing {Path(image_path).name}")
-        prompt = PROMPT_VISION_FRAME.format(user_desc=user_task, audio_context=audio_context, lang=language or "en")
+        prompt = self.prompts.render(
+            "vision_frame", user_desc=user_task, audio_context=audio_context, lang=language or "en"
+        )
         parts = [{"text": prompt}, self.client.image_part(image_path)]
         return self.client.generate(parts, cancel_token)

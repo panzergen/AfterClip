@@ -52,6 +52,27 @@ release/
     └── ...
 ```
 
+## Installer (Inno Setup)
+
+`packaging/afterclip.iss` packages the built bundle into
+`release\AfterClip-<version>-setup.exe`. Compile it after the PyInstaller
+build:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1 -Clean -Installer
+```
+
+The `-Installer` switch locates `ISCC.exe` (PATH or the default Inno Setup 6
+install directory); install Inno Setup 6 first if it is missing. Manual
+equivalent:
+
+```powershell
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=0.3.0 packaging\afterclip.iss
+```
+
+The installer is per-user by default (`PrivilegesRequired=lowest`) and offers
+elevation for an all-users install. FFmpeg/Whisper remain external.
+
 ## Versioning
 
 `src/app/version.py` is the single source of truth. `pyproject.toml` reads it
@@ -94,8 +115,8 @@ See `TEST_SCENARIOS.md` (T29, T30) for the release smoke expectations.
   release.
 - **Icon**: drop `packaging/afterclip.ico` and the spec picks it up
   automatically; none is committed yet.
-- **Installer**: an Inno Setup (or MSIX) script is still required to produce a
-  real installer with Start Menu/Uninstall entries.
+- **Installer**: scripted in `packaging/afterclip.iss`; compiling requires
+  Inno Setup 6 (not vendored). Not yet exercised end to end here.
 - **Bundling FFmpeg/Whisper**: still unresolved (size, CUDA, licensing).
 - **Python 3.14**: verify the chosen PyInstaller version supports it; pin/test
   the interpreter version used for the release build.

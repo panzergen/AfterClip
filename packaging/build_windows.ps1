@@ -7,16 +7,18 @@
     Installs the runtime + build dependencies, then produces a one-directory
     bundle under release\AfterClip\. The executable version resource is
     generated from app\version.py by the spec, so it always matches the
-    package version. Use -Zip to also emit a distributable archive.
+    package version. Use -Zip to also emit a distributable archive and
+    -Installer to compile the Inno Setup installer (requires ISCC.exe).
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1 -Clean -Zip
+    powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1 -Clean -Zip -Installer
 #>
 [CmdletBinding()]
 param(
     [string]$Python = "python",
     [switch]$Clean,
-    [switch]$Zip
+    [switch]$Zip,
+    [switch]$Installer
 )
 
 $ErrorActionPreference = "Stop"
@@ -54,6 +56,27 @@ try {
         if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
         Compress-Archive -Path (Join-Path $bundle "*") -DestinationPath $archive
         Write-Host "Packaged $archive."
+    }
+
+    if ($Installer) {
+        $iscc = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+        if (-not $iscc) {
+            $candidates = @(
+                "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+                "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+            )
+            $found = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+            if ($found) { $iscc = @{ Source = $found } }
+        }
+        if (-not $iscc) {
+            throw "Inno Setup compiler (ISCC.exe) not found. Install Inno Setup 6 or add it to PATH."
+        }
+        Write-Host "Compiling installer with $($iscc.Source)..."
+        & $iscc.Source "/DAppVersion=$version" (Join-Path $root "packaging\afterclip.iss")
+        if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)." }
+        $setup = Join-Path $distPath "AfterClip-$version-setup.exe"
+        if (-not (Test-Path -LiteralPath $setup)) { throw "Expected installer not found: $setup" }
+        Write-Host "Built $setup."
     }
 }
 finally {

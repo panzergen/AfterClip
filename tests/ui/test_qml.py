@@ -130,6 +130,29 @@ def test_settings_dialog_loads(qapp, monkeypatch, tmp_path):
         engine.deleteLater()
 
 
+def test_prompts_dialog_loads(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QUrl
+    from PySide6.QtQml import QQmlComponent, QQmlEngine
+    from PySide6.QtQuickControls2 import QQuickStyle
+
+    controllers = _build_controllers(monkeypatch, tmp_path)
+
+    QQuickStyle.setStyle("Fusion")
+    engine = QQmlEngine()
+    _set_context(engine.rootContext(), controllers)
+    component = QQmlComponent(
+        engine, QUrl.fromLocalFile(str(QML_DIR / "PromptsDialog.qml"))
+    )
+    dialog = component.create(engine.rootContext())
+    try:
+        assert component.errors() == [], [error.toString() for error in component.errors()]
+        assert dialog is not None
+    finally:
+        if dialog is not None:
+            dialog.deleteLater()
+        engine.deleteLater()
+
+
 def test_settings_dialog_footer_does_not_overlap_content(qapp, monkeypatch, tmp_path):
     """Regression: growing the Gemini group pushed the OK/Cancel footer over it."""
     from PySide6.QtCore import QCoreApplication, QObject

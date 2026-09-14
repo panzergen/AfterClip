@@ -84,6 +84,16 @@ Dialog {
                 }
             }
 
+            RowLayout {
+                Layout.fillWidth: true
+                Button {
+                    text: qsTr("Edit prompt templates…")
+                    font.pixelSize: Theme.fontSizeSmall
+                    onClicked: promptsDialog.open()
+                }
+                Item { Layout.fillWidth: true }
+            }
+
             GroupBox {
                 id: geminiGroup
                 Layout.fillWidth: true
@@ -207,5 +217,9 @@ Dialog {
                 }
             }
         }
+    }
+
+    PromptsDialog {
+        id: promptsDialog
     }
 }

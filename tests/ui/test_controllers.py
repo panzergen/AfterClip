@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from app.domain.prompts import build_prompt_set
+from app.domain.prompts import PromptSet, build_prompt_set
 from app.infrastructure.model_catalog import ModelEntry, ModelSection
 from app.infrastructure.prompts import InMemoryPromptStore
 from app.infrastructure.settings import InMemorySettingsStore
@@ -502,4 +502,35 @@ def test_session_provider_prompts_uses_store(controllers):
 def test_session_provider_prompts_none_without_store(controllers):
     controllers.session.prompt_store = None
     assert controllers.session._provider_prompts() is None
+
+
+def test_prompt_editor_select_save_validate(controllers):
+    settings = controllers.settings
+    assert settings.promptText == PromptSet().summary
+    assert settings.promptPlaceholders
+
+    settings.promptText = "no placeholders here"
+    settings.savePrompt()
+    assert settings.promptStatusOk is False
+    assert "missing" in settings.promptStatusText
+
+    settings.promptText = "CUSTOM {lang} {transcript}"
+    settings.savePrompt()
+    assert settings.promptStatusOk is True
+    assert settings.prompt_set().summary == "CUSTOM {lang} {transcript}"
+
+
+def test_prompt_editor_select_changes_template(controllers):
+    settings = controllers.settings
+    settings.selectPrompt(2)  # summary, summary_combine, highlights, ...
+    assert settings.promptIndex == 2
+    assert settings.promptText == PromptSet().highlights
+    assert "srt_content" in settings.promptPlaceholders
+
+
+def test_prompt_editor_reset_loads_default(controllers):
+    settings = controllers.settings
+    settings.promptText = "changed"
+    settings.resetPrompt()
+    assert settings.promptText == PromptSet().summary
 

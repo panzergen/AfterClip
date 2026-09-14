@@ -4,6 +4,12 @@ from datetime import datetime
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from app.application.cloud_consent import grant_consent, has_consent, revoke_consent
+from app.domain.prompts import (
+    TEMPLATE_NAMES,
+    TEMPLATE_PLACEHOLDERS,
+    PromptSet,
+    validate_template,
+)
 from app.infrastructure.gemini import GEMINI_KEY_NAME, GeminiClient, GeminiKeyMissing
 from app.infrastructure.prompts import JsonPromptStore
 from app.infrastructure.secrets import KeyringSecretStore, SecretStoreUnavailableError
@@ -70,6 +76,11 @@ class SettingsController(QObject):
         self._key_status_text = ""
         self._key_stored = False
         self._key_input = ""
+        self._prompt_index = 0
+        self._prompt_text = ""
+        self._prompt_status_text = ""
+        self._prompt_status_ok = True
+        self._load_prompt_editor()
         self._refresh_key_status()
 
     def _get_segment_index(self) -> int:
@@ -122,6 +133,31 @@ class SettingsController(QObject):
             "confirmation of what leaves this machine."
         )
 
+    def _get_prompt_names(self) -> list:
+        return list(TEMPLATE_NAMES)
+
+    def _get_prompt_placeholders(self) -> list:
+        return sorted(TEMPLATE_PLACEHOLDERS.get(self._prompt_name(), ()))
+
+    def _get_prompt_index(self) -> int:
+        return self._prompt_index
+
+    def _set_prompt_index(self, value: int) -> None:
+        self.selectPrompt(int(value))
+
+    def _get_prompt_text(self) -> str:
+        return self._prompt_text
+
+    def _set_prompt_text(self, value: str) -> None:
+        self._prompt_text = str(value)
+        self.promptTextChanged.emit()
+
+    def _get_prompt_status_text(self) -> str:
+        return self._prompt_status_text
+
+    def _get_prompt_status_ok(self) -> bool:
+        return self._prompt_status_ok
+
     segmentIndexChanged = Signal()
     reportLanguageChanged = Signal()
     geminiModelChanged = Signal()
@@ -129,6 +165,9 @@ class SettingsController(QObject):
     modelOptionsChanged = Signal()
     keyInputChanged = Signal()
     cloudConsentChanged = Signal()
+    promptIndexChanged = Signal()
+    promptTextChanged = Signal()
+    promptStatusChanged = Signal()
 
     segmentIndex = Property(int, _get_segment_index, _set_segment_index, notify=segmentIndexChanged)
     reportLanguage = Property(
@@ -144,6 +183,18 @@ class SettingsController(QObject):
         bool, _get_cloud_consent_granted, notify=cloudConsentChanged
     )
     cloudConsentText = Property(str, _get_cloud_consent_text, notify=cloudConsentChanged)
+    promptNames = Property("QVariantList", _get_prompt_names, constant=True)
+    promptPlaceholders = Property(
+        "QVariantList", _get_prompt_placeholders, notify=promptIndexChanged
+    )
+    promptIndex = Property(
+        int, _get_prompt_index, _set_prompt_index, notify=promptIndexChanged
+    )
+    promptText = Property(str, _get_prompt_text, _set_prompt_text, notify=promptTextChanged)
+    promptStatusText = Property(
+        str, _get_prompt_status_text, notify=promptStatusChanged
+    )
+    promptStatusOk = Property(bool, _get_prompt_status_ok, notify=promptStatusChanged)
 
     def _get_key_input(self) -> str:
         return self._key_input
@@ -267,3 +318,46 @@ class SettingsController(QObject):
 
     def save_prompt_set(self, prompt_set) -> None:
         self.prompt_store.save(prompt_set)
+
+    def _prompt_name(self) -> str:
+        return TEMPLATE_NAMES[self._prompt_index]
+
+    def _load_prompt_editor(self) -> None:
+        prompt_set = self.prompt_store.load()
+        self._prompt_text = prompt_set.template(self._prompt_name())
+        self.promptTextChanged.emit()
+
+    def _set_prompt_status(self, text: str, ok: bool) -> None:
+        self._prompt_status_text = text
+        self._prompt_status_ok = ok
+        self.promptStatusChanged.emit()
+
+    @Slot(int)
+    def selectPrompt(self, index: int) -> None:
+        if 0 <= index < len(TEMPLATE_NAMES):
+            self._prompt_index = index
+            self.promptIndexChanged.emit()
+            self._load_prompt_editor()
+            self._set_prompt_status("", True)
+
+    @Slot()
+    def savePrompt(self) -> None:
+        name = self._prompt_name()
+        problems = validate_template(name, self._prompt_text)
+        if problems:
+            self._set_prompt_status("; ".join(problems), ok=False)
+            return
+        current = self.prompt_store.load()
+        self.prompt_store.save(current.with_overrides({name: self._prompt_text}))
+        self._set_prompt_status(f"Saved '{name}'.", ok=True)
+
+    @Slot()
+    def resetPrompt(self) -> None:
+        self._prompt_text = PromptSet().template(self._prompt_name())
+        self.promptTextChanged.emit()
+        self._set_prompt_status("Loaded the built-in default; press Save to apply.", ok=True)
+
+    @Slot()
+    def reloadPrompts(self) -> None:
+        self._load_prompt_editor()
+        self._set_prompt_status("", True)

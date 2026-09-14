@@ -42,6 +42,15 @@ pytest -m ui            # opt-in Qt UI tests (set QT_QPA_PLATFORM=offscreen for 
 pytest --cov=app.application --cov=app.infrastructure   # coverage
 ```
 
+## Documentation
+
+- `docs/USER_GUIDE.md` — setup, tabs, outputs and workflow
+- `docs/TROUBLESHOOTING.md` — common problems and fixes
+- `docs/PACKAGING.md` — Windows release build
+- `docs/PLATFORMS.md` — platform support, paths and secret backends
+- `docs/PRIVACY.md` — what stays local and what a cloud job sends
+- `docs/RELEASE_CHECKLIST.md` — pre-release automated + manual checks
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |

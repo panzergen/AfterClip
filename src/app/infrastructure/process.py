@@ -321,9 +321,17 @@ class FfmpegMediaTool:
 
 
 class WhisperCliProvider:
-    def __init__(self, runner: ProcessRunner | None = None, executable: str | None = None):
+    def __init__(
+        self,
+        runner: ProcessRunner | None = None,
+        executable: str | None = None,
+        condition_on_previous_text: bool = True,
+    ):
         self.runner = runner or ProcessRunner()
         self.executable = executable or find_whisper_executable() or "whisper"
+        # Disabling this reduces hallucination loops; the hallucination filter
+        # turns it off, and it stays on otherwise to preserve default output.
+        self.condition_on_previous_text = condition_on_previous_text
 
     def transcribe(self, request, on_progress: Callable[[str], None], cancel_token: CancelToken):
         command = [
@@ -336,6 +344,8 @@ class WhisperCliProvider:
             "--output_format",
             "all",
         ]
+        if not self.condition_on_previous_text:
+            command += ["--condition_on_previous_text", "False"]
         if request.language.strip():
             command += ["--language", request.language.strip()]
         on_progress("Whisper is running")

@@ -58,6 +58,37 @@ class FakeTextProvider:
         return "- 00:00:01 highlight"
 
 
+class JsonTranscriptProvider:
+    """Writes the Whisper JSON/SRT/TXT trio so the filter can run."""
+
+    def __init__(self, segments):
+        self.segments = segments
+
+    def transcribe(self, request, on_progress, cancel_token):
+        request.output_dir.mkdir(parents=True, exist_ok=True)
+        stem = request.input_path.stem
+        (request.output_dir / f"{stem}.json").write_text(
+            json.dumps({"segments": self.segments}), encoding="utf-8"
+        )
+        (request.output_dir / f"{stem}.srt").write_text("raw srt", encoding="utf-8")
+        (request.output_dir / f"{stem}.txt").write_text("raw text", encoding="utf-8")
+        return TranscriptionResult(
+            request.output_dir,
+            (request.output_dir / f"{stem}.srt", request.output_dir / f"{stem}.txt"),
+        )
+
+
+def _hallucinated_segments():
+    return [
+        {"text": "hello world", "start": 0.0, "end": 1.0, "no_speech_prob": 0.0,
+         "avg_logprob": -0.2, "compression_ratio": 1.2},
+        {"text": "Thanks for watching", "start": 1.0, "end": 2.0, "no_speech_prob": 0.0,
+         "avg_logprob": -0.2, "compression_ratio": 1.2},
+        {"text": "   ", "start": 2.0, "end": 3.0, "no_speech_prob": 0.0,
+         "avg_logprob": -0.2, "compression_ratio": 1.2},
+    ]
+
+
 def test_service_creates_transcript_output(tmp_path: Path):
     source = tmp_path / "sample.wav"
     source.write_bytes(b"fixture")
@@ -297,6 +328,48 @@ def test_resume_skips_completed_text_analysis(tmp_path: Path):
         Token(),
         resume_dir=job_dir,
     )
+
+
+def test_transcript_filter_removes_hallucination_keeps_raw(tmp_path: Path):
+    from app.application.transcript_sanitizer import SanitizerConfig
+
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"fixture")
+    service = TranscriptionService(
+        JsonTranscriptProvider(_hallucinated_segments()),
+        FakeMedia(),
+        sanitizer_config=SanitizerConfig(),
+    )
+    result = service.run(TranscriptionRequest(source, tmp_path / "out"), lambda _: None, Token())
+    job_dir = result.output_dir.parent
+    cleaned = (result.output_dir / "sample.srt").read_text(encoding="utf-8")
+    assert "hello world" in cleaned
+    assert "Thanks for watching" not in cleaned
+    assert (result.output_dir / "sample.raw.srt").read_text(encoding="utf-8") == "raw srt"
+    assert (result.output_dir / "sample.raw.json").is_file()
+    report = json.loads(
+        (job_dir / "transcript_filter_report.json").read_text(encoding="utf-8")
+    )
+    assert report["removed_count"] == 2
+    state = json.loads((job_dir / "job_state.json").read_text(encoding="utf-8"))
+    assert state["steps"]["transcript_filter"]["status"] == "completed"
+
+
+def test_transcript_filter_disabled_leaves_output_unchanged(tmp_path: Path):
+    from app.application.transcript_sanitizer import SanitizerConfig
+
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"fixture")
+    service = TranscriptionService(
+        JsonTranscriptProvider(_hallucinated_segments()),
+        FakeMedia(),
+        sanitizer_config=SanitizerConfig(enabled=False),
+    )
+    result = service.run(TranscriptionRequest(source, tmp_path / "out"), lambda _: None, Token())
+    job_dir = result.output_dir.parent
+    assert (result.output_dir / "sample.srt").read_text(encoding="utf-8") == "raw srt"
+    assert not (job_dir / "transcript_filter_report.json").exists()
+    assert not (result.output_dir / "sample.raw.srt").exists()
 
 
 def test_resume_skips_completed_frame_extraction(tmp_path: Path):

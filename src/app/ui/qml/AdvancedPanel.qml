@@ -110,6 +110,17 @@ ColumnLayout {
                 onActivated: (index) => jobForm.segmentIndex = index
             }
         }
+
+        CheckBox {
+            Layout.fillWidth: true
+            text: qsTr("Filter Whisper hallucinations (silence, loops, boilerplate)")
+            checked: jobForm.transcriptFilter
+            onToggled: jobForm.transcriptFilter = checked
+            font.pixelSize: Theme.fontSizeSmall
+            ToolTip.visible: hovered
+            ToolTip.delay: 400
+            ToolTip.text: qsTr("Drops hallucinated segments using Whisper probabilities and a boilerplate list. The raw transcript is kept as *.raw.* plus transcript_filter_report.json.")
+        }
     }
 
     // -- AI analysis ---------------------------------------------------------

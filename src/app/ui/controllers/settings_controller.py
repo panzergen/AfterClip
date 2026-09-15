@@ -4,6 +4,7 @@ from datetime import datetime
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from app.application.cloud_consent import grant_consent, has_consent, revoke_consent
+from app.application.transcript_sanitizer import SanitizerConfig
 from app.domain.prompts import (
     TEMPLATE_NAMES,
     TEMPLATE_PLACEHOLDERS,
@@ -25,6 +26,7 @@ DEFAULT_SEGMENT_SECONDS = 30.0
 SEGMENT_SETTINGS_KEY = "transcript_segment_seconds"
 GEMINI_MODEL_SETTINGS_KEY = "gemini_model"
 REPORT_LANGUAGE_SETTINGS_KEY = "report_language"
+SANITIZER_SETTINGS_KEY = "transcript_filter"
 GEMINI_MODEL_CHOICES = ("gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-pro")
 
 
@@ -311,6 +313,10 @@ class SettingsController(QObject):
 
     def report_language(self) -> str:
         return self._report_language.strip()
+
+    def sanitizer_config(self) -> SanitizerConfig:
+        """Hallucination filter config from settings (defaults when unset)."""
+        return SanitizerConfig.from_dict(self.store.get(SANITIZER_SETTINGS_KEY) or {})
 
     def prompt_set(self):
         """Resolved prompt templates used for the next job (Phase 4 WS-B)."""

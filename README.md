@@ -47,6 +47,7 @@ pytest --cov=app.application --cov=app.infrastructure   # coverage
 - `docs/USER_GUIDE.md` — setup, tabs, outputs and workflow
 - `docs/PROMPTS.md` — editable prompt templates and placeholders
 - `docs/PRESETS.md` — save/apply named job presets
+- `docs/TRANSCRIPT_FILTER.md` — Whisper hallucination filtering
 - `docs/TROUBLESHOOTING.md` — common problems and fixes
 - `docs/PACKAGING.md` — Windows release build
 - `docs/PLATFORMS.md` — platform support, paths and secret backends

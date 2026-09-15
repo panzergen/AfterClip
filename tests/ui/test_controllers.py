@@ -594,3 +594,10 @@ def test_validate_corrects_output_dir_that_is_a_job_folder(controllers, monkeypa
     assert form.outputDir == str(tmp_path / "out")
     assert any("corrected" in title.lower() for title, _ in alerts)
 
+
+def test_sanitizer_config_respects_per_job_toggle(controllers):
+    session = controllers.session
+    assert session._sanitizer_config().enabled is True
+    session.job_form.transcriptFilter = False
+    assert session._sanitizer_config().enabled is False
+

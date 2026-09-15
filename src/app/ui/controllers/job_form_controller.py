@@ -66,6 +66,7 @@ class JobFormController(QObject):
         self._frame_resolution_index = 0
         self._embed_frames = False
         self._reuse_transcription = False
+        self._transcript_filter = True
         self._analysis_entries: list[dict] = []
         self._vision_entries: list[dict] = []
         self._apply_stored_defaults()
@@ -322,6 +323,13 @@ class JobFormController(QObject):
         self._reuse_transcription = bool(value)
         self.reuseTranscriptionChanged.emit()
 
+    def _get_transcript_filter(self) -> bool:
+        return self._transcript_filter
+
+    def _set_transcript_filter(self, value: bool) -> None:
+        self._transcript_filter = bool(value)
+        self.transcriptFilterChanged.emit()
+
     intervalModeChanged = Signal()
     sceneModeChanged = Signal()
     frameIntervalChanged = Signal()
@@ -329,6 +337,7 @@ class JobFormController(QObject):
     frameResolutionIndexChanged = Signal()
     embedFramesChanged = Signal()
     reuseTranscriptionChanged = Signal()
+    transcriptFilterChanged = Signal()
 
     intervalMode = Property(
         bool, _get_interval_mode, _set_interval_mode, notify=intervalModeChanged
@@ -352,6 +361,12 @@ class JobFormController(QObject):
         _get_reuse_transcription,
         _set_reuse_transcription,
         notify=reuseTranscriptionChanged,
+    )
+    transcriptFilter = Property(
+        bool,
+        _get_transcript_filter,
+        _set_transcript_filter,
+        notify=transcriptFilterChanged,
     )
 
     # -- support files -----------------------------------------------------------

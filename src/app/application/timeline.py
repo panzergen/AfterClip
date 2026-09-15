@@ -163,8 +163,9 @@ def find_transcript_srt(transcript_dir: Path, audio_stem: str) -> Path | None:
         if candidate.is_file():
             return candidate
     for candidate in sorted(transcript_dir.glob("*.srt")):
-        if not candidate.stem.endswith("_vision_analysis"):
-            return candidate
+        if candidate.name.endswith(".raw.srt") or candidate.stem.endswith("_vision_analysis"):
+            continue
+        return candidate
     return None
 
 

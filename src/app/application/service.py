@@ -1,3 +1,4 @@
+import json
 import logging
 import shutil
 from collections.abc import Callable
@@ -33,6 +34,13 @@ from app.application.timeline import (
     parse_speaker_vtt,
     write_master_timeline,
 )
+from app.application.transcript_sanitizer import (
+    SanitizerConfig,
+    load_segments,
+    render_srt,
+    render_text,
+    sanitize_segments,
+)
 from app.domain.models import ProgressEvent, TranscriptionRequest, TranscriptionResult
 from app.infrastructure.llm.transport import chunk_text
 from app.infrastructure.process import get_media_metadata
@@ -57,11 +65,13 @@ class TranscriptionService:
         media_tool: MediaTool,
         text_provider: TextAnalysisProvider | None = None,
         vision_provider: VisionProvider | None = None,
+        sanitizer_config: SanitizerConfig | None = None,
     ):
         self.provider = provider
         self.media_tool = media_tool
         self.text_provider = text_provider
         self.vision_provider = vision_provider
+        self.sanitizer_config = sanitizer_config
 
     def run(
         self,
@@ -158,6 +168,14 @@ class TranscriptionService:
                     emit_start=False,
                     end_percent=95,
                 )
+            if self.sanitizer_config is not None and self.sanitizer_config.enabled:
+                filter_report = job_dir / "transcript_filter_report.json"
+                if self._transcript_filter_cached(context, filter_report):
+                    recorder.context.on_event(
+                        ProgressEvent("Transcript filter resumed from cache", 94)
+                    )
+                else:
+                    self._run_transcript_filter(recorder, transcript_dir, audio_path)
             if request.extract_frames:
                 selected_modes = request.frame_modes or (request.frame_mode,)
                 frames_dir = job_dir / "Vision" / "frames"
@@ -246,6 +264,59 @@ class TranscriptionService:
         recorder.finish("Succeeded")
         on_event(ProgressEvent("Transcription complete", 100))
         return result
+
+    @staticmethod
+    def _transcript_filter_cached(context: JobContext, report_path: Path) -> bool:
+        if context.steps.get("transcript_filter", {}).get("status") != "completed":
+            return False
+        return report_path.is_file()
+
+    def _run_transcript_filter(
+        self, recorder: StepRecorder, transcript_dir: Path, audio_path: Path
+    ) -> None:
+        """Deterministically drop hallucinated segments; keep raw + a report (WS-C)."""
+        config = self.sanitizer_config
+        job_dir = recorder.context.job_dir
+        stem = audio_path.stem
+        json_path = transcript_dir / f"{stem}.json"
+        srt_path = transcript_dir / f"{stem}.srt"
+        txt_path = transcript_dir / f"{stem}.txt"
+        raw_json = transcript_dir / f"{stem}.raw.json"
+        raw_srt = transcript_dir / f"{stem}.raw.srt"
+        raw_txt = transcript_dir / f"{stem}.raw.txt"
+
+        def action() -> None:
+            if not json_path.is_file():
+                raise RuntimeError("Whisper JSON transcript not found for filtering.")
+            # Preserve the raw output exactly once; re-runs stay idempotent by
+            # always filtering from the preserved raw copy.
+            if not raw_json.is_file():
+                shutil.copy2(json_path, raw_json)
+                if srt_path.is_file():
+                    shutil.copy2(srt_path, raw_srt)
+                if txt_path.is_file():
+                    shutil.copy2(txt_path, raw_txt)
+            segments = load_segments(raw_json)
+            result = sanitize_segments(segments, config)
+            srt_path.write_text(render_srt(result.kept), encoding="utf-8")
+            txt_path.write_text(render_text(result.kept), encoding="utf-8")
+            report = result.report()
+            report["config"] = config.to_dict()
+            (job_dir / "transcript_filter_report.json").write_text(
+                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            recorder.context.state["transcript_filter"] = {
+                "removed": report["removed_count"],
+                "flagged": report["flagged_count"],
+            }
+
+        recorder.record(
+            "transcript_filter",
+            "Transcript hallucination filter",
+            94,
+            action,
+            tolerated_failure_event=("Transcript filter failed; raw transcript kept", 94),
+        )
 
     @staticmethod
     def _frames_cached(context: JobContext, mode: str, frames_dir: Path) -> bool:

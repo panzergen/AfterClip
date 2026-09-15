@@ -171,6 +171,28 @@ def test_whisper_provider_collects_files_by_stem(tmp_path):
     assert {file.name for file in result.transcript_files} == {"sample.txt", "sample.srt"}
 
 
+def test_whisper_provider_condition_flag_disabled_adds_arg(tmp_path):
+    class RecordingRunner(FakeRunner):
+        def run(self, command, cancel_token):
+            self.commands.append(command)
+            output = tmp_path / "out"
+            output.mkdir(exist_ok=True)
+            (output / "sample.srt").write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\nHello\n", encoding="utf-8"
+            )
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+    provider = WhisperCliProvider(
+        runner=RecordingRunner(), executable="whisper", condition_on_previous_text=False
+    )
+    provider.transcribe(
+        TranscriptionRequest(tmp_path / "sample.wav", tmp_path / "out", "tiny", ""),
+        lambda message: None,
+        CancellationToken(),
+    )
+    assert "--condition_on_previous_text" in provider.runner.commands[0]
+
+
 def test_whisper_provider_surfaces_failure(tmp_path):
     class FailingRunner(FakeRunner):
         def run(self, command, cancel_token):

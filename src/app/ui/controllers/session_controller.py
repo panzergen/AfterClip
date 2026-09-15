@@ -1,4 +1,5 @@
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import Property, QObject, QThread, QTimer, QUrl, Signal, Slot
@@ -7,6 +8,7 @@ from PySide6.QtGui import QDesktopServices
 import app.app_paths as app_paths
 from app.application.cloud_consent import payload_summary
 from app.application.service_io import find_reusable_job_dir
+from app.application.transcript_sanitizer import SanitizerConfig
 from app.domain.constants import VIDEO_SUFFIXES
 from app.domain.models import ProgressEvent, TranscriptionRequest
 from app.infrastructure.diagnostics import check_environment, check_output_dir
@@ -410,13 +412,23 @@ class SessionController(QObject):
     ) -> TranscriptionWorker:
         from app.application.service import TranscriptionService
 
+        config = self._sanitizer_config()
         return TranscriptionWorker(
             TranscriptionService(
-                WhisperCliProvider(), FfmpegMediaTool(), text_provider, vision_provider
+                WhisperCliProvider(condition_on_previous_text=not config.enabled),
+                FfmpegMediaTool(),
+                text_provider,
+                vision_provider,
+                sanitizer_config=config,
             ),
             request,
             resume_dir=resume_dir,
         )
+
+    def _sanitizer_config(self) -> SanitizerConfig:
+        """Filter config: settings thresholds, enabled by the per-job toggle."""
+        base = self.settings.sanitizer_config() if self.settings is not None else SanitizerConfig()
+        return replace(base, enabled=base.enabled and self.job_form.transcriptFilter)
 
     def _validate_start_conditions(self):
         """Shared preflight checks; returns (input_path, output_dir, clip_start, clip_end) or None."""  # noqa: E501

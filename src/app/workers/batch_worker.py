@@ -6,6 +6,7 @@ from app.application.batch import BatchJob, BatchStore, run_batch
 from app.application.cancellation import CancellationToken
 from app.application.providers import build_text_provider, build_vision_provider
 from app.application.service import TranscriptionService
+from app.application.transcript_sanitizer import SanitizerConfig
 from app.infrastructure.process import FfmpegMediaTool, WhisperCliProvider
 
 LOGGER = logging.getLogger(__name__)
@@ -31,11 +32,13 @@ class BatchWorker(QObject):
     def _run_job(self, job: BatchJob, on_event, token) -> None:
         # A missing Gemini key surfaces as a per-job failure with a clear
         # error; the batch continues with the remaining jobs.
+        config = SanitizerConfig()
         service = TranscriptionService(
-            WhisperCliProvider(),
+            WhisperCliProvider(condition_on_previous_text=not config.enabled),
             FfmpegMediaTool(),
             build_text_provider(job.text_spec()),
             build_vision_provider(job.vision_spec()),
+            sanitizer_config=config,
         )
         service.run(job.to_request(), lambda event: on_event(event.message), token)
 

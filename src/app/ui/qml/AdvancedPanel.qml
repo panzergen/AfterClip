@@ -13,6 +13,64 @@ ColumnLayout {
     Layout.fillWidth: true
     spacing: 6
 
+    // -- Presets -------------------------------------------------------------
+    FieldRow {
+        Layout.fillWidth: true
+        label: qsTr("Preset")
+        Row {
+            spacing: 8
+            ComboBox {
+                width: 180
+                model: presets.names
+                currentIndex: presets.selectedIndex
+                font.pixelSize: Theme.fontSizeSmall
+                onActivated: (index) => presets.selectedIndex = index
+            }
+            Button {
+                text: qsTr("Apply")
+                font.pixelSize: Theme.fontSizeSmall
+                enabled: presets.hasPresets
+                onClicked: presets.applySelected()
+            }
+            Button {
+                text: qsTr("Delete")
+                font.pixelSize: Theme.fontSizeSmall
+                enabled: presets.hasPresets
+                onClicked: presets.deleteSelected()
+            }
+        }
+    }
+
+    FieldRow {
+        Layout.fillWidth: true
+        label: qsTr("Save preset")
+        Row {
+            spacing: 8
+            TextField {
+                width: 180
+                placeholderText: qsTr("Preset name")
+                text: presets.newName
+                font.pixelSize: Theme.fontSizeSmall
+                selectByMouse: true
+                onTextEdited: presets.newName = text
+            }
+            Button {
+                text: qsTr("Save")
+                font.pixelSize: Theme.fontSizeSmall
+                onClicked: presets.saveCurrent()
+            }
+        }
+    }
+
+    Text {
+        visible: presets.statusText.length > 0
+        Layout.fillWidth: true
+        text: presets.statusText
+        font.pixelSize: Theme.fontSizeCaption
+        color: Theme.muted
+        wrapMode: Text.Wrap
+    }
+
     // -- Transcript (Whisper) ------------------------------------------------
     AccordionHeader {
         Layout.fillWidth: true

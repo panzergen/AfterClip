@@ -54,6 +54,7 @@ def main() -> int:
     context.setContextProperty("env", controllers.environment)
     context.setContextProperty("jobForm", controllers.job_form)
     context.setContextProperty("settings", controllers.settings)
+    context.setContextProperty("presets", controllers.presets)
     qml_path = app_paths.package_dir() / "ui" / "qml" / "Main.qml"
     engine.load(QUrl.fromLocalFile(str(qml_path)))
     if not engine.rootObjects():

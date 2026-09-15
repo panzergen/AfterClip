@@ -86,6 +86,7 @@ def _set_context(context, controllers):
     context.setContextProperty("env", controllers.environment)
     context.setContextProperty("jobForm", controllers.job_form)
     context.setContextProperty("settings", controllers.settings)
+    context.setContextProperty("presets", controllers.presets)
 
 
 def test_main_qml_loads(qapp, monkeypatch, tmp_path):

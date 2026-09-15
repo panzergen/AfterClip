@@ -9,6 +9,7 @@ import pytest
 
 from app.domain.prompts import PromptSet, build_prompt_set
 from app.infrastructure.model_catalog import ModelEntry, ModelSection
+from app.infrastructure.presets import InMemoryPresetStore
 from app.infrastructure.prompts import InMemoryPromptStore
 from app.infrastructure.settings import InMemorySettingsStore
 from app.ui.app import build_controllers
@@ -68,6 +69,7 @@ def controllers(qapp, monkeypatch, tmp_path):
         settings_store=InMemorySettingsStore(),
         key_store=NoKeyStore(),
         prompt_store=InMemoryPromptStore(),
+        preset_store=InMemoryPresetStore(),
     )
 
 
@@ -533,4 +535,35 @@ def test_prompt_editor_reset_loads_default(controllers):
     settings.promptText = "changed"
     settings.resetPrompt()
     assert settings.promptText == PromptSet().summary
+
+
+def test_presets_save_apply_delete(controllers):
+    presets = controllers.presets
+    form = controllers.job_form
+    settings = controllers.settings
+
+    assert presets.names == []
+    assert presets.hasPresets is False
+
+    form.whisperModel = "small"
+    form.frameInterval = 25
+    settings.save_prompt_set(build_prompt_set({"summary": "PRESET {lang} {transcript}"}))
+    presets.newName = "meeting"
+    presets.saveCurrent()
+    assert presets.names == ["meeting"]
+    assert presets.hasPresets is True
+
+    # Change the form and reset prompts, then apply the preset.
+    form.whisperModel = "large"
+    form.frameInterval = 5
+    settings.save_prompt_set(build_prompt_set({}))
+    presets.selectedIndex = 0
+    presets.applySelected()
+    assert form.whisperModel == "small"
+    assert form.frameInterval == 25
+    assert settings.prompt_set().summary == "PRESET {lang} {transcript}"
+
+    presets.deleteSelected()
+    assert presets.names == []
+    assert presets.hasPresets is False
 

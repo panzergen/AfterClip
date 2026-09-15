@@ -6,6 +6,7 @@ Prefer importing specific modules (`app.application.ports.transcription`) or
 from app.application.cancellation import CancelToken, ProcessingCancelled
 from app.application.ports.batch import BatchQueue
 from app.application.ports.media_tool import MediaTool
+from app.application.ports.preset_store import PresetStore
 from app.application.ports.prompt_store import PromptStore
 from app.application.ports.secret_store import SecretStore
 from app.application.ports.settings_store import SettingsStore
@@ -17,6 +18,7 @@ __all__ = [
     "BatchQueue",
     "CancelToken",
     "MediaTool",
+    "PresetStore",
     "ProcessingCancelled",
     "PromptStore",
     "SecretStore",

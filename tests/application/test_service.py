@@ -266,3 +266,69 @@ def test_service_reuse_dir_skips_transcription(tmp_path: Path):
         TranscriptionRequest(source, tmp_path / "out"), lambda _: None, Token(), resume_dir=job_dir
     )
     assert reused.transcript_files[0].name == "sample.srt"
+
+
+def test_resume_skips_completed_text_analysis(tmp_path: Path):
+    class ExplodingTextProvider:
+        def summarize(self, *args, **kwargs):
+            raise AssertionError("cached text analysis must not call the provider")
+
+        def extract_highlights(self, *args, **kwargs):
+            raise AssertionError("cached highlights must not call the provider")
+
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"fixture")
+    first = TranscriptionService(FakeProvider(), FakeMedia(), FakeTextProvider()).run(
+        TranscriptionRequest(
+            source, tmp_path / "out", analyze_text=True, analysis_model="test-model"
+        ),
+        lambda _: None,
+        Token(),
+    )
+    job_dir = first.output_dir.parent
+    assert (job_dir / "AI_Analysis.md").is_file()
+
+    # Re-running must reuse the completed text analysis instead of calling AI again.
+    TranscriptionService(FakeProvider(), FakeMedia(), ExplodingTextProvider()).run(
+        TranscriptionRequest(
+            source, tmp_path / "out", analyze_text=True, analysis_model="test-model"
+        ),
+        lambda _: None,
+        Token(),
+        resume_dir=job_dir,
+    )
+
+
+def test_resume_skips_completed_frame_extraction(tmp_path: Path):
+    class IntervalMedia(FakeMedia):
+        def extract_interval_frames(self, *args, **kwargs):
+            frames_dir = args[1]
+            frames_dir.mkdir(parents=True, exist_ok=True)
+            frame = frames_dir / "interval_000001.png"
+            frame.write_bytes(b"frame")
+            return (frame,)
+
+    class ExplodingMedia(IntervalMedia):
+        def extract_interval_frames(self, *args, **kwargs):
+            raise AssertionError("cached frames must not be re-extracted")
+
+    source = tmp_path / "sample.mp4"
+    source.write_bytes(b"fixture")
+    first = TranscriptionService(FakeProvider(), IntervalMedia()).run(
+        TranscriptionRequest(
+            source, tmp_path / "out", extract_frames=True, frame_modes=("interval",)
+        ),
+        lambda _: None,
+        Token(),
+    )
+    job_dir = first.output_dir.parent
+    assert any((job_dir / "Vision" / "frames").glob("interval_*.png"))
+
+    TranscriptionService(FakeProvider(), ExplodingMedia()).run(
+        TranscriptionRequest(
+            source, tmp_path / "out", extract_frames=True, frame_modes=("interval",)
+        ),
+        lambda _: None,
+        Token(),
+        resume_dir=job_dir,
+    )

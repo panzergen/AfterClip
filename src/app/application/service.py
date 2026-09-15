@@ -160,14 +160,22 @@ class TranscriptionService:
                 )
             if request.extract_frames:
                 selected_modes = request.frame_modes or (request.frame_mode,)
+                frames_dir = job_dir / "Vision" / "frames"
                 for mode in selected_modes:
+                    if self._frames_cached(context, mode, frames_dir):
+                        recorder.context.on_event(
+                            ProgressEvent(
+                                f"Frame extraction ({mode.title()}) resumed from cache", 98
+                            )
+                        )
+                        continue
                     recorder.record(
                         f"frame_extraction_{mode}",
                         f"Frame extraction ({mode.title()})",
                         98,
                         lambda mode=mode: self.media_tool.extract_interval_frames(
                             request.input_path,
-                            job_dir / "Vision" / "frames",
+                            frames_dir,
                             request.frame_interval,
                             cancel_token,
                             request.clip_start,
@@ -178,7 +186,6 @@ class TranscriptionService:
                             request.frame_resolution,
                         ),
                     )
-                frames_dir = job_dir / "Vision" / "frames"
                 if not any(frames_dir.glob("*.png")):
                     LOGGER.warning("Frame extraction produced 0 frames in %s", frames_dir)
                     recorder.context.on_event(
@@ -188,7 +195,12 @@ class TranscriptionService:
                         )
                     )
             if request.analyze_text and self.text_provider is not None:
-                self._run_text_analysis(recorder, transcript_dir, audio_path, cancel_token)
+                if self._text_analysis_cached(context):
+                    recorder.context.on_event(
+                        ProgressEvent("AI text analysis resumed from cache", 96)
+                    )
+                else:
+                    self._run_text_analysis(recorder, transcript_dir, audio_path, cancel_token)
             if request.analyze_vision and self.vision_provider is not None:
                 vision_srt = job_dir / "Vision" / "vision_analysis.srt"
                 frames_dir = job_dir / "Vision" / "frames"
@@ -234,6 +246,23 @@ class TranscriptionService:
         recorder.finish("Succeeded")
         on_event(ProgressEvent("Transcription complete", 100))
         return result
+
+    @staticmethod
+    def _frames_cached(context: JobContext, mode: str, frames_dir: Path) -> bool:
+        """True when this frame mode completed earlier and its frames still exist."""
+        if context.steps.get(f"frame_extraction_{mode}", {}).get("status") != "completed":
+            return False
+        if not frames_dir.is_dir():
+            return False
+        pattern = "scene_*.png" if mode == "scene" else "interval_*.png"
+        return any(frames_dir.glob(pattern))
+
+    @staticmethod
+    def _text_analysis_cached(context: JobContext) -> bool:
+        """True when text analysis completed earlier and its report remains."""
+        if context.steps.get("text_analysis", {}).get("status") != "completed":
+            return False
+        return (context.job_dir / "AI_Analysis.md").is_file()
 
     def _record_cloud_usage(self, recorder: StepRecorder) -> None:
         """Persist provider usage/cost metadata when a cloud client ran (Phase 3)."""

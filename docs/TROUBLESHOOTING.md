@@ -55,6 +55,17 @@ retry. Long Windows paths (> 260 chars) may also need long-path support enabled.
 - Preview frames are cached under `<workspace>\.cache\previews`; deleting that
   folder forces a rebuild.
 
+## "No previous transcription" when I expected a resume
+
+Reuse/resume searches for job folders **under** the selected output directory.
+If the output directory is itself a job folder (it contains `job_state.json`),
+AfterClip detects this, switches to its parent and tells you. Always select the
+folder that contains job folders (e.g. `...\Output-Folder`), not a job folder
+like `...\Output-Folder\<job>`.
+
+On resume, completed **media preparation, transcription, frame extraction,
+text analysis and vision analysis** are reused; other steps re-run.
+
 ## Job failed / cancelled
 
 - Check `Summary_Report.md` and the `Processing Steps` table for the failing

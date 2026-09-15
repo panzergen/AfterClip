@@ -427,6 +427,21 @@ class SessionController(QObject):
                 "Invalid input", "Select an existing media file and an output directory."
             )
             return None
+        if (output_dir / "job_state.json").is_file():
+            # The output directory is itself a job folder; reuse/resume scans
+            # for job folders *under* the output dir, so nesting a job inside an
+            # older one is always wrong. Use the parent instead.
+            corrected = output_dir.parent
+            LOGGER.info("Output directory is a job folder; using parent %s", corrected)
+            self.job_form.outputDir = str(corrected)
+            output_dir = corrected
+            self.alert.emit(
+                "Output directory corrected",
+                "The selected output directory is an existing job folder. AfterClip "
+                f"will use its parent instead:\n\n{corrected}\n\n"
+                "Choose the folder that contains job folders so reuse/resume can "
+                "find them.",
+            )
         problem = check_output_dir(output_dir)
         if problem:
             self.alert.emit("Output directory problem", problem)

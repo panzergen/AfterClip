@@ -567,3 +567,30 @@ def test_presets_save_apply_delete(controllers):
     assert presets.names == []
     assert presets.hasPresets is False
 
+
+def test_validate_corrects_output_dir_that_is_a_job_folder(controllers, monkeypatch, tmp_path):
+    session = controllers.session
+    form = controllers.job_form
+
+    source = tmp_path / "in.mp4"
+    source.write_bytes(b"x")
+    session._current_input = str(source)
+
+    job_folder = tmp_path / "out" / "somejob"
+    job_folder.mkdir(parents=True)
+    (job_folder / "job_state.json").write_text("{}", encoding="utf-8")
+    form.outputDir = str(job_folder)
+
+    monkeypatch.setattr(
+        "app.ui.controllers.session_controller.check_environment",
+        lambda: types.SimpleNamespace(ffmpeg=True, ffprobe=True, whisper=True),
+    )
+    alerts = []
+    session.alert.connect(lambda title, text: alerts.append((title, text)))
+
+    conditions = session._validate_start_conditions()
+    assert conditions is not None
+    assert conditions[1] == tmp_path / "out"
+    assert form.outputDir == str(tmp_path / "out")
+    assert any("corrected" in title.lower() for title, _ in alerts)
+

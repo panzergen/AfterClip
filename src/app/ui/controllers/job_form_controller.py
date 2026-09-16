@@ -27,6 +27,8 @@ FRAME_RESOLUTION_LABELS = (
 )
 SUPPORT_FILE_EXTENSIONS = (".vtt", ".txt", ".srt", ".doc", ".docx", ".md", ".png", ".jpg", ".jpeg")
 GEMINI_STATIC_MODELS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-pro"]
+ANALYSIS_MODEL_CHOICE_KEY = "analysis_model_choice"
+VISION_MODEL_CHOICE_KEY = "vision_model_choice"
 SEGMENT_INDEX_MAPPING = {0.0: 0, 15.0: 1, 30.0: 2, 60.0: 3}
 
 
@@ -60,6 +62,8 @@ class JobFormController(QObject):
         self._vision_enabled = False
         self._analysis_model_text = ""
         self._vision_model_text = ""
+        self._analysis_model_user_set = False
+        self._vision_model_user_set = False
         self._analysis_model_enabled = False
         self._vision_model_enabled = False
         self._interval_mode = False
@@ -228,6 +232,7 @@ class JobFormController(QObject):
 
     def _set_analysis_model_text(self, value: str) -> None:
         self._analysis_model_text = str(value)
+        self._analysis_model_user_set = True
         self.analysisModelTextChanged.emit()
 
     def _get_vision_model_text(self) -> str:
@@ -235,6 +240,7 @@ class JobFormController(QObject):
 
     def _set_vision_model_text(self, value: str) -> None:
         self._vision_model_text = str(value)
+        self._vision_model_user_set = True
         self.visionModelTextChanged.emit()
 
     def _get_analysis_model_enabled(self) -> bool:
@@ -487,12 +493,13 @@ class JobFormController(QObject):
     @Slot(object)
     def populate_models(self, sections) -> None:
         stored_model = self.store_value(GEMINI_MODEL_SETTINGS_KEY)
+        choices = {False: self._load_model_choice(False), True: self._load_model_choice(True)}
         for want_vision in (False, True):
             entries: list[dict] = []
             for section in sections:
                 entries.append(
                     {
-                        "label": f"── {section.title} ──",
+                        "label": section.title,
                         "header": True,
                         "provider": section.provider,
                         "name": "",
@@ -515,8 +522,18 @@ class JobFormController(QObject):
                 previous, self._vision_entries = self._vision_model_text, entries
             else:
                 previous, self._analysis_entries = self._analysis_model_text, entries
-                if not previous and stored_model:
-                    previous = str(stored_model)
+            choice = choices[want_vision]
+            user_set = self._vision_model_user_set if want_vision else self._analysis_model_user_set
+            if not user_set and choice:
+                # Restore the model (and its provider) used last session.
+                previous = str(choice.get("name") or "")
+                provider = str(choice.get("provider") or "")
+                if provider:
+                    self._cloud_provider = provider
+                    self._cloud_selected = is_cloud(provider)
+                    self.cloudSelectedChanged.emit()
+            elif not want_vision and not previous and stored_model:
+                previous = str(stored_model)
             if previous:
                 if want_vision:
                     if self._vision_model_text != previous:
@@ -534,6 +551,18 @@ class JobFormController(QObject):
             return JsonSettingsStore().get(key)
         except Exception:
             return None
+
+    def _load_model_choice(self, analysis: bool):
+        key = ANALYSIS_MODEL_CHOICE_KEY if analysis else VISION_MODEL_CHOICE_KEY
+        value = self.store_value(key)
+        return value if isinstance(value, dict) and value.get("name") else None
+
+    def _store_model_choice(self, analysis: bool, provider: str, name: str) -> None:
+        key = ANALYSIS_MODEL_CHOICE_KEY if analysis else VISION_MODEL_CHOICE_KEY
+        try:
+            JsonSettingsStore().set(key, {"provider": provider, "name": name})
+        except Exception:
+            pass
 
     @Slot(int)
     def selectAnalysisModel(self, index: int) -> None:
@@ -558,12 +587,16 @@ class JobFormController(QObject):
         # the selected index, the request is built from this text).
         name = str(entry.get("name") or "")
         if analysis:
+            self._analysis_model_user_set = True
             if self._analysis_model_text != name:
                 self._analysis_model_text = name
                 self.analysisModelTextChanged.emit()
-        elif self._vision_model_text != name:
-            self._vision_model_text = name
-            self.visionModelTextChanged.emit()
+        else:
+            self._vision_model_user_set = True
+            if self._vision_model_text != name:
+                self._vision_model_text = name
+                self.visionModelTextChanged.emit()
+        self._store_model_choice(analysis, str(provider or ""), name)
         self.refresh_provider_state()
 
     def _resolve_model(self, entries: list, text: str, analysis: bool) -> tuple[str, str] | None:

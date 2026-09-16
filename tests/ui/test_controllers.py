@@ -648,6 +648,40 @@ def test_settings_provider_switch_updates_key_status(controllers):
     assert "OpenCode Go" in settings.keyStatusText
 
 
+def test_populate_models_header_labels_are_plain_titles(controllers):
+    sections = (
+        ModelSection(
+            "Ollama (local)",
+            "ollama",
+            (ModelEntry("ollama", "llama3.1:8b", text_capable=True),),
+        ),
+    )
+    controllers.job_form.populate_models(sections)
+    headers = [entry for entry in controllers.job_form.analysisEntries if entry["header"]]
+    assert headers and headers[0]["label"] == "Ollama (local)"
+
+
+def test_populate_models_restores_last_choice(controllers, monkeypatch):
+    form = controllers.job_form
+    monkeypatch.setattr(
+        form,
+        "_load_model_choice",
+        lambda analysis: {"provider": "gemini", "name": "gemini-2.5-flash"}
+        if not analysis
+        else None,
+    )
+    sections = (
+        ModelSection(
+            "Gemini (cloud API)",
+            "gemini",
+            (ModelEntry("gemini", "gemini-2.5-flash", text_capable=True, vision_capable=True),),
+        ),
+    )
+    form.populate_models(sections)
+    assert form.analysisModelText == "gemini-2.5-flash"
+    assert form.cloudSelected is True
+
+
 def test_settings_provider_switch_clears_models(controllers):
     settings = controllers.settings
     settings._model_options = ["leftover/model"]

@@ -136,30 +136,42 @@ ColumnLayout {
         Layout.fillWidth: true
         spacing: 6
 
-        CheckBox {
-            text: qsTr("Enable AI analysis (summary and highlights)")
-            enabled: jobForm.analysisAllowed
-            checked: jobForm.analysisEnabled
-            onToggled: jobForm.analysisEnabled = checked
-            font.pixelSize: Theme.fontSizeSmall
-        }
-
-        CatalogComboBox {
+        RowLayout {
             Layout.fillWidth: true
-            vision: false
+            spacing: 8
+
+            CheckBox {
+                text: qsTr("AI text analysis")
+                enabled: jobForm.analysisAllowed
+                checked: jobForm.analysisEnabled
+                onToggled: jobForm.analysisEnabled = checked
+                font.pixelSize: Theme.fontSizeSmall
+            }
+
+            CatalogComboBox {
+                Layout.fillWidth: true
+                visible: jobForm.analysisEnabled
+                vision: false
+            }
         }
 
-        CheckBox {
-            text: qsTr("Enable AI vision analysis (describe frames)")
-            enabled: jobForm.visionAllowed
-            checked: jobForm.visionEnabled
-            onToggled: jobForm.visionEnabled = checked
-            font.pixelSize: Theme.fontSizeSmall
-        }
-
-        CatalogComboBox {
+        RowLayout {
             Layout.fillWidth: true
-            vision: true
+            spacing: 8
+
+            CheckBox {
+                text: qsTr("AI vision analysis")
+                enabled: jobForm.visionAllowed
+                checked: jobForm.visionEnabled
+                onToggled: jobForm.visionEnabled = checked
+                font.pixelSize: Theme.fontSizeSmall
+            }
+
+            CatalogComboBox {
+                Layout.fillWidth: true
+                visible: jobForm.visionEnabled
+                vision: true
+            }
         }
     }
 

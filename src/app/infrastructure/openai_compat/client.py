@@ -9,6 +9,7 @@ import base64
 import logging
 import time
 import urllib.error
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 
@@ -93,6 +94,7 @@ class OpenAICompatClient:
         get_fn: Callable[[str, float, dict], dict] | None = None,
         sleep_fn: Callable[[float], None] | None = None,
         clock_fn: Callable[[], float] | None = None,
+        session_id: str | None = None,
     ):
         self.model = model
         self.base_url = base_url.rstrip("/")
@@ -100,6 +102,7 @@ class OpenAICompatClient:
         self.timeout = timeout
         self.max_retries = max_retries
         self.min_interval = min_interval
+        self.session_id = session_id or uuid.uuid4().hex
         self.key_getter = key_getter or (
             lambda: KeyringSecretStore().get(f"{provider}_api_key")
         )
@@ -126,6 +129,25 @@ class OpenAICompatClient:
             )
         )
 
+    def _auth_headers(self, key: str) -> dict:
+        headers = {"Authorization": f"Bearer {key}", **_default_headers()}
+        # OpenCode Go requires a stable per-conversation session id for routing
+        # and prompt caching (docs: opencode.ai/docs/go). Missing it is a 400.
+        if self.provider == "opencode_go":
+            headers["x-opencode-session"] = self.session_id
+        return headers
+
+    @staticmethod
+    def _read_error_body(error: urllib.error.HTTPError) -> str:
+        try:
+            raw = error.read()
+        except Exception:
+            return ""
+        text = raw.decode("utf-8", errors="replace").strip()
+        if not text:
+            return ""
+        return f" - {SECRET_REDACTOR.redact(text)[:400]}"
+
     def generate(self, content: list[dict], cancel_token: CancelToken | None = None) -> str:
         key = self.key_getter()
         if not key:
@@ -133,11 +155,7 @@ class OpenAICompatClient:
                 f"No {self.provider} API key is stored. Add one in Settings to use this provider."
             )
         SECRET_REDACTOR.register(key)
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {key}",
-            **_default_headers(),
-        }
+        headers = {"Content-Type": "application/json", **self._auth_headers(key)}
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": content}],
@@ -161,19 +179,25 @@ class OpenAICompatClient:
             except OpenAICompatError:
                 raise
             except urllib.error.HTTPError as error:
-                if error.code in (401, 403):
+                body = self._read_error_body(error)
+                if error.code == 401:
                     raise OpenAICompatError(
-                        f"{self.provider} rejected the API key (HTTP {error.code}).",
+                        f"{self.provider} rejected the API key (HTTP 401){body}.",
+                        retryable=False,
+                    ) from error
+                if error.code == 403:
+                    raise OpenAICompatError(
+                        f"{self.provider} denied the request (HTTP 403){body}",
                         retryable=False,
                     ) from error
                 if error.code == 404:
                     raise OpenAICompatError(
-                        f"{self.provider} model '{self.model}' was not found (404).",
+                        f"{self.provider} model '{self.model}' was not found (404){body}",
                         retryable=False,
                     ) from error
                 if attempt >= self.max_retries or not _error_is_retryable(error):
                     raise OpenAICompatError(
-                        f"{self.provider} request failed: HTTP {error.code}"
+                        f"{self.provider} request failed: HTTP {error.code}{body}"
                     ) from error
                 delay = self._backoff(error.code, attempt)
                 LOGGER.warning(
@@ -213,8 +237,14 @@ class OpenAICompatClient:
         key = self.key_getter()
         if not key:
             raise OpenAICompatKeyError(f"No {self.provider} API key is stored.")
-        headers = {"Authorization": f"Bearer {key}", **_default_headers()}
-        payload = self.get_fn(f"{self.base_url}/models", 30.0, headers)
+        headers = self._auth_headers(key)
+        try:
+            payload = self.get_fn(f"{self.base_url}/models", 30.0, headers)
+        except urllib.error.HTTPError as error:
+            raise OpenAICompatError(
+                f"{self.provider} model list failed: HTTP {error.code}"
+                f"{self._read_error_body(error)}"
+            ) from error
         return self._extract_model_items(payload)
 
     @staticmethod

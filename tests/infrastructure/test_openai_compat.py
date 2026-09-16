@@ -199,6 +199,35 @@ def test_list_models_without_key_raises():
         client.list_models_raw()
 
 
+def test_opencode_go_sends_stable_session_header():
+    transport = RecordingTransport([ok_response("a"), ok_response("b")])
+    client = make_client(transport, provider="opencode_go")
+    client.generate([{"type": "text", "text": "one"}])
+    client.generate([{"type": "text", "text": "two"}])
+    first, second = transport.calls[0][2], transport.calls[1][2]
+    assert first["x-opencode-session"]
+    assert first["x-opencode-session"] == second["x-opencode-session"] == client.session_id
+
+
+def test_openrouter_omits_session_header():
+    transport = RecordingTransport([ok_response("ok")])
+    make_client(transport).generate([{"type": "text", "text": "hi"}])
+    assert "x-opencode-session" not in transport.calls[0][2]
+
+
+def test_http_error_body_is_surfaced():
+    class BodyError(urllib.error.HTTPError):
+        def read(self):
+            return b'{"type":"error","error":{"type":"MissingSessionID"}}'
+
+    transport = RecordingTransport([BodyError("https://x", 400, "Bad Request", None, None)])
+    client = make_client(transport, provider="opencode_go", max_retries=0)
+    with pytest.raises(OpenAICompatError) as error:
+        client.generate([{"type": "text", "text": "hi"}])
+    assert "HTTP 400" in str(error.value)
+    assert "MissingSessionID" in str(error.value)
+
+
 def test_extract_text_variants():
     assert extract_text(ok_response("hello")) == "hello"
     with pytest.raises(OpenAICompatError, match="no choices"):

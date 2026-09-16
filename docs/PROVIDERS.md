@@ -39,9 +39,24 @@ chunks are allowed by the policy but not currently used.
 ## Retry and cancellation
 
 The OpenAI-compatible client reuses the same bounded retry/backoff pattern as
-Gemini: `401/403` fail immediately (bad key), `404` reports an unknown model,
-and `429`/`5xx`/network errors are retried with exponential backoff up to a cap.
-Requests are cancellable.
+Gemini: `401` fails immediately (bad key), `403`/`404` are reported without
+retry, and `429`/`5xx`/network errors are retried with exponential backoff up to
+a cap. Requests are cancellable. Error responses include the provider's message
+body so failures are diagnosable.
+
+## OpenCode Go client requirements
+
+OpenCode Go monitors traffic and requires clients to identify themselves
+(<https://opencode.ai/docs/go>):
+
+- A client-specific **User-Agent** (`AfterClip/<version>`), not a raw HTTP
+  library name — Python-urllib's default UA is blocked by Cloudflare with 403.
+- A stable **`x-opencode-session`** id per conversation. Without it every
+  request returns `HTTP 400 {"type":"MissingSessionID"}`.
+
+Both are sent automatically for the `opencode_go` provider (a fresh session id
+is generated per client, so each job's text and vision conversations are
+distinct).
 
 ## Deferred
 

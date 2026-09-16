@@ -8,7 +8,9 @@ frame images may leave the machine (T18b/T18c).
 
 from typing import Protocol
 
-CLOUD_PROVIDERS = frozenset({"gemini"})
+from app.application.provider_registry import cloud_provider_ids
+
+CLOUD_PROVIDERS = frozenset(cloud_provider_ids())
 CONSENT_KEY_PREFIX = "cloud_consent_"
 
 

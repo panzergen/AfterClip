@@ -51,11 +51,16 @@ def chunk_text(text: str, size: int = 3500) -> tuple[str, ...]:
     return tuple(chunk for chunk in chunks if chunk)
 
 
-def http_post_json(url: str, payload: dict, timeout: float) -> dict:
+def http_post_json(
+    url: str, payload: dict, timeout: float, headers: dict | None = None
+) -> dict:
+    merged = {"Content-Type": "application/json"}
+    if headers:
+        merged.update(headers)
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=merged,
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:

@@ -2,6 +2,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
+from app.application.provider_registry import is_cloud
 from app.infrastructure.gemini import DEFAULT_GEMINI_MODEL
 from app.infrastructure.settings import JsonSettingsStore
 from app.ui.controllers.formatting import local_path
@@ -15,7 +16,8 @@ from app.ui.controllers.settings_controller import (
 PROVIDER_LABELS = {
     "ollama": "Ollama (local)",
     "gemini": "Gemini (cloud)",
-    "openrouter": "OpenRouter",
+    "openrouter": "OpenRouter (cloud)",
+    "opencode_go": "OpenCode Go (cloud)",
 }
 WHISPER_MODELS = ("tiny", "base", "small", "medium", "large", "turbo")
 FRAME_RESOLUTION_LABELS = (
@@ -47,6 +49,7 @@ class JobFormController(QObject):
         self._task = ""
         self._support_files: list[dict] = []
         self._cloud_selected = False
+        self._cloud_provider = "gemini"
         self._ai_status = ""
         self._ai_status_color = ""
         self._whisper_model = "turbo"
@@ -459,6 +462,10 @@ class JobFormController(QObject):
         self.aiStateChanged.emit()
 
     def _ensure_gemini_models(self) -> None:
+        # Static fallback only for Gemini; OpenRouter/OpenCode Go rely on the
+        # live /models section so no invalid model names are offered.
+        if self._cloud_provider != "gemini":
+            return
         if not any(entry.get("provider") == "gemini" for entry in self._analysis_entries):
             self._analysis_entries = self._analysis_entries + [
                 {"label": name, "header": False, "provider": "gemini", "name": name}
@@ -543,7 +550,9 @@ class JobFormController(QObject):
         if entry.get("header"):
             return
         provider = entry.get("provider")
-        self._cloud_selected = provider == "gemini"
+        self._cloud_selected = is_cloud(provider)
+        if is_cloud(provider):
+            self._cloud_provider = provider
         self.cloudSelectedChanged.emit()
         # Reflect the picked model in the combo/property (the combo only knows
         # the selected index, the request is built from this text).
@@ -564,7 +573,7 @@ class JobFormController(QObject):
         for entry in entries:
             if not entry.get("header") and entry.get("name") == text:
                 return (entry.get("provider"), text)
-        return ("gemini", text) if self.is_gemini_selected() else ("ollama", text)
+        return (self._cloud_provider, text) if self.is_gemini_selected() else ("ollama", text)
 
     def selected_ai_model(self) -> tuple[str, str] | None:
         return self._resolve_model(self._analysis_entries, self._analysis_model_text, analysis=True)

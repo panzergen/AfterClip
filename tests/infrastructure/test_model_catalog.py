@@ -1,10 +1,11 @@
+from app.application.provider_registry import get_provider
 from app.infrastructure.model_catalog import (
     GEMINI_STATIC_MODELS,
-    ModelEntry,
     ModelSection,
     collect_catalog,
     gemini_section,
     ollama_section,
+    openai_compat_section,
 )
 
 
@@ -78,3 +79,50 @@ def test_collect_catalog_merges_available_sections():
     )
     # Real network call to a running Ollama if present; tolerate either way.
     assert all(isinstance(section, ModelSection) for section in sections)
+
+
+def test_openai_compat_section_gates_vision_per_model():
+    spec = get_provider("openrouter")
+    items = [
+        {"id": "openai/gpt-4o", "architecture": {"input_modalities": ["text", "image"]}},
+        {"id": "qwen/qwen-coder", "architecture": {"input_modalities": ["text"]}},
+        {"id": "meta/llama-vision", "architecture": {"input_modalities": ["text"]}},
+    ]
+    section = openai_compat_section(spec, key_getter=lambda: "k", list_fn=lambda: items)
+    assert section is not None and section.provider == "openrouter"
+    by_name = {entry.name: entry for entry in section.entries}
+    assert by_name["openai/gpt-4o"].vision_capable is True
+    # Metadata wins: a text-only model is not vision-capable despite its name.
+    assert by_name["qwen/qwen-coder"].vision_capable is False
+    assert by_name["meta/llama-vision"].vision_capable is False
+
+
+def test_openai_compat_section_none_without_key_or_on_error():
+    from app.infrastructure.openai_compat import OpenAICompatKeyError
+
+    spec = get_provider("opencode_go")
+
+    def no_key():
+        raise OpenAICompatKeyError("no key")
+
+    assert openai_compat_section(spec, key_getter=lambda: None, list_fn=no_key) is None
+
+    def offline():
+        raise OSError("offline")
+
+    assert openai_compat_section(spec, key_getter=lambda: "k", list_fn=offline) is None
+
+
+def test_collect_catalog_includes_cloud_sections_with_keys(monkeypatch):
+    import app.infrastructure.model_catalog as catalog
+
+    captured = {}
+
+    def fake_gemini(key_getter, list_models_fn=None):
+        captured["gemini_key"] = key_getter()
+        return None
+
+    monkeypatch.setattr(catalog, "gemini_section", fake_gemini)
+    sections = catalog.collect_catalog(False, {"gemini": "sk-stored"})
+    assert captured["gemini_key"] == "sk-stored"
+    assert sections == ()

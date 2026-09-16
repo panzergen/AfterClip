@@ -8,14 +8,25 @@ from PySide6.QtGui import QDesktopServices
 import app.app_paths as app_paths
 from app.application.cloud_consent import payload_summary
 from app.application.forecast import forecast, load_history
+from app.application.provider_registry import (
+    KIND_GEMINI,
+    KIND_OPENAI_COMPAT,
+    cloud_provider_ids,
+    get_provider,
+    is_cloud,
+)
 from app.application.service_io import find_reusable_job_dir
 from app.application.transcript_sanitizer import SanitizerConfig
 from app.domain.constants import VIDEO_SUFFIXES
 from app.domain.models import ProgressEvent, TranscriptionRequest
 from app.infrastructure.diagnostics import check_environment, check_output_dir
-from app.infrastructure.gemini import GEMINI_KEY_NAME, GeminiTextProvider, GeminiVisionProvider
+from app.infrastructure.gemini import GeminiTextProvider, GeminiVisionProvider
 from app.infrastructure.model_catalog import collect_catalog
 from app.infrastructure.ollama import OllamaTextProvider, OllamaVisionProvider, check_ollama_service
+from app.infrastructure.openai_compat import (
+    OpenAICompatTextProvider,
+    OpenAICompatVisionProvider,
+)
 from app.infrastructure.process import FfmpegMediaTool, WhisperCliProvider
 from app.infrastructure.secrets import KeyringSecretStore
 from app.ui.controllers.formatting import local_path
@@ -390,14 +401,14 @@ class SessionController(QObject):
         form = self.job_form
         if not (form.analysisEnabled or form.visionEnabled):
             return None
-        if form.is_gemini_selected():
-            return "gemini"
         for enabled, selection in (
             (form.analysisEnabled, form.selected_ai_model()),
             (form.visionEnabled, form.selected_vision_model()),
         ):
-            if enabled and selection and selection[0] == "gemini":
-                return "gemini"
+            if enabled and selection and is_cloud(selection[0]):
+                return selection[0]
+        if form.is_gemini_selected():
+            return "gemini"
         return None
 
     def _cloud_model_in_use(self, provider: str) -> str:
@@ -525,46 +536,79 @@ class SessionController(QObject):
             if selection is None:
                 self.alert.emit("AI model missing", "Select a model or disable AI analysis.")
                 return False, False
-            analysis_provider, analysis_model = selection
-            if analysis_provider == "gemini":
-                if not self._gemini_key_stored():
-                    self.alert.emit(
-                        "Gemini key missing",
-                        "Store a Gemini API key in Settings (Credential Manager) for cloud AI.",
-                    )
-                    return False, False
-                text_provider = GeminiTextProvider(analysis_model, prompts=prompts)
-            elif check_ollama_service():
-                text_provider = OllamaTextProvider(analysis_model, prompts=prompts)
-            else:
-                self.alert.emit(
-                    "Ollama unavailable",
-                    "Ollama is not reachable. The job will run without AI analysis.",
-                )
+            provider_name, model = selection
+            if not self._cloud_key_ready(provider_name, "AI analysis"):
+                return False, False
+            text_provider = self._build_text_provider(provider_name, model, prompts)
         if form.visionEnabled:
-            vision_selection = form.selected_vision_model()
-            if vision_selection is None:
+            selection = form.selected_vision_model()
+            if selection is None:
                 self.alert.emit(
                     "AI vision model missing", "Select a vision model or disable vision analysis."
                 )
                 return False, False
-            vision_provider_name, vision_model = vision_selection
-            if vision_provider_name == "gemini":
-                if not self._gemini_key_stored():
-                    self.alert.emit(
-                        "Gemini key missing",
-                        "Store a Gemini API key in Settings (Credential Manager) for cloud vision.",
-                    )
-                    return text_provider, False
-                vision_provider = GeminiVisionProvider(vision_model, prompts=prompts)
-            elif check_ollama_service():
-                vision_provider = OllamaVisionProvider(vision_model, prompts=prompts)
-            else:
-                self.alert.emit(
-                    "Ollama unavailable",
-                    "Ollama is not reachable. The job will run without vision analysis.",
-                )
+            provider_name, model = selection
+            if not self._cloud_key_ready(provider_name, "AI vision"):
+                return text_provider, False
+            vision_provider = self._build_vision_provider(provider_name, model, prompts)
         return text_provider, vision_provider
+
+    def _cloud_key_ready(self, provider_name: str, label: str) -> bool:
+        """Cloud providers need a stored key; clear error and no request otherwise (T16/T20)."""
+        spec = get_provider(provider_name)
+        if spec is None or not spec.is_cloud:
+            return True
+        if KeyringSecretStore().get(spec.key_name):
+            return True
+        self.alert.emit(
+            f"{spec.label} key missing",
+            f"Store a {spec.label} API key in Settings (Credential Manager) for cloud {label}.",
+        )
+        return False
+
+    def _build_text_provider(self, provider_name: str, model: str, prompts):
+        spec = get_provider(provider_name)
+        if spec is None:
+            return None
+        if spec.kind == KIND_GEMINI:
+            return GeminiTextProvider(model, prompts=prompts)
+        if spec.kind == KIND_OPENAI_COMPAT:
+            return OpenAICompatTextProvider(
+                model,
+                prompts=prompts,
+                base_url=spec.base_url,
+                provider=spec.id,
+                key_getter=lambda: KeyringSecretStore().get(spec.key_name),
+            )
+        if check_ollama_service():
+            return OllamaTextProvider(model, prompts=prompts)
+        self.alert.emit(
+            "Ollama unavailable",
+            "Ollama is not reachable. The job will run without AI analysis.",
+        )
+        return None
+
+    def _build_vision_provider(self, provider_name: str, model: str, prompts):
+        spec = get_provider(provider_name)
+        if spec is None:
+            return None
+        if spec.kind == KIND_GEMINI:
+            return GeminiVisionProvider(model, prompts=prompts)
+        if spec.kind == KIND_OPENAI_COMPAT:
+            return OpenAICompatVisionProvider(
+                model,
+                prompts=prompts,
+                base_url=spec.base_url,
+                provider=spec.id,
+                key_getter=lambda: KeyringSecretStore().get(spec.key_name),
+            )
+        if check_ollama_service():
+            return OllamaVisionProvider(model, prompts=prompts)
+        self.alert.emit(
+            "Ollama unavailable",
+            "Ollama is not reachable. The job will run without vision analysis.",
+        )
+        return None
 
     def _build_request(self, text_provider, vision_provider, conditions) -> TranscriptionRequest:
         input_path, output_dir, clip_start, clip_end = conditions
@@ -604,9 +648,6 @@ class SessionController(QObject):
         if self.worker:
             self.worker.cancel()
             self._set_status("Cancelling...")
-
-    def _gemini_key_stored(self) -> bool:
-        return bool(KeyringSecretStore().get(GEMINI_KEY_NAME))
 
     # -- worker callbacks -------------------------------------------------------------
 
@@ -693,8 +734,12 @@ class SessionController(QObject):
 
     @Slot()
     def refresh_model_catalog(self) -> None:
-        gemini_key = KeyringSecretStore().get(GEMINI_KEY_NAME)
-        sections = collect_catalog(self.env.ollamaAvailable, gemini_key)
+        key_store = KeyringSecretStore()
+        cloud_keys = {
+            provider_id: key_store.get(get_provider(provider_id).key_name)
+            for provider_id in cloud_provider_ids()
+        }
+        sections = collect_catalog(self.env.ollamaAvailable, cloud_keys)
         self.job_form.populate_models(sections)
 
     # -- helpers ---------------------------------------------------------------------

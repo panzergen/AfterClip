@@ -110,19 +110,80 @@ def gemini_section(key_getter, list_models_fn=None) -> ModelSection | None:
     return ModelSection("Gemini (cloud API)", "gemini", entries)
 
 
+def openai_compat_section(spec, key_getter, list_fn=None) -> ModelSection | None:
+    """Live section for an OpenAI-compatible provider (OpenRouter, OpenCode Go).
+
+    Vision capability is gated per model from live metadata, falling back to
+    conservative name hints and the provider default - never assumed from the
+    endpoint being compatible.
+    """
+    from app.infrastructure.openai_compat import (
+        OpenAICompatClient,
+        OpenAICompatKeyError,
+        infer_vision_capable,
+    )
+
+    if list_fn is None:
+
+        def list_fn():
+            client = OpenAICompatClient(
+                model="", base_url=spec.base_url, provider=spec.id, key_getter=key_getter
+            )
+            return client.list_models_raw()
+
+    try:
+        items = list_fn()
+    except OpenAICompatKeyError:
+        return None
+    except Exception as error:
+        LOGGER.info("%s model list unavailable: %s", spec.label, error)
+        return None
+    entries = []
+    for item in items or []:
+        name = str(item.get("id") or "")
+        if not name:
+            continue
+        vision = infer_vision_capable(item) or (
+            spec.vision_default and _ollama_heuristic_vision(name)
+        )
+        entries.append(ModelEntry(spec.id, name, text_capable=True, vision_capable=vision))
+    if not entries:
+        return None
+    return ModelSection(spec.label, spec.id, tuple(entries))
+
+
 def collect_catalog(
     ollama_reachable: bool,
-    gemini_key: str | None,
+    cloud_keys: dict[str, str | None] | None = None,
     ollama_base_url: str = "http://localhost:11434",
 ) -> tuple[ModelSection, ...]:
-    """Sections currently available: live Ollama and/or live-or-static Gemini."""
+    """Sections currently available: live Ollama and any provider with a key.
+
+    ``cloud_keys`` maps provider id -> stored key (None/missing = no section).
+    """
+    from app.application.provider_registry import (
+        KIND_GEMINI,
+        cloud_provider_ids,
+        get_provider,
+    )
+
     sections = []
     if ollama_reachable:
         section = ollama_section(base_url=ollama_base_url)
         if section:
             sections.append(section)
-    if gemini_key:
-        section = gemini_section(key_getter=lambda: gemini_key)
+    keys = cloud_keys or {}
+    for provider_id in cloud_provider_ids():
+        key = keys.get(provider_id)
+        if not key:
+            continue
+        spec = get_provider(provider_id)
+        if spec is None:
+            continue
+        if spec.kind == KIND_GEMINI:
+            section = gemini_section(key_getter=lambda stored=key: stored)
+        else:
+            section = openai_compat_section(spec, key_getter=lambda stored=key: stored)
         if section:
             sections.append(section)
     return tuple(sections)

@@ -67,6 +67,15 @@ def http_post_json(
         return json.loads(response.read().decode("utf-8"))
 
 
+def http_get_json(url: str, timeout: float = 30.0, headers: dict | None = None) -> dict:
+    merged = {"Accept": "application/json"}
+    if headers:
+        merged.update(headers)
+    request = urllib.request.Request(url, headers=merged, method="GET")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def post_json_cancellable(
     url: str,
     payload: dict,

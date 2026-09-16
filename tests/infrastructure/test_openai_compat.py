@@ -151,6 +151,54 @@ def test_infer_vision_capable_prefers_metadata():
     assert infer_vision_capable({"id": "qwen-coder"}) is False
 
 
+def test_list_models_sends_user_agent_and_parses_shapes():
+    calls = []
+
+    def fake_get(url, timeout, headers):
+        calls.append((url, headers))
+        return {
+            "data": [
+                {"id": "deepseek-v4-flash"},
+                {"id": "kimi-k3", "architecture": {"input_modalities": ["text", "image"]}},
+            ]
+        }
+
+    client = make_client(RecordingTransport([]), provider="opencode_go", get_fn=fake_get)
+    models = client.list_models_raw()
+    assert [item["id"] for item in models] == ["deepseek-v4-flash", "kimi-k3"]
+    url, headers = calls[0]
+    assert url.endswith("/models")
+    assert headers["Authorization"].startswith("Bearer ")
+    # Cloudflare blocks urllib's default UA; ours must not be Python-urllib.
+    assert "Python-urllib" not in headers["User-Agent"]
+    assert headers["User-Agent"].startswith("AfterClip/")
+
+
+def test_list_models_tolerates_alternate_shapes():
+    def make_get(payload):
+        return lambda url, timeout, headers: payload
+
+    assert [
+        item["id"]
+        for item in make_client(
+            RecordingTransport([]), get_fn=make_get({"models": [{"id": "a"}, "b"]})
+        ).list_models_raw()
+    ] == ["a", "b"]
+    assert [
+        item["id"]
+        for item in make_client(
+            RecordingTransport([]), get_fn=make_get([{"id": "x"}])
+        ).list_models_raw()
+    ] == ["x"]
+    assert make_client(RecordingTransport([]), get_fn=make_get({})).list_models_raw() == []
+
+
+def test_list_models_without_key_raises():
+    client = make_client(RecordingTransport([]), key_getter=lambda: None)
+    with pytest.raises(OpenAICompatKeyError):
+        client.list_models_raw()
+
+
 def test_extract_text_variants():
     assert extract_text(ok_response("hello")) == "hello"
     with pytest.raises(OpenAICompatError, match="no choices"):

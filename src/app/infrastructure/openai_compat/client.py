@@ -6,11 +6,9 @@ OpenAI-compatible servers differ in image support.
 """
 
 import base64
-import json
 import logging
 import time
 import urllib.error
-import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
@@ -19,17 +17,25 @@ from app.domain.models import CloudUsage
 from app.infrastructure.cloud_policy import assert_not_video_file
 from app.infrastructure.llm.transport import (
     clean_thinking_tags,
+    http_get_json,
     http_post_json,
     post_json_cancellable,
 )
 from app.infrastructure.logging_filter import SECRET_REDACTOR
 from app.infrastructure.secrets import KeyringSecretStore
+from app.version import version_string
 
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_OPENAI_COMPAT_BASE_URL = "https://openrouter.ai/api/v1"
 RETRYABLE_STATUS_CODES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 _MIME_BY_SUFFIX = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+
+
+def _default_headers() -> dict:
+    # OpenCode Go is behind Cloudflare, which returns 403 for urllib's default
+    # "Python-urllib/x.y" User-Agent; a normal UA is required (issue #39374).
+    return {"Accept": "application/json", "User-Agent": f"AfterClip/{version_string()}"}
 
 
 class OpenAICompatError(RuntimeError):
@@ -84,6 +90,7 @@ class OpenAICompatClient:
         min_interval: float = 1.0,
         key_getter: Callable[[], str | None] | None = None,
         transport_fn: Callable[[str, dict, float, dict], dict] | None = None,
+        get_fn: Callable[[str, float, dict], dict] | None = None,
         sleep_fn: Callable[[float], None] | None = None,
         clock_fn: Callable[[], float] | None = None,
     ):
@@ -97,6 +104,7 @@ class OpenAICompatClient:
             lambda: KeyringSecretStore().get(f"{provider}_api_key")
         )
         self.transport_fn = transport_fn or http_post_json
+        self.get_fn = get_fn or http_get_json
         self.sleep_fn = sleep_fn or time.sleep
         self.clock_fn = clock_fn or time.monotonic
         self._last_request_time: float | None = None
@@ -125,7 +133,11 @@ class OpenAICompatClient:
                 f"No {self.provider} API key is stored. Add one in Settings to use this provider."
             )
         SECRET_REDACTOR.register(key)
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {key}",
+            **_default_headers(),
+        }
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": content}],
@@ -201,13 +213,32 @@ class OpenAICompatClient:
         key = self.key_getter()
         if not key:
             raise OpenAICompatKeyError(f"No {self.provider} API key is stored.")
-        request = urllib.request.Request(
-            f"{self.base_url}/models", headers={"Authorization": f"Bearer {key}"}
-        )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        items = data.get("data", []) if isinstance(data, dict) else []
-        return [item for item in items if isinstance(item, dict) and item.get("id")]
+        headers = {"Authorization": f"Bearer {key}", **_default_headers()}
+        payload = self.get_fn(f"{self.base_url}/models", 30.0, headers)
+        return self._extract_model_items(payload)
+
+    @staticmethod
+    def _extract_model_items(payload: object) -> list[dict]:
+        """Accept OpenAI-style ``data`` and other common ``/models`` shapes."""
+        if isinstance(payload, list):
+            raw_items = payload
+        elif isinstance(payload, dict):
+            raw_items = payload.get("data")
+            if raw_items is None:
+                raw_items = payload.get("models")
+            if raw_items is None and isinstance(payload.get("result"), list):
+                raw_items = payload.get("result")
+            if raw_items is None:
+                raw_items = []
+        else:
+            raw_items = []
+        items: list[dict] = []
+        for item in raw_items:
+            if isinstance(item, str):
+                items.append({"id": item})
+            elif isinstance(item, dict) and item.get("id"):
+                items.append(item)
+        return items
 
     def list_models(self) -> tuple[str, ...]:
         return tuple(str(item["id"]) for item in self.list_models_raw())

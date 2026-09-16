@@ -81,6 +81,7 @@ class SettingsController(QObject):
         self._report_language = str(self.store.get(REPORT_LANGUAGE_SETTINGS_KEY) or "")
         self._gemini_model = str(self.store.get(GEMINI_MODEL_SETTINGS_KEY) or "")
         self._cloud_provider_index = 0
+        self._model_options: list = []
         self._key_status_text = ""
         self._key_stored = False
         self._key_input = ""
@@ -131,7 +132,7 @@ class SettingsController(QObject):
         return self._key_stored
 
     def _get_model_options(self) -> list:
-        return getattr(self, "_model_options", list(GEMINI_MODEL_CHOICES))
+        return list(getattr(self, "_model_options", []))
 
     def _get_cloud_provider_index(self) -> int:
         return self._cloud_provider_index
@@ -141,8 +142,11 @@ class SettingsController(QObject):
         if 0 <= index < len(CLOUD_PROVIDER_IDS) and index != self._cloud_provider_index:
             self._cloud_provider_index = index
             self.cloudProviderIndexChanged.emit()
+            # The previous provider's models must not linger for the new one.
+            self._clear_model_options()
             self._refresh_key_status()
             self.cloudConsentChanged.emit()
+            self._load_models(show_errors=False)
 
     def _get_cloud_provider_labels(self) -> list:
         return list(CLOUD_PROVIDER_LABELS)
@@ -291,13 +295,20 @@ class SettingsController(QObject):
     def revokeGeminiConsent(self) -> None:
         self.revoke_cloud_consent("gemini")
 
-    @Slot()
-    def loadModels(self) -> None:
+    def _clear_model_options(self) -> None:
+        if self._model_options:
+            self._model_options = []
+            self.modelOptionsChanged.emit()
+
+    def _load_models(self, show_errors: bool) -> bool:
+        """Fetch models for the selected provider; blank the list on any failure."""
         spec = self._provider_spec()
         key = self.key_store.get(spec.key_name)
         if not key:
-            self._set_key_status(f"Save a {spec.label} API key first.", ok=False)
-            return
+            self._clear_model_options()
+            if show_errors:
+                self._set_key_status(f"Save a {spec.label} API key first.", ok=False)
+            return False
         try:
             if spec.kind == KIND_GEMINI:
                 models = GeminiClient(key_getter=lambda: key).list_models()
@@ -306,15 +317,26 @@ class SettingsController(QObject):
                     model="", base_url=spec.base_url, provider=spec.id, key_getter=lambda: key
                 ).list_models()
         except Exception as error:
-            self._set_key_status(f"Could not load models: {error}", ok=False)
-            return
-        if models:
-            if spec.kind == KIND_GEMINI and not self._gemini_model:
-                self._gemini_model = models[0]
-                self.geminiModelChanged.emit()
-            self._model_options = list(models)
-            self.modelOptionsChanged.emit()
-            self._set_key_status(f"Loaded {len(models)} models from {spec.label}.", ok=True)
+            self._clear_model_options()
+            if show_errors:
+                self._set_key_status(f"Could not load models: {error}", ok=False)
+            return False
+        if not models:
+            self._clear_model_options()
+            if show_errors:
+                self._set_key_status(f"{spec.label} returned no models for this key.", ok=False)
+            return False
+        if spec.kind == KIND_GEMINI and not self._gemini_model:
+            self._gemini_model = models[0]
+            self.geminiModelChanged.emit()
+        self._model_options = list(models)
+        self.modelOptionsChanged.emit()
+        self._set_key_status(f"Loaded {len(models)} models from {spec.label}.", ok=True)
+        return True
+
+    @Slot()
+    def loadModels(self) -> None:
+        self._load_models(show_errors=True)
 
     def _refresh_key_status(self) -> None:
         spec = self._provider_spec()

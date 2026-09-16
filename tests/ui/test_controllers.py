@@ -648,6 +648,21 @@ def test_settings_provider_switch_updates_key_status(controllers):
     assert "OpenCode Go" in settings.keyStatusText
 
 
+def test_settings_provider_switch_clears_models(controllers):
+    settings = controllers.settings
+    settings._model_options = ["leftover/model"]
+    settings.cloudProviderIndex = 1  # openrouter; no key stored -> blank
+    assert settings.modelOptions == []
+
+
+def test_settings_load_models_without_key_blanks_list(controllers):
+    settings = controllers.settings
+    settings._model_options = ["leftover/model"]
+    settings.loadModels()
+    assert settings.modelOptions == []
+    assert "API key first" in settings.keyStatusText
+
+
 def test_sanitizer_config_respects_per_job_toggle(controllers):
     session = controllers.session
     assert session._sanitizer_config().enabled is True

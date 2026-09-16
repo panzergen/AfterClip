@@ -601,3 +601,42 @@ def test_sanitizer_config_respects_per_job_toggle(controllers):
     session.job_form.transcriptFilter = False
     assert session._sanitizer_config().enabled is False
 
+
+def test_forecast_heuristic_without_history(controllers):
+    session = controllers.session
+    assert session.forecastText == ""
+    session.media.duration_seconds = 600.0
+    session.refreshForecast()
+    assert session.forecastText.startswith("Rough estimate")
+
+
+def test_forecast_uses_similar_history(controllers, tmp_path):
+    out = tmp_path / "out"
+    for index in range(3):
+        folder = out / f"history{index}"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "job_state.json").write_text(
+            json.dumps(
+                {
+                    "media": {"duration": 300},
+                    "run_settings": {
+                        "model": "turbo",
+                        "frame_modes": ["interval"],
+                        "frame_resolution": "full",
+                        "analyze_text": False,
+                        "analyze_vision": False,
+                    },
+                    "steps": {"transcription": {"duration_seconds": 90}},
+                }
+            ),
+            encoding="utf-8",
+        )
+    session = controllers.session
+    session.media.duration_seconds = 300.0
+    session.job_form.whisperModel = "turbo"
+    session.job_form.intervalMode = True
+    session.job_form.sceneMode = False
+    session.refreshForecast()
+    assert session.forecastText.startswith("Estimated")
+    assert "similar job" in session.forecastText
+

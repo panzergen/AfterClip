@@ -7,6 +7,7 @@ from PySide6.QtGui import QDesktopServices
 
 import app.app_paths as app_paths
 from app.application.cloud_consent import payload_summary
+from app.application.forecast import forecast, load_history
 from app.application.service_io import find_reusable_job_dir
 from app.application.transcript_sanitizer import SanitizerConfig
 from app.domain.constants import VIDEO_SUFFIXES
@@ -68,6 +69,7 @@ class SessionController(QObject):
         self._input_paths: list[dict] = []
         self._current_input = ""
         self._pending_consent_provider = None
+        self._forecast_text = ""
 
     # -- Qt properties --------------------------------------------------------
 
@@ -109,6 +111,9 @@ class SessionController(QObject):
     def _get_has_output_folder(self) -> bool:
         return bool(self._output_folder)
 
+    def _get_forecast_text(self) -> str:
+        return self._forecast_text
+
     def _set_output_folder(self, folder: str) -> None:
         if self._output_folder != folder:
             self._output_folder = folder
@@ -132,6 +137,7 @@ class SessionController(QObject):
     currentInputChanged = Signal()
     jobRunningChanged = Signal()
     outputFolderChanged = Signal()
+    forecastTextChanged = Signal()
 
     title = Property(str, _get_title, notify=titleChanged)
     statusText = Property(str, _get_status_text, notify=statusTextChanged)
@@ -144,6 +150,7 @@ class SessionController(QObject):
     jobRunning = Property(bool, _get_job_running, notify=jobRunningChanged)
     outputFolder = Property(str, _get_output_folder, notify=outputFolderChanged)
     hasOutputFolder = Property(bool, _get_has_output_folder, notify=outputFolderChanged)
+    forecastText = Property(str, _get_forecast_text, notify=forecastTextChanged)
 
     # -- input selection ---------------------------------------------------------
 
@@ -230,6 +237,30 @@ class SessionController(QObject):
         )
         self._start_ready = True
         self.startEnabledChanged.emit()
+        self.refreshForecast()
+
+    @Slot()
+    def refreshForecast(self) -> None:
+        """Update the pre-start time estimate from history + current settings."""
+        form = self.job_form
+        duration = float(getattr(self.media, "duration_seconds", 0.0) or 0.0)
+        clip_start, clip_end = self.media.clip_seconds()
+        if clip_end and clip_end > clip_start:
+            duration = clip_end - clip_start
+        history = load_history(self.history.output_dir) if self.history is not None else []
+        result = forecast(
+            duration,
+            form.whisperModel,
+            form.selected_frame_modes(),
+            form.analysisEnabled,
+            form.visionEnabled,
+            form.selected_frame_resolution(),
+            history,
+        )
+        text = result.text()
+        if text != self._forecast_text:
+            self._forecast_text = text
+            self.forecastTextChanged.emit()
 
     @Slot(str)
     def on_preview_failed(self, message: str) -> None:
@@ -631,6 +662,7 @@ class SessionController(QObject):
         self.jobRunningChanged.emit()
         self.batch.set_external_job_running(False)
         self.history.refresh()
+        self.refreshForecast()
 
     # -- batch exclusivity -------------------------------------------------------------
 

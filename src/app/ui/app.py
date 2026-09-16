@@ -52,6 +52,16 @@ class AppControllers:
         self.batch.set_enqueue_settings_provider(self.session.batch_enqueue_settings)
         self.job_form.outputChanged.connect(self.record.set_output_dir)
         self.job_form.analysisEnabledChanged.connect(self.session.on_analysis_toggled)
+        for signal in (
+            self.job_form.whisperModelChanged,
+            self.job_form.analysisEnabledChanged,
+            self.job_form.visionEnabledChanged,
+            self.job_form.intervalModeChanged,
+            self.job_form.sceneModeChanged,
+            self.job_form.frameResolutionIndexChanged,
+        ):
+            signal.connect(self.session.refreshForecast)
+        self.media.clipChanged.connect(self.session.refreshForecast)
         self.session._update_title()
         self.record.set_output_dir(self.job_form.outputDir)
 

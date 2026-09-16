@@ -116,6 +116,21 @@ class TranscriptionService:
                 "steps": context.steps,
             }
         )
+        # Features used by the time-forecasting history (Phase 4 WS-H).
+        context.state["media"] = {
+            "duration": context.metadata.get("duration"),
+            "file_size_mb": context.metadata.get("file_size_mb"),
+        }
+        context.state["run_settings"] = {
+            "model": request.model,
+            "frame_modes": list(
+                request.frame_modes
+                or ((request.frame_mode,) if request.extract_frames else ())
+            ),
+            "frame_resolution": request.frame_resolution,
+            "analyze_text": request.analyze_text,
+            "analyze_vision": request.analyze_vision,
+        }
         recorder.save()
 
         audio_path = None

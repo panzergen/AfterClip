@@ -11,6 +11,15 @@ ColumnLayout {
     Layout.fillWidth: true
     spacing: 6
 
+    Text {
+        Layout.fillWidth: true
+        visible: session.forecastText.length > 0
+        text: session.forecastText
+        font.pixelSize: Theme.fontSizeCaption
+        color: Theme.muted
+        elide: Text.ElideRight
+    }
+
     ProgressBar {
         Layout.fillWidth: true
         from: 0

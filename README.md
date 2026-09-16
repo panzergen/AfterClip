@@ -48,6 +48,7 @@ pytest --cov=app.application --cov=app.infrastructure   # coverage
 - `docs/PROMPTS.md` — editable prompt templates and placeholders
 - `docs/PRESETS.md` — save/apply named job presets
 - `docs/TRANSCRIPT_FILTER.md` — Whisper hallucination filtering
+- `docs/FORECAST.md` — pre-start time estimates from past jobs
 - `docs/TROUBLESHOOTING.md` — common problems and fixes
 - `docs/PACKAGING.md` — Windows release build
 - `docs/PLATFORMS.md` — platform support, paths and secret backends

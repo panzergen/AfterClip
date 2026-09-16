@@ -44,7 +44,7 @@ Dialog {
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.muted
                 }
-                ComboBox {
+                AppComboBox {
                     Layout.preferredWidth: 240
                     model: settings.segmentLabels
                     currentIndex: settings.segmentIndex
@@ -123,7 +123,7 @@ Dialog {
                             font.pixelSize: Theme.fontSizeSmall
                             color: Theme.muted
                         }
-                        ComboBox {
+                        AppComboBox {
                             Layout.fillWidth: true
                             model: settings.cloudProviderLabels
                             currentIndex: settings.cloudProviderIndex
@@ -140,7 +140,7 @@ Dialog {
                             font.pixelSize: Theme.fontSizeSmall
                             color: Theme.muted
                         }
-                        ComboBox {
+                        AppComboBox {
                             id: geminiModelCombo
                             Layout.fillWidth: true
                             editable: true

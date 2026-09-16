@@ -24,7 +24,7 @@ Dialog {
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.muted
             }
-            ComboBox {
+            AppComboBox {
                 id: nameCombo
                 Layout.fillWidth: true
                 model: settings.promptNames

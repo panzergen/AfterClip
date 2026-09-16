@@ -54,7 +54,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 spacing: 8
 
-                ComboBox {
+                AppComboBox {
                     id: inputCombo
                     Layout.fillWidth: true
                     editable: true

@@ -34,7 +34,7 @@ ColumnLayout {
         ToolTip.text: qsTr("Unavailable: this FFmpeg build does not support Windows WASAPI audio capture.")
     }
 
-    ComboBox {
+    AppComboBox {
         id: deviceCombo
         Layout.fillWidth: true
         Layout.maximumWidth: 360

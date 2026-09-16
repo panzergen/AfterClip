@@ -19,7 +19,7 @@ ColumnLayout {
         label: qsTr("Preset")
         Row {
             spacing: 8
-            ComboBox {
+            AppComboBox {
                 width: 180
                 model: presets.names
                 currentIndex: presets.selectedIndex
@@ -87,7 +87,7 @@ ColumnLayout {
         FieldRow {
             Layout.fillWidth: true
             label: qsTr("Whisper model")
-            ComboBox {
+            AppComboBox {
                 width: 160
                 model: jobForm.whisperModels
                 currentIndex: jobForm.whisperModels.indexOf(jobForm.whisperModel)
@@ -99,7 +99,7 @@ ColumnLayout {
         FieldRow {
             Layout.fillWidth: true
             label: qsTr("Segment length")
-            ComboBox {
+            AppComboBox {
                 width: 260
                 model: jobForm.segmentLabels
                 currentIndex: jobForm.segmentIndex
@@ -229,7 +229,7 @@ ColumnLayout {
         FieldRow {
             Layout.fillWidth: true
             label: qsTr("Vision resolution")
-            ComboBox {
+            AppComboBox {
                 width: 260
                 model: jobForm.resolutionLabels
                 currentIndex: jobForm.frameResolutionIndex

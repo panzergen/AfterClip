@@ -1,5 +1,6 @@
 """Smoke test: Main.qml loads against the controller layer without QML errors."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,16 @@ def test_multi_file_dialogs_use_selected_files():
         if "FileDialog.OpenFiles" in text and "onAccepted" in text and "selectedFiles" not in text:
             offenders.append(path.name)
     assert not offenders, f"OpenFiles dialogs must consume selectedFiles: {offenders}"
+
+
+def test_root_qml_uses_styled_combo_box():
+    """Bare ComboBox popups render the active row unreadable; use AppComboBox."""
+    offenders = [
+        path.name
+        for path in QML_DIR.glob("*.qml")
+        if re.search(r"^\s*ComboBox\s*\{", path.read_text(encoding="utf-8"), re.MULTILINE)
+    ]
+    assert not offenders, f"Use AppComboBox for readable popups: {offenders}"
 
 
 def test_main_qml_defines_primary_keyboard_shortcuts():

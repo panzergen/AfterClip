@@ -51,7 +51,9 @@ FieldRow {
             background: Rectangle {
                 color: entryDelegate.highlighted
                        ? Theme.primary
-                       : (entryDelegate.enabled ? "transparent" : Theme.panel)
+                       : (entryDelegate.enabled
+                          ? (entryDelegate.hovered ? "#e6eef8" : "transparent")
+                          : Theme.panel)
             }
         }
 

@@ -49,6 +49,7 @@ pytest --cov=app.application --cov=app.infrastructure   # coverage
 - `docs/PRESETS.md` — save/apply named job presets
 - `docs/TRANSCRIPT_FILTER.md` — Whisper hallucination filtering
 - `docs/FORECAST.md` — pre-start time estimates from past jobs
+- `docs/PROVIDERS.md` — cloud provider registry (OpenRouter, OpenCode Go)
 - `docs/TROUBLESHOOTING.md` — common problems and fixes
 - `docs/PACKAGING.md` — Windows release build
 - `docs/PLATFORMS.md` — platform support, paths and secret backends
@@ -100,6 +101,7 @@ FFmpeg/Whisper bundling).
 - Explicit, revocable cloud consent: a pre-job confirmation names the provider/model and what leaves the machine, blocks the job until accepted, and warns about API charges (see `docs/PRIVACY.md`)
 - Per-job cloud usage (requests, tokens, images) and an approximate cost estimate are recorded in `job_state.json` and the report
 - Provider-grouped model dropdowns with live model lists and capability filtering (vision dropdown only shows image-capable models)
+- Cloud providers behind one registry and a shared OpenAI-compatible adapter: **OpenRouter** and **OpenCode Go** alongside Gemini, with per-provider keys, model lists and consent (`docs/PROVIDERS.md`)
 - Separate transcription language and report language (summaries, highlights, vision text)
 - `FullReportAndTimeline.htm` human-readable report with summary, highlights, full transcript and embedded frames; `Master_Timeline.md` stays lean for AI consumption
 - `VisionProvider` port ready for additional cloud providers (OpenRouter planned)

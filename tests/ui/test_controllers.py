@@ -334,7 +334,7 @@ def test_settings_saves_and_deletes_gemini_key(qapp, monkeypatch):
 
     settings_store = InMemorySettingsStore()
     controller = SettingsController(store=settings_store, key_store=key_store)
-    assert "No Gemini API key stored" in controller.keyStatusText
+    assert "No Gemini (cloud) API key stored" in controller.keyStatusText
     controller.keyInput = "sk-ui-gemini-key"
     controller.saveKey()
     assert store[("afterclip-test", GEMINI_KEY_NAME)] == "sk-ui-gemini-key"
@@ -593,6 +593,59 @@ def test_validate_corrects_output_dir_that_is_a_job_folder(controllers, monkeypa
     assert conditions[1] == tmp_path / "out"
     assert form.outputDir == str(tmp_path / "out")
     assert any("corrected" in title.lower() for title, _ in alerts)
+
+
+class RecordingKeyStore:
+    def __init__(self):
+        self.values = {}
+
+    def get(self, name):
+        return self.values.get(name)
+
+    def set(self, name, value):
+        self.values[name] = value
+
+    def delete(self, name):
+        self.values.pop(name, None)
+
+    def available(self):
+        return True
+
+
+def test_settings_key_uses_selected_provider(qapp):
+    settings = SettingsController(
+        store=InMemorySettingsStore(),
+        key_store=RecordingKeyStore(),
+        prompt_store=InMemoryPromptStore(),
+    )
+    keys = settings.key_store.values
+    settings.keyInput = "sk-gemini"
+    settings.saveKey()
+    assert keys.get("gemini_api_key") == "sk-gemini"
+
+    settings.cloudProviderIndex = 1  # openrouter
+    settings.keyInput = "sk-openrouter"
+    settings.saveKey()
+    assert keys.get("openrouter_api_key") == "sk-openrouter"
+
+
+def test_settings_consent_is_per_provider(controllers):
+    settings = controllers.settings
+    settings.cloudProviderIndex = 1  # openrouter
+    assert settings.cloudConsentGranted is False
+    settings.grantConsent()
+    assert settings.cloudConsentGranted is True
+    assert settings.has_cloud_consent("openrouter") is True
+    assert settings.has_cloud_consent("gemini") is False
+    settings.revokeConsent()
+    assert settings.cloudConsentGranted is False
+
+
+def test_settings_provider_switch_updates_key_status(controllers):
+    settings = controllers.settings
+    assert "Gemini" in settings.keyStatusText
+    settings.cloudProviderIndex = 2  # opencode_go
+    assert "OpenCode Go" in settings.keyStatusText
 
 
 def test_sanitizer_config_respects_per_job_toggle(controllers):

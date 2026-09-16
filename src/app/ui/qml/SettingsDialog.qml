@@ -101,7 +101,7 @@ Dialog {
                 // anchors.fill child, so bind it explicitly or the dialog
                 // under-sizes and the footer overlaps the content.
                 implicitHeight: geminiLayout.implicitHeight + topPadding + bottomPadding
-                title: qsTr("Gemini (cloud provider)")
+                title: qsTr("Cloud provider")
                 font.pixelSize: Theme.fontSizeSmall
 
                 background: Rectangle {
@@ -114,6 +114,23 @@ Dialog {
                     id: geminiLayout
                     anchors.fill: parent
                     spacing: 8
+
+                    RowLayout {
+                        spacing: 8
+                        Text {
+                            Layout.preferredWidth: 90
+                            text: qsTr("Provider")
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.muted
+                        }
+                        ComboBox {
+                            Layout.fillWidth: true
+                            model: settings.cloudProviderLabels
+                            currentIndex: settings.cloudProviderIndex
+                            font.pixelSize: Theme.fontSizeSmall
+                            onActivated: (index) => settings.cloudProviderIndex = index
+                        }
+                    }
 
                     RowLayout {
                         spacing: 8
@@ -205,13 +222,13 @@ Dialog {
                             text: qsTr("Grant consent")
                             font.pixelSize: Theme.fontSizeSmall
                             enabled: !settings.cloudConsentGranted
-                            onClicked: settings.grantGeminiConsent()
+                            onClicked: settings.grantConsent()
                         }
                         Button {
                             text: qsTr("Revoke consent")
                             font.pixelSize: Theme.fontSizeSmall
                             enabled: settings.cloudConsentGranted
-                            onClicked: settings.revokeGeminiConsent()
+                            onClicked: settings.revokeConsent()
                         }
                     }
                 }

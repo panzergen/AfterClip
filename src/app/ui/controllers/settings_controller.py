@@ -4,6 +4,7 @@ from datetime import datetime
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from app.application.cloud_consent import grant_consent, has_consent, revoke_consent
+from app.application.provider_registry import KIND_GEMINI, cloud_provider_ids, get_provider
 from app.application.transcript_sanitizer import SanitizerConfig
 from app.domain.prompts import (
     TEMPLATE_NAMES,
@@ -11,7 +12,8 @@ from app.domain.prompts import (
     PromptSet,
     validate_template,
 )
-from app.infrastructure.gemini import GEMINI_KEY_NAME, GeminiClient, GeminiKeyMissing
+from app.infrastructure.gemini import GeminiClient
+from app.infrastructure.openai_compat import OpenAICompatClient
 from app.infrastructure.prompts import JsonPromptStore
 from app.infrastructure.secrets import KeyringSecretStore, SecretStoreUnavailableError
 from app.infrastructure.settings import JsonSettingsStore
@@ -28,6 +30,10 @@ GEMINI_MODEL_SETTINGS_KEY = "gemini_model"
 REPORT_LANGUAGE_SETTINGS_KEY = "report_language"
 SANITIZER_SETTINGS_KEY = "transcript_filter"
 GEMINI_MODEL_CHOICES = ("gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-pro")
+
+#: Cloud providers offered in Settings, in registry order.
+CLOUD_PROVIDER_IDS = cloud_provider_ids()
+CLOUD_PROVIDER_LABELS = [get_provider(provider_id).label for provider_id in CLOUD_PROVIDER_IDS]
 
 
 def load_transcript_merge_seconds(store: JsonSettingsStore | None = None) -> float | None:
@@ -74,7 +80,7 @@ class SettingsController(QObject):
         )
         self._report_language = str(self.store.get(REPORT_LANGUAGE_SETTINGS_KEY) or "")
         self._gemini_model = str(self.store.get(GEMINI_MODEL_SETTINGS_KEY) or "")
-        self._consent_granted = has_consent(self.store, "gemini")
+        self._cloud_provider_index = 0
         self._key_status_text = ""
         self._key_stored = False
         self._key_input = ""
@@ -84,6 +90,12 @@ class SettingsController(QObject):
         self._prompt_status_ok = True
         self._load_prompt_editor()
         self._refresh_key_status()
+
+    def _provider_id(self) -> str:
+        return CLOUD_PROVIDER_IDS[self._cloud_provider_index]
+
+    def _provider_spec(self):
+        return get_provider(self._provider_id())
 
     def _get_segment_index(self) -> int:
         return self._segment_index
@@ -121,17 +133,32 @@ class SettingsController(QObject):
     def _get_model_options(self) -> list:
         return getattr(self, "_model_options", list(GEMINI_MODEL_CHOICES))
 
+    def _get_cloud_provider_index(self) -> int:
+        return self._cloud_provider_index
+
+    def _set_cloud_provider_index(self, value: int) -> None:
+        index = int(value)
+        if 0 <= index < len(CLOUD_PROVIDER_IDS) and index != self._cloud_provider_index:
+            self._cloud_provider_index = index
+            self.cloudProviderIndexChanged.emit()
+            self._refresh_key_status()
+            self.cloudConsentChanged.emit()
+
+    def _get_cloud_provider_labels(self) -> list:
+        return list(CLOUD_PROVIDER_LABELS)
+
     def _get_cloud_consent_granted(self) -> bool:
-        return self._consent_granted
+        return has_consent(self.store, self._provider_id())
 
     def _get_cloud_consent_text(self) -> str:
-        if self._consent_granted:
+        label = self._provider_spec().label
+        if has_consent(self.store, self._provider_id()):
             return (
-                "Consent granted: transcript text and/or extracted frames may be sent to "
-                "Google Gemini. Revoke to require confirmation again."
+                f"Consent granted: transcript text and/or extracted frames may be sent to "
+                f"{label}. Revoke to require confirmation again."
             )
         return (
-            "Consent not granted. Before the first cloud job AfterClip asks for explicit "
+            f"Consent not granted. Before the first {label} job AfterClip asks for explicit "
             "confirmation of what leaves this machine."
         )
 
@@ -167,6 +194,7 @@ class SettingsController(QObject):
     modelOptionsChanged = Signal()
     keyInputChanged = Signal()
     cloudConsentChanged = Signal()
+    cloudProviderIndexChanged = Signal()
     promptIndexChanged = Signal()
     promptTextChanged = Signal()
     promptStatusChanged = Signal()
@@ -185,6 +213,10 @@ class SettingsController(QObject):
         bool, _get_cloud_consent_granted, notify=cloudConsentChanged
     )
     cloudConsentText = Property(str, _get_cloud_consent_text, notify=cloudConsentChanged)
+    cloudProviderLabels = Property("QVariantList", _get_cloud_provider_labels, constant=True)
+    cloudProviderIndex = Property(
+        int, _get_cloud_provider_index, _set_cloud_provider_index, notify=cloudProviderIndexChanged
+    )
     promptNames = Property("QVariantList", _get_prompt_names, constant=True)
     promptPlaceholders = Property(
         "QVariantList", _get_prompt_placeholders, notify=promptIndexChanged
@@ -215,7 +247,7 @@ class SettingsController(QObject):
             self._set_key_status("Paste a key first.", ok=False)
             return
         try:
-            self.key_store.set(GEMINI_KEY_NAME, key)
+            self.key_store.set(self._provider_spec().key_name, key)
         except SecretStoreUnavailableError as error:
             self._set_key_status(str(error), ok=False)
             return
@@ -226,7 +258,7 @@ class SettingsController(QObject):
     @Slot()
     def deleteKey(self) -> None:
         try:
-            self.key_store.delete(GEMINI_KEY_NAME)
+            self.key_store.delete(self._provider_spec().key_name)
         except SecretStoreUnavailableError as error:
             self._set_key_status(str(error), ok=False)
             return
@@ -237,15 +269,19 @@ class SettingsController(QObject):
 
     def grant_cloud_consent(self, provider: str) -> None:
         grant_consent(self.store, provider, datetime.now().isoformat(timespec="seconds"))
-        if provider == "gemini":
-            self._consent_granted = True
-            self.cloudConsentChanged.emit()
+        self.cloudConsentChanged.emit()
 
     def revoke_cloud_consent(self, provider: str) -> None:
         revoke_consent(self.store, provider)
-        if provider == "gemini":
-            self._consent_granted = False
-            self.cloudConsentChanged.emit()
+        self.cloudConsentChanged.emit()
+
+    @Slot()
+    def grantConsent(self) -> None:
+        self.grant_cloud_consent(self._provider_id())
+
+    @Slot()
+    def revokeConsent(self) -> None:
+        self.revoke_cloud_consent(self._provider_id())
 
     @Slot()
     def grantGeminiConsent(self) -> None:
@@ -257,21 +293,31 @@ class SettingsController(QObject):
 
     @Slot()
     def loadModels(self) -> None:
+        spec = self._provider_spec()
+        key = self.key_store.get(spec.key_name)
+        if not key:
+            self._set_key_status(f"Save a {spec.label} API key first.", ok=False)
+            return
         try:
-            models = GeminiClient(
-                key_getter=lambda: self.key_store.get(GEMINI_KEY_NAME)
-            ).list_models()
-        except (GeminiKeyMissing, Exception) as error:
+            if spec.kind == KIND_GEMINI:
+                models = GeminiClient(key_getter=lambda: key).list_models()
+            else:
+                models = OpenAICompatClient(
+                    model="", base_url=spec.base_url, provider=spec.id, key_getter=lambda: key
+                ).list_models()
+        except Exception as error:
             self._set_key_status(f"Could not load models: {error}", ok=False)
             return
         if models:
-            self._gemini_model = models[0] if not self._gemini_model else self._gemini_model
-            self.geminiModelChanged.emit()
+            if spec.kind == KIND_GEMINI and not self._gemini_model:
+                self._gemini_model = models[0]
+                self.geminiModelChanged.emit()
             self._model_options = list(models)
             self.modelOptionsChanged.emit()
-            self._set_key_status(f"Loaded {len(models)} models from the Gemini API.", ok=True)
+            self._set_key_status(f"Loaded {len(models)} models from {spec.label}.", ok=True)
 
     def _refresh_key_status(self) -> None:
+        spec = self._provider_spec()
         available = getattr(self.key_store, "available", lambda: True)()
         if not available:
             self._key_stored = False
@@ -281,14 +327,15 @@ class SettingsController(QObject):
                 ok=False,
             )
             return
-        self._key_stored = bool(self.key_store.get(GEMINI_KEY_NAME))
+        self._key_stored = bool(self.key_store.get(spec.key_name))
         if self._key_stored:
             self._set_key_status(
-                "A Gemini API key is stored in the OS credential manager.", ok=True
+                f"A {spec.label} API key is stored in the OS credential manager.", ok=True
             )
         else:
             self._set_key_status(
-                "No Gemini API key stored. Cloud analysis is unavailable until one is saved.",
+                f"No {spec.label} API key stored. Cloud analysis is unavailable "
+                "until one is saved.",
                 ok=False,
             )
 

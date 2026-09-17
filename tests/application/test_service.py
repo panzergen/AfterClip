@@ -426,6 +426,48 @@ def test_topic_segmentation_writes_topics_and_feeds_reports(tmp_path: Path):
     assert "class='topic'" in html and "Topics" in html
 
 
+def test_topic_ai_titles_from_provider(tmp_path: Path):
+    class TitledProvider(FakeTextProvider):
+        def generate(self, prompt, cancel_token=None):
+            return "Budget planning overview"
+
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"fixture")
+    result = TranscriptionService(MultiSegmentProvider(), FakeMedia(), TitledProvider()).run(
+        TranscriptionRequest(
+            source,
+            tmp_path / "out",
+            analyze_text=True,
+            analysis_model="test-model",
+            transcript_merge_seconds=30,
+            topic_method="ai",
+        ),
+        lambda _: None,
+        Token(),
+    )
+    topics = (result.output_dir.parent / "Topics.md").read_text(encoding="utf-8")
+    assert "Budget planning overview" in topics
+
+
+def test_topic_ai_falls_back_without_generate(tmp_path: Path):
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"fixture")
+    result = TranscriptionService(MultiSegmentProvider(), FakeMedia(), FakeTextProvider()).run(
+        TranscriptionRequest(
+            source,
+            tmp_path / "out",
+            analyze_text=True,
+            analysis_model="test-model",
+            transcript_merge_seconds=30,
+            topic_method="ai",
+        ),
+        lambda _: None,
+        Token(),
+    )
+    topics = (result.output_dir.parent / "Topics.md").read_text(encoding="utf-8")
+    assert "# Topics" in topics  # heuristic titles retained
+
+
 def test_report_includes_media_type(tmp_path: Path):
     source = tmp_path / "sample.wav"
     source.write_bytes(b"fixture")

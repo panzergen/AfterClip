@@ -42,6 +42,10 @@ class OpenAICompatTextProvider:
     def _text(prompt: str) -> list[dict]:
         return [{"type": "text", "text": prompt}]
 
+    def generate(self, prompt: str, cancel_token: CancelToken | None = None) -> str:
+        """Single-prompt generation (used for topic titles and similar)."""
+        return self.client.generate(self._text(prompt), cancel_token)
+
     def summarize(
         self,
         transcript: str,

@@ -10,13 +10,14 @@ baseline, and disabling the feature leaves existing outputs unchanged.
 
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from app.domain.models import TimelineEntry
+from app.domain.prompts import PromptSet
 
-TOPIC_METHODS = ("off", "cohesion")
-DEFAULT_TOPIC_METHOD = "cohesion"
+TOPIC_METHODS = ("off", "cohesion", "ai")
+DEFAULT_TOPIC_METHOD = "ai"
 DEFAULT_TOPIC_MIN_SECONDS = 120.0
 DEFAULT_TOPIC_MAX_SECTIONS = 20
 DEFAULT_BOUNDARY_SCORE = 0.55
@@ -109,7 +110,7 @@ def segment_topics_cohesion(
         # every other boundary out by the same minimum.
         if entries[index].start_ms < min_seconds * 1000:
             continue
-        if entries[-1].end_ms - entries[index].end_ms < min_seconds * 1000:
+        if entries[-1].end_ms - entries[index].start_ms < min_seconds * 1000:
             continue
         if any(
             abs(entries[index].start_ms - entries[other].start_ms) < min_seconds * 1000
@@ -156,3 +157,51 @@ def render_topics_summary(topics: list[TopicSegment]) -> str:
     return "\n".join(
         f"- `[{topic.start_str} --> {topic.end_str}]` {topic.title}" for topic in topics
     )
+
+
+def _section_text(entries: tuple[TimelineEntry, ...], section: TopicSegment) -> str:
+    parts = [
+        entry.text.strip()
+        for entry in entries
+        if section.start_ms <= entry.start_ms < section.end_ms and entry.text.strip()
+    ]
+    return " ".join(parts)
+
+
+def _clean_title(text: str, max_words: int = 12) -> str:
+    first_line = text.strip().splitlines()[0].strip() if text.strip() else ""
+    first_line = first_line.strip("\"'` ").strip()
+    words = first_line.split()
+    return " ".join(words[:max_words]) if words else ""
+
+
+def retitle_with_provider(
+    topics: list[TopicSegment],
+    entries: tuple[TimelineEntry, ...],
+    provider,
+    prompts=None,
+    language: str = "en",
+    cancel_token=None,
+) -> list[TopicSegment]:
+    """Replace heuristic titles with short AI titles; keep the old title on failure."""
+    generate = getattr(provider, "generate", None)
+    if not callable(generate):
+        return list(topics)
+    prompt_set = prompts if prompts is not None else getattr(provider, "prompts", None)
+    if prompt_set is None:
+        prompt_set = PromptSet()
+    titled: list[TopicSegment] = []
+    for topic in topics:
+        content = _section_text(entries, topic)
+        if not content:
+            titled.append(topic)
+            continue
+        prompt = prompt_set.render("topic_title", lang=language or "en", content=content[:1500])
+        try:
+            raw = generate(prompt, cancel_token)
+        except Exception:  # a title failure must never drop the section
+            titled.append(topic)
+            continue
+        title = _clean_title(raw or "")
+        titled.append(replace(topic, title=title) if title else topic)
+    return titled

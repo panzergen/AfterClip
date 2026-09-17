@@ -40,6 +40,10 @@ class GeminiTextProvider:
             min_interval=min_interval,
         )
 
+    def generate(self, prompt: str, cancel_token: CancelToken | None = None) -> str:
+        """Single-prompt generation (used for topic titles and similar)."""
+        return self.client.generate([{"text": prompt}], cancel_token)
+
     def summarize(self, transcript: str, language: str, on_progress: Callable[[str], None] | None = None, cancel_token: CancelToken | None = None) -> str:
         chunks = chunk_text(transcript, self.chunk_size)
         if not chunks:

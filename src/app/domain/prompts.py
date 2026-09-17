@@ -19,6 +19,7 @@ TEMPLATE_PLACEHOLDERS: dict[str, frozenset[str]] = {
     "transcript_cleanup": frozenset({"lang", "transcript"}),
     "review_revision": frozenset({"lang", "instructions", "content"}),
     "topic_segmentation": frozenset({"lang", "transcript"}),
+    "topic_title": frozenset({"lang", "content"}),
 }
 
 TEMPLATE_NAMES: tuple[str, ...] = tuple(TEMPLATE_PLACEHOLDERS)
@@ -92,6 +93,12 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "monotonic and non-overlapping, and write titles in language '{lang}'.\n\n"
         "Transcript:\n{transcript}"
     ),
+    "topic_title": (
+        "Write a short, descriptive title (3-8 words) in language '{lang}' that summarises "
+        "what the transcript section below is about. Output ONLY the title, no quotes or "
+        "punctuation at the end.\n\n"
+        "Section:\n{content}"
+    ),
 }
 
 _PLACEHOLDER_PATTERN = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
@@ -109,6 +116,7 @@ class PromptSet:
     transcript_cleanup: str = DEFAULT_PROMPTS["transcript_cleanup"]
     review_revision: str = DEFAULT_PROMPTS["review_revision"]
     topic_segmentation: str = DEFAULT_PROMPTS["topic_segmentation"]
+    topic_title: str = DEFAULT_PROMPTS["topic_title"]
 
     def template(self, name: str) -> str:
         if name not in TEMPLATE_PLACEHOLDERS:

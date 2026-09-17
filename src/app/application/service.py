@@ -38,7 +38,9 @@ from app.application.timeline import (
     write_master_timeline,
 )
 from app.application.topics import (
+    DEFAULT_TOPIC_METHOD,
     render_topics_summary,
+    retitle_with_provider,
     segment_topics_cohesion,
     write_topics,
 )
@@ -209,7 +211,7 @@ class TranscriptionService:
                     )
                 else:
                     self._run_transcript_filter(recorder, transcript_dir, audio_path)
-            self._run_topic_segmentation(recorder, transcript_dir, audio_path)
+            self._run_topic_segmentation(recorder, transcript_dir, audio_path, cancel_token)
             if request.extract_frames:
                 selected_modes = request.frame_modes or (request.frame_mode,)
                 frames_dir = job_dir / "Vision" / "frames"
@@ -395,11 +397,16 @@ class TranscriptionService:
         recorder.save()
 
     def _run_topic_segmentation(
-        self, recorder: StepRecorder, transcript_dir: Path, audio_path: Path
+        self,
+        recorder: StepRecorder,
+        transcript_dir: Path,
+        audio_path: Path,
+        cancel_token: CancelToken,
     ) -> None:
-        """Deterministic topic sections (WS-I); off/failure leaves outputs flat."""
+        """Topic sections (WS-I); off/failure leaves outputs flat, AI titles fall back."""
         request = recorder.context.request
-        if (request.topic_method or "cohesion") == "off":
+        method = request.topic_method or DEFAULT_TOPIC_METHOD
+        if method == "off":
             return
         transcript_srt = find_transcript_srt(transcript_dir, audio_path.stem)
         if transcript_srt is None:
@@ -418,6 +425,15 @@ class TranscriptionService:
             )
             if not topics:
                 return
+            if method == "ai" and self.text_provider is not None:
+                topics = retitle_with_provider(
+                    topics,
+                    merged,
+                    self.text_provider,
+                    getattr(self.text_provider, "prompts", None),
+                    request.output_language or request.language or "en",
+                    cancel_token,
+                )
             write_topics(recorder.context.job_dir, topics)
             self._topics = list(topics)
             recorder.context.state["topics"] = [topic.to_dict() for topic in topics]

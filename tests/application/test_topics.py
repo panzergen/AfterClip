@@ -4,10 +4,12 @@ from app.application.topics import (
     TopicSegment,
     render_topics_markdown,
     render_topics_summary,
+    retitle_with_provider,
     segment_topics_cohesion,
     write_topics,
 )
 from app.domain.models import TimelineEntry
+from app.domain.prompts import PromptSet
 
 
 def entry(start_ms, end_ms, text):
@@ -69,3 +71,30 @@ def test_render_and_write_topics(tmp_path):
     write_topics(tmp_path, topics)
     assert (tmp_path / "Topics.md").is_file()
     assert (tmp_path / "Topics.json").is_file()
+
+
+class _TitleProvider:
+    def __init__(self, title):
+        self.prompts = PromptSet()
+        self._title = title
+
+    def generate(self, prompt, cancel_token=None):
+        return f'"{self._title}"\n'
+
+
+def test_retitle_with_provider_replaces_heuristic_titles():
+    entries = (entry(0, 60_000, "budget discussion"), entry(60_000, 120_000, "deployment"))
+    topics = [
+        TopicSegment(0, 60_000, "00:00:00,000", "00:01:00,000", "budget discussion"),
+        TopicSegment(60_000, 120_000, "00:01:00,000", "00:02:00,000", "deployment"),
+    ]
+    titled = retitle_with_provider(topics, entries, _TitleProvider("Budget planning"))
+    assert [topic.title for topic in titled] == ["Budget planning", "Budget planning"]
+
+
+def test_retitle_without_generate_keeps_titles():
+    class NoGenerate:
+        pass
+
+    topics = [TopicSegment(0, 1000, "a", "b", "keep me")]
+    assert retitle_with_provider(topics, (), NoGenerate())[0].title == "keep me"

@@ -5,13 +5,22 @@ Master Timeline and the HTML report gain structure.
 
 ## Method
 
-The default is a deterministic **lexical-cohesion** baseline (TextTiling-style)
-over the merged transcript paragraphs: it scores the vocabulary overlap between
-consecutive blocks and cuts at the strongest valleys, honoring a minimum section
-length and a maximum section count. No model or network is required.
+The default is **`ai`**: deterministic **lexical-cohesion** boundaries
+(TextTiling-style) over the merged transcript paragraphs, then one short
+AI-generated title per section using the `topic_title` prompt. Boundaries are
+always deterministic, so a failed or unavailable model only costs the titles,
+never the sectioning — those fall back to the first sentence.
 
-`topic_method` can be `off` or `cohesion` (an AI title pass is planned and will
-always fall back to cohesion; `off` leaves outputs exactly as before).
+`topic_method` can be:
+
+| Method | Behaviour |
+| --- | --- |
+| `ai` (default) | cohesion boundaries + AI titles; heuristic titles if no provider |
+| `cohesion` | cohesion boundaries + first-sentence titles (offline) |
+| `off` | no topic files and no headings (outputs unchanged) |
+
+AI titles need a text provider (they use the same one as AI text analysis, and
+respect the prompt templates). With no provider, `ai` degrades to `cohesion`.
 
 ## Outputs
 
@@ -31,13 +40,13 @@ For each job:
 
 ```json
 {
-  "topic_method": "cohesion",
+  "topic_method": "ai",
   "topic_min_seconds": 120,
   "topic_max_sections": 20
 }
 ```
 
-CLI flags (override settings): `--topics off|cohesion`,
+CLI flags (override settings): `--topics off|cohesion|ai`,
 `--topic-min-seconds`, `--topic-max-sections`.
 
 ## Degradation

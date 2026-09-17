@@ -85,7 +85,7 @@ def test_build_request_topic_flags(tmp_path):
     default_args = build_parser().parse_args(
         ["run", "--input", str(source), "--output", str(tmp_path / "out")]
     )
-    assert build_request(default_args).topic_method == "cohesion"
+    assert build_request(default_args).topic_method == "ai"
 
     off_args = build_parser().parse_args(
         [

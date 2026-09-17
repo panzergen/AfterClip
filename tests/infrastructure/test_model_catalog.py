@@ -71,6 +71,22 @@ def test_gemini_section_none_without_key():
     assert gemini_section(key_getter=lambda: None) is None
 
 
+def test_opencode_go_section_metadata_free_capability():
+    """Go's /models has no architecture; vision must come from name hints."""
+    spec = get_provider("opencode_go")
+    items = [
+        {"id": "muse-spark-1.3-contributor"},
+        {"id": "deepseek-v4-flash-vision-exp"},
+        {"id": "glm-5.2"},
+    ]
+    section = openai_compat_section(spec, key_getter=lambda: "k", list_fn=lambda: items)
+    by_name = {entry.name: entry for entry in section.entries}
+    assert "muse-spark-1.3-contributor" in by_name  # present in the catalog
+    assert by_name["deepseek-v4-flash-vision-exp"].vision_capable is True
+    assert by_name["glm-5.2"].vision_capable is False
+    assert by_name["muse-spark-1.3-contributor"].vision_capable is False
+
+
 def test_collect_catalog_merges_available_sections():
     sections = collect_catalog(
         True,

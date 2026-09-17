@@ -697,6 +697,31 @@ def test_settings_load_models_without_key_blanks_list(controllers):
     assert "API key first" in settings.keyStatusText
 
 
+def test_model_choice_keys_are_not_swapped(qapp, monkeypatch, tmp_path):
+    from app.infrastructure.settings import InMemorySettingsStore
+    from app.ui.controllers.job_form_controller import JobFormController
+
+    store = InMemorySettingsStore()
+    monkeypatch.setattr(
+        "app.ui.controllers.job_form_controller.JsonSettingsStore", lambda: store
+    )
+    form = JobFormController(tmp_path, tmp_path)
+    form._analysis_entries = [
+        {"label": "OpenRouter", "header": True, "provider": "openrouter", "name": ""},
+        {"label": "text-model", "header": False, "provider": "openrouter", "name": "text-model"},
+    ]
+    form._vision_entries = [
+        {"label": "OpenCode Go", "header": True, "provider": "opencode_go", "name": ""},
+        {"label": "vision-model", "header": False, "provider": "opencode_go", "name": "vision-model"},
+    ]
+    form.selectAnalysisModel(1)
+    form.selectVisionModel(1)
+    assert store.get("analysis_model_choice") == {"provider": "openrouter", "name": "text-model"}
+    assert store.get("vision_model_choice") == {"provider": "opencode_go", "name": "vision-model"}
+    assert form.analysisModelText == "text-model"
+    assert form.visionModelText == "vision-model"
+
+
 def test_media_type_suggestion_from_metadata(controllers):
     session = controllers.session
     session.media.last_metadata = {

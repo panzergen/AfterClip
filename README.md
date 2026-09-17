@@ -50,6 +50,7 @@ pytest --cov=app.application --cov=app.infrastructure   # coverage
 - `docs/TRANSCRIPT_FILTER.md` — Whisper hallucination filtering
 - `docs/FORECAST.md` — pre-start time estimates from past jobs
 - `docs/PROVIDERS.md` — cloud provider registry (OpenRouter, OpenCode Go)
+- `docs/CLI.md` — headless CLI and MCP server
 - `docs/TROUBLESHOOTING.md` — common problems and fixes
 - `docs/PACKAGING.md` — Windows release build
 - `docs/PLATFORMS.md` — platform support, paths and secret backends

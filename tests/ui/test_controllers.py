@@ -712,7 +712,12 @@ def test_model_choice_keys_are_not_swapped(qapp, monkeypatch, tmp_path):
     ]
     form._vision_entries = [
         {"label": "OpenCode Go", "header": True, "provider": "opencode_go", "name": ""},
-        {"label": "vision-model", "header": False, "provider": "opencode_go", "name": "vision-model"},
+        {
+            "label": "vision-model",
+            "header": False,
+            "provider": "opencode_go",
+            "name": "vision-model",
+        },
     ]
     form.selectAnalysisModel(1)
     form.selectVisionModel(1)

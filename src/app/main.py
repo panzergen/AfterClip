@@ -5,8 +5,20 @@ import sys
 import app.app_paths as app_paths
 from app.version import version_string
 
+CLI_COMMANDS = frozenset({"run", "batch", "status", "mcp"})
 
-def main() -> int:
+
+def main(argv: list[str] | None = None) -> int:
+    """Dispatch: subcommands run the headless CLI, otherwise launch the GUI."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args and args[0] in CLI_COMMANDS:
+        from app.cli import main as cli_main
+
+        return cli_main(args)
+    return _run_gui()
+
+
+def _run_gui() -> int:
     from PySide6.QtCore import QTimer, QUrl
     from PySide6.QtGui import QColor, QGuiApplication, QPalette
     from PySide6.QtQml import QQmlApplicationEngine

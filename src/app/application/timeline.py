@@ -227,13 +227,14 @@ def write_master_timeline(
     embed_frames: bool = False,
     transcript_merge_seconds: float | None = None,
     analysis_markdown: str | None = None,
+    topics: tuple = (),
 ) -> tuple[Path, Path]:
     """Write ``Master_Timeline.md`` and ``multimodal_timeline.jsonl``.
 
     The Markdown stays lean for AI consumption: relative frame paths only, no
-    binary data. When `embed_frames` is set, a human-readable
-    ``FullReportAndTimeline.htm`` is written alongside with frames embedded as
-    base64 plus the AI summary and highlights.
+    binary data. Topic sections add ``## title`` headings. When `embed_frames`
+    is set, a human-readable ``FullReportAndTimeline.htm`` is written alongside
+    with frames embedded as base64 plus the AI summary, highlights and topics.
     """
     all_entries: list[TimelineEntry] = []
     if transcript_srt:
@@ -258,7 +259,19 @@ def write_master_timeline(
         "This document combines **Audio Transcription**, **Speaker Diarization**, and **Vision AI Scene Analysis**"
         " in a unified chronological sequence.\n\n---\n\n",
     ]
+    topic_list = list(topics)
+    topic_index = 0
     for entry in entries:
+        while topic_index < len(topic_list) and entry.start_ms >= topic_list[topic_index].start_ms:
+            topic = topic_list[topic_index]
+            markdown_lines.append(f"\n## {topic.title}\n\n")
+            html_rows.append(
+                "<h2 class='topic'>"
+                f"{html_module.escape(topic.title)}"
+                f"<span class='badge'>[{html_module.escape(topic.start_str)} --&gt; "
+                f"{html_module.escape(topic.end_str)}]</span></h2>"
+            )
+            topic_index += 1
         payload, html_row, lines = _render_entry(entry, speaker_intervals, job_dir, embed_frames)
         html_rows.append(html_row)
         payloads.append(payload)
@@ -267,7 +280,12 @@ def write_master_timeline(
     _write_jsonl(jsonl_path, payloads)
     if embed_frames:
         summary, highlights = split_ai_analysis(analysis_markdown or "")
-        _write_full_report(job_dir / "FullReportAndTimeline.htm", html_rows, summary, highlights)
+        topics_summary = "\n".join(
+            f"- `[{topic.start_str} --> {topic.end_str}]` {topic.title}" for topic in topic_list
+        )
+        _write_full_report(
+            job_dir / "FullReportAndTimeline.htm", html_rows, summary, highlights, topics_summary
+        )
     return timeline_path, jsonl_path
 
 
@@ -348,12 +366,17 @@ def split_ai_analysis(markdown: str | None) -> tuple[str, str]:
     return summary.strip(), after_highlights.strip()
 
 
-def _write_full_report(path: Path, rows: list[str], summary: str, highlights: str) -> None:
+def _write_full_report(
+    path: Path, rows: list[str], summary: str, highlights: str, topics_summary: str = ""
+) -> None:
     sections = "<h1>AfterClip Full Report &amp; Timeline</h1>"
     if summary:
         sections += f"<h2>Summary</h2><div class='prose'>{html_module.escape(summary).replace(chr(10), '<br>')}</div>"
     if highlights:
         sections += f"<h2>Key Highlights</h2><div class='prose'>{html_module.escape(highlights).replace(chr(10), '<br>')}</div>"
+    if topics_summary:
+        topics_html = html_module.escape(topics_summary).replace(chr(10), "<br>")
+        sections += f"<h2>Topics</h2><div class='prose'>{topics_html}</div>"
     sections += "<h2>Timeline</h2>" + "".join(rows)
     path.write_text(_html_document(sections), encoding="utf-8")
 
@@ -364,6 +387,8 @@ HTML_STYLE = (
     ".prose{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px 16px}"
     ".entry{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px 16px;margin:12px 0}"
     ".badge{font-size:12px;color:#666;letter-spacing:.4px}"
+    ".topic{margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px}"
+    ".topic .badge{margin-left:8px;font-weight:400}"
     "img{max-width:640px;border-radius:6px;display:block;margin:8px 0}"
     "blockquote{margin:8px 0 0}"
 )

@@ -80,6 +80,25 @@ def test_build_request_uses_preset_defaults(tmp_path):
     assert request.analyze_text and request.analysis_model == "some-model"
 
 
+def test_build_request_topic_flags(tmp_path):
+    source = _source(tmp_path)
+    default_args = build_parser().parse_args(
+        ["run", "--input", str(source), "--output", str(tmp_path / "out")]
+    )
+    assert build_request(default_args).topic_method == "cohesion"
+
+    off_args = build_parser().parse_args(
+        [
+            "run", "--input", str(source), "--output", str(tmp_path / "out"),
+            "--topics", "off", "--topic-min-seconds", "300", "--topic-max-sections", "5",
+        ]
+    )
+    request = build_request(off_args)
+    assert request.topic_method == "off"
+    assert request.topic_min_seconds == 300
+    assert request.topic_max_sections == 5
+
+
 def test_cli_missing_input_returns_validation(tmp_path, capsys):
     code = main(
         [

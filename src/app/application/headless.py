@@ -11,6 +11,12 @@ from pathlib import Path
 from app.application.cancellation import CancellationToken
 from app.application.provider_registry import get_provider
 from app.application.providers import build_text_provider, build_vision_provider
+from app.application.topics import (
+    DEFAULT_TOPIC_MAX_SECTIONS,
+    DEFAULT_TOPIC_METHOD,
+    DEFAULT_TOPIC_MIN_SECONDS,
+    TOPIC_METHODS,
+)
 from app.application.transcript_sanitizer import SanitizerConfig
 from app.domain.models import ProgressEvent, TranscriptionRequest
 from app.domain.prompts import PromptSet
@@ -21,6 +27,9 @@ from app.infrastructure.settings import JsonSettingsStore
 
 SANITIZER_SETTINGS_KEY = "transcript_filter"
 SEGMENT_SETTINGS_KEY = "transcript_segment_seconds"
+TOPIC_METHOD_SETTINGS_KEY = "topic_method"
+TOPIC_MIN_SETTINGS_KEY = "topic_min_seconds"
+TOPIC_MAX_SETTINGS_KEY = "topic_max_sections"
 DEFAULT_SEGMENT_SECONDS = 30.0
 
 
@@ -47,6 +56,23 @@ def resolve_segment_seconds() -> float | None:
     except (TypeError, ValueError):
         return DEFAULT_SEGMENT_SECONDS
     return value if value > 0 else None
+
+
+def resolve_topics() -> tuple[str, float, int]:
+    """Topic segmentation settings: (method, min_seconds, max_sections)."""
+    store = JsonSettingsStore()
+    method = str(store.get(TOPIC_METHOD_SETTINGS_KEY) or DEFAULT_TOPIC_METHOD)
+    if method not in TOPIC_METHODS:
+        method = DEFAULT_TOPIC_METHOD
+    try:
+        min_seconds = float(store.get(TOPIC_MIN_SETTINGS_KEY) or DEFAULT_TOPIC_MIN_SECONDS)
+    except (TypeError, ValueError):
+        min_seconds = DEFAULT_TOPIC_MIN_SECONDS
+    try:
+        max_sections = int(store.get(TOPIC_MAX_SETTINGS_KEY) or DEFAULT_TOPIC_MAX_SECTIONS)
+    except (TypeError, ValueError):
+        max_sections = DEFAULT_TOPIC_MAX_SECTIONS
+    return method, max(0.0, min_seconds), max(1, max_sections)
 
 
 def build_providers(

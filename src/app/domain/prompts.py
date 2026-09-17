@@ -18,6 +18,7 @@ TEMPLATE_PLACEHOLDERS: dict[str, frozenset[str]] = {
     "media_type_classification": frozenset({"signals"}),
     "transcript_cleanup": frozenset({"lang", "transcript"}),
     "review_revision": frozenset({"lang", "instructions", "content"}),
+    "topic_segmentation": frozenset({"lang", "transcript"}),
 }
 
 TEMPLATE_NAMES: tuple[str, ...] = tuple(TEMPLATE_PLACEHOLDERS)
@@ -85,6 +86,12 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "Reviewer instructions:\n{instructions}\n\n"
         "Content:\n{content}"
     ),
+    "topic_segmentation": (
+        "Split the transcript into topic sections. Return a compact JSON array of objects "
+        "with 'start' (HH:MM:SS), 'end' (HH:MM:SS) and 'title'. Boundaries must be "
+        "monotonic and non-overlapping, and write titles in language '{lang}'.\n\n"
+        "Transcript:\n{transcript}"
+    ),
 }
 
 _PLACEHOLDER_PATTERN = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
@@ -101,6 +108,7 @@ class PromptSet:
     media_type_classification: str = DEFAULT_PROMPTS["media_type_classification"]
     transcript_cleanup: str = DEFAULT_PROMPTS["transcript_cleanup"]
     review_revision: str = DEFAULT_PROMPTS["review_revision"]
+    topic_segmentation: str = DEFAULT_PROMPTS["topic_segmentation"]
 
     def template(self, name: str) -> str:
         if name not in TEMPLATE_PLACEHOLDERS:

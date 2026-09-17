@@ -31,8 +31,15 @@ from app.application.service_io import (
 from app.application.timeline import (
     find_transcript_srt,
     find_vision_srt,
+    merge_transcript_entries,
     parse_speaker_vtt,
+    parse_srt,
     write_master_timeline,
+)
+from app.application.topics import (
+    render_topics_summary,
+    segment_topics_cohesion,
+    write_topics,
 )
 from app.application.transcript_sanitizer import (
     SanitizerConfig,
@@ -72,6 +79,7 @@ class TranscriptionService:
         self.text_provider = text_provider
         self.vision_provider = vision_provider
         self.sanitizer_config = sanitizer_config
+        self._topics: list = []
 
     def run(
         self,
@@ -191,6 +199,7 @@ class TranscriptionService:
                     )
                 else:
                     self._run_transcript_filter(recorder, transcript_dir, audio_path)
+            self._run_topic_segmentation(recorder, transcript_dir, audio_path)
             if request.extract_frames:
                 selected_modes = request.frame_modes or (request.frame_mode,)
                 frames_dir = job_dir / "Vision" / "frames"
@@ -350,6 +359,10 @@ class TranscriptionService:
             return False
         return (context.job_dir / "AI_Analysis.md").is_file()
 
+    def _topics_markdown_section(self) -> str:
+        topics_summary = render_topics_summary(self._topics)
+        return f"\n## Topics\n\n{topics_summary}\n" if topics_summary else ""
+
     def _record_cloud_usage(self, recorder: StepRecorder) -> None:
         """Persist provider usage/cost metadata when a cloud client ran (Phase 3)."""
         usages = []
@@ -370,6 +383,43 @@ class TranscriptionService:
         recorder.context.metadata["cloud_usage"] = payload
         recorder.context.state["cloud_usage"] = payload
         recorder.save()
+
+    def _run_topic_segmentation(
+        self, recorder: StepRecorder, transcript_dir: Path, audio_path: Path
+    ) -> None:
+        """Deterministic topic sections (WS-I); off/failure leaves outputs flat."""
+        request = recorder.context.request
+        if (request.topic_method or "cohesion") == "off":
+            return
+        transcript_srt = find_transcript_srt(transcript_dir, audio_path.stem)
+        if transcript_srt is None:
+            return
+
+        def action() -> None:
+            entries = parse_srt(transcript_srt, "TRANSCRIPTION")
+            speaker_intervals = parse_speaker_vtt(resolve_speaker_vtt_path(request))
+            merged = entries
+            if request.transcript_merge_seconds and request.transcript_merge_seconds > 0:
+                merged = merge_transcript_entries(
+                    entries, request.transcript_merge_seconds, speaker_intervals
+                )
+            topics = segment_topics_cohesion(
+                merged, request.topic_min_seconds, request.topic_max_sections
+            )
+            if not topics:
+                return
+            write_topics(recorder.context.job_dir, topics)
+            self._topics = list(topics)
+            recorder.context.state["topics"] = [topic.to_dict() for topic in topics]
+            recorder.context.on_event(ProgressEvent(f"Topics: {len(topics)} section(s)", 95))
+
+        recorder.record(
+            "topic_segmentation",
+            "Topic segmentation",
+            95,
+            action,
+            tolerated_failure_event=("Topic segmentation failed; timeline stays flat", 95),
+        )
 
     def _run_text_analysis(
         self,
@@ -419,7 +469,8 @@ class TranscriptionService:
                 "## Summary\n\n"
                 f"{summary}\n\n"
                 "## Key Highlights\n\n"
-                f"{highlights or 'No highlights were extracted.'}\n",
+                f"{highlights or 'No highlights were extracted.'}\n"
+                f"{self._topics_markdown_section()}",
                 encoding="utf-8",
             )
 
@@ -539,6 +590,7 @@ class TranscriptionService:
                 embed_frames=request.embed_frames,
                 transcript_merge_seconds=request.transcript_merge_seconds,
                 analysis_markdown=analysis_markdown,
+                topics=tuple(self._topics),
             )
 
         timeline_paths = recorder.record("master_timeline", "Master timeline", 99, action)

@@ -19,10 +19,12 @@ from app.application.headless import (
     resolve_prompts,
     resolve_sanitizer,
     resolve_segment_seconds,
+    resolve_topics,
     run_request,
 )
 from app.application.history import scan_job_history
 from app.application.service import parse_clip_time
+from app.application.topics import TOPIC_METHODS
 from app.domain.models import TranscriptionRequest
 from app.domain.presets import Preset
 from app.infrastructure.presets import JsonPresetStore
@@ -62,6 +64,9 @@ def _add_job_args(parser: argparse.ArgumentParser) -> None:
         "--embed-frames", action="store_true", help="Embed frames in the HTM report"
     )
     parser.add_argument("--no-filter", action="store_true", help="Disable hallucination filtering")
+    parser.add_argument("--topics", choices=TOPIC_METHODS, help="Topic segmentation method")
+    parser.add_argument("--topic-min-seconds", type=float, help="Minimum topic section seconds")
+    parser.add_argument("--topic-max-sections", type=int, help="Maximum topic sections")
     parser.add_argument("--preset", help="Apply a saved preset by name")
     parser.add_argument("--output-name", default="", help="Output job folder base name")
     parser.add_argument("--json", action="store_true", help="Machine-readable output")
@@ -160,6 +165,13 @@ def build_request(args, preset: Preset | None = None) -> TranscriptionRequest:
     vision_model = args.vision_model or (preset.vision_model_text if preset else "")
     embed_frames = bool(args.embed_frames or (preset.embed_frames if preset else False))
     segment_seconds = args.segment if args.segment is not None else resolve_segment_seconds()
+    topic_method, topic_min, topic_max = resolve_topics()
+    if getattr(args, "topics", None):
+        topic_method = args.topics
+    if getattr(args, "topic_min_seconds", None):
+        topic_min = args.topic_min_seconds
+    if getattr(args, "topic_max_sections", None):
+        topic_max = args.topic_max_sections
 
     support_files = (str(Path(args.vtt).resolve()),) if getattr(args, "vtt", None) else ()
 
@@ -187,6 +199,9 @@ def build_request(args, preset: Preset | None = None) -> TranscriptionRequest:
         transcript_merge_seconds=segment_seconds,
         output_language=report_language or "",
         support_files=support_files,
+        topic_method=topic_method,
+        topic_min_seconds=topic_min,
+        topic_max_sections=topic_max,
     )
 
 

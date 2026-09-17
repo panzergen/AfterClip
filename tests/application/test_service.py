@@ -372,6 +372,73 @@ def test_transcript_filter_disabled_leaves_output_unchanged(tmp_path: Path):
     assert not (result.output_dir / "sample.raw.srt").exists()
 
 
+class MultiSegmentProvider:
+    """Writes several distinct SRT paragraphs so topics can be detected."""
+
+    def transcribe(self, request, on_progress, cancel_token):
+        from app.application.service_io import srt_timestamp
+
+        request.output_dir.mkdir(parents=True, exist_ok=True)
+        texts = [
+            "project budget planning forecast numbers",
+            "budget forecast planning numbers review",
+            "deployment kubernetes cluster container",
+            "kubernetes deployment container scaling",
+        ]
+        blocks = []
+        start = 0.0
+        for number, text in enumerate(texts, 1):
+            blocks.append(
+                f"{number}\n{srt_timestamp(start)} --> {srt_timestamp(start + 60)}\n{text}\n"
+            )
+            start += 60
+        srt = request.output_dir / "sample.srt"
+        srt.write_text("\n".join(blocks), encoding="utf-8")
+        (request.output_dir / "sample.txt").write_text("\n".join(texts), encoding="utf-8")
+        return TranscriptionResult(request.output_dir, (srt,))
+
+
+def test_topic_segmentation_writes_topics_and_feeds_reports(tmp_path: Path):
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"fixture")
+    result = TranscriptionService(
+        MultiSegmentProvider(), FakeMedia(), FakeTextProvider()
+    ).run(
+        TranscriptionRequest(
+            source,
+            tmp_path / "out",
+            analyze_text=True,
+            analysis_model="test-model",
+            transcript_merge_seconds=30,
+            embed_frames=True,
+        ),
+        lambda _: None,
+        Token(),
+    )
+    job_dir = result.output_dir.parent
+    assert (job_dir / "Topics.md").is_file()
+    assert (job_dir / "Topics.json").is_file()
+    timeline = (job_dir / "Master_Timeline.md").read_text(encoding="utf-8")
+    assert timeline.count("\n## ") >= 1  # topic headings inserted
+    analysis = (job_dir / "AI_Analysis.md").read_text(encoding="utf-8")
+    assert "## Topics" in analysis
+    html = (job_dir / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "class='topic'" in html and "Topics" in html
+
+
+def test_topic_segmentation_off_writes_no_topics(tmp_path: Path):
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"fixture")
+    result = TranscriptionService(FakeProvider(), FakeMedia()).run(
+        TranscriptionRequest(source, tmp_path / "out", topic_method="off"),
+        lambda _: None,
+        Token(),
+    )
+    job_dir = result.output_dir.parent
+    assert not (job_dir / "Topics.md").exists()
+    assert not (job_dir / "Topics.json").exists()
+
+
 def test_resume_skips_completed_frame_extraction(tmp_path: Path):
     class IntervalMedia(FakeMedia):
         def extract_interval_frames(self, *args, **kwargs):

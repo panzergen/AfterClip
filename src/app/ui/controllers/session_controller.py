@@ -8,6 +8,7 @@ from PySide6.QtGui import QDesktopServices
 import app.app_paths as app_paths
 from app.application.cloud_consent import payload_summary
 from app.application.forecast import forecast, load_history
+from app.application.headless import resolve_topics
 from app.application.provider_registry import (
     KIND_GEMINI,
     KIND_OPENAI_COMPAT,
@@ -616,6 +617,7 @@ class SessionController(QObject):
         frame_modes = form.selected_frame_modes()
         analysis_model = form.selected_ai_model()
         vision_model = form.selected_vision_model()
+        topic_method, topic_min, topic_max = resolve_topics()
         return TranscriptionRequest(
             input_path,
             output_dir,
@@ -641,6 +643,9 @@ class SessionController(QObject):
             form.segment_override(),
             form.reportLanguage,
             form.support_files(),
+            topic_method,
+            topic_min,
+            topic_max,
         )
 
     @Slot()

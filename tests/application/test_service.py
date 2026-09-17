@@ -426,6 +426,19 @@ def test_topic_segmentation_writes_topics_and_feeds_reports(tmp_path: Path):
     assert "class='topic'" in html and "Topics" in html
 
 
+def test_report_includes_media_type(tmp_path: Path):
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"fixture")
+    result = TranscriptionService(FakeProvider(), FakeMedia()).run(
+        TranscriptionRequest(source, tmp_path / "out"), lambda _: None, Token()
+    )
+    job_dir = result.output_dir.parent
+    report = (job_dir / "Summary_Report.md").read_text(encoding="utf-8")
+    assert "Media type" in report
+    state = json.loads((job_dir / "job_state.json").read_text(encoding="utf-8"))
+    assert "media_type" in state
+
+
 def test_topic_segmentation_off_writes_no_topics(tmp_path: Path):
     source = tmp_path / "sample.wav"
     source.write_bytes(b"fixture")

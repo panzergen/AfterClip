@@ -697,6 +697,17 @@ def test_settings_load_models_without_key_blanks_list(controllers):
     assert "API key first" in settings.keyStatusText
 
 
+def test_media_type_suggestion_from_metadata(controllers):
+    session = controllers.session
+    session.media.last_metadata = {
+        "duration": 2400,
+        "streams": [{"type": "video"}, {"type": "audio"}],
+    }
+    session._current_input = "F:/media/Falcon Weekly - Meeting Recording.mp4"
+    session.refreshMediaType()
+    assert "meeting" in session.mediaTypeText
+
+
 def test_sanitizer_config_respects_per_job_toggle(controllers):
     session = controllers.session
     assert session._sanitizer_config().enabled is True

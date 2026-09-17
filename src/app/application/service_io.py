@@ -315,6 +315,13 @@ def write_report(
             f"- **Estimated cost:** {cost_text}\n"
             f"- **Note:** {usage.get('cost_note', 'Approximate; provider pricing applies.')}\n"
         )
+    media_guess = metadata.get("media_type") if isinstance(metadata.get("media_type"), dict) else {}
+    media_type_line = ""
+    if media_guess:
+        media_type_line = (
+            f"- **Media type:** `{media_guess.get('media_type', 'unknown')}` "
+            f"(confidence {media_guess.get('confidence', 0)}, {media_guess.get('tier', '')})\n"
+        )
     content = (
         "# AfterClip Processing Report\n\n"
         "- **Report version:** `1`\n\n"
@@ -325,6 +332,7 @@ def write_report(
         f"- **Creation date:** `{metadata.get('creation_date', 'Unknown')}`\n"
         f"- **Format:** `{metadata.get('format', 'Unknown')}`\n"
         f"- **Bit rate:** `{metadata.get('bit_rate', 'Unknown')}`\n"
+        f"{media_type_line}"
         f"- **Streams:** `{'; '.join(stream_lines) or 'Unknown'}`\n\n"
         "## Requested Task\n\n"
         f"{request.user_task or 'No additional task was requested.'}\n\n"

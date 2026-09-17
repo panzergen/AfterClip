@@ -39,6 +39,7 @@ class MediaController(QObject):
         self.frame_paths: tuple[Path, ...] = ()
         self.duration_seconds = 0.0
         self.clip_duration_seconds = 0.0
+        self.last_metadata: dict = {}
         self.playback_speed = 1.0
         self.highlight_times: list[float] = []
         self._clip_mode = False
@@ -266,6 +267,7 @@ class MediaController(QObject):
 
     @Slot("QVariant")
     def apply_metadata(self, metadata: dict) -> None:
+        self.last_metadata = dict(metadata or {})
         video_stream = next(
             (
                 stream

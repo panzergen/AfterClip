@@ -9,6 +9,7 @@ import app.app_paths as app_paths
 from app.application.cloud_consent import payload_summary
 from app.application.forecast import forecast, load_history
 from app.application.headless import resolve_topics
+from app.application.media_type import classify_tier1, signals_from_metadata
 from app.application.provider_registry import (
     KIND_GEMINI,
     KIND_OPENAI_COMPAT,
@@ -82,6 +83,7 @@ class SessionController(QObject):
         self._current_input = ""
         self._pending_consent_provider = None
         self._forecast_text = ""
+        self._media_type_text = ""
 
     # -- Qt properties --------------------------------------------------------
 
@@ -126,6 +128,9 @@ class SessionController(QObject):
     def _get_forecast_text(self) -> str:
         return self._forecast_text
 
+    def _get_media_type_text(self) -> str:
+        return self._media_type_text
+
     def _set_output_folder(self, folder: str) -> None:
         if self._output_folder != folder:
             self._output_folder = folder
@@ -150,6 +155,7 @@ class SessionController(QObject):
     jobRunningChanged = Signal()
     outputFolderChanged = Signal()
     forecastTextChanged = Signal()
+    mediaTypeTextChanged = Signal()
 
     title = Property(str, _get_title, notify=titleChanged)
     statusText = Property(str, _get_status_text, notify=statusTextChanged)
@@ -163,6 +169,7 @@ class SessionController(QObject):
     outputFolder = Property(str, _get_output_folder, notify=outputFolderChanged)
     hasOutputFolder = Property(bool, _get_has_output_folder, notify=outputFolderChanged)
     forecastText = Property(str, _get_forecast_text, notify=forecastTextChanged)
+    mediaTypeText = Property(str, _get_media_type_text, notify=mediaTypeTextChanged)
 
     # -- input selection ---------------------------------------------------------
 
@@ -250,6 +257,27 @@ class SessionController(QObject):
         self._start_ready = True
         self.startEnabledChanged.emit()
         self.refreshForecast()
+        self.refreshMediaType()
+
+    @Slot()
+    def refreshMediaType(self) -> None:
+        """Tier-1 media-type suggestion (instant, never blocks; WS-D)."""
+        metadata = getattr(self.media, "last_metadata", {}) or {}
+        text = ""
+        if metadata:
+            input_path = self.current_input_path()
+            guess = classify_tier1(
+                signals_from_metadata(
+                    str(input_path) if input_path else str(metadata.get("file_name", "")),
+                    metadata,
+                    bool(self.job_form.speaker_vtt_from_support()),
+                )
+            )
+            if guess.media_type != "other":
+                text = f"Media type: {guess.media_type} ({round(guess.confidence * 100)}%)"
+        if text != self._media_type_text:
+            self._media_type_text = text
+            self.mediaTypeTextChanged.emit()
 
     @Slot()
     def refreshForecast(self) -> None:

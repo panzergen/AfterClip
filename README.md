@@ -52,6 +52,7 @@ pytest --cov=app.application --cov=app.infrastructure   # coverage
 - `docs/PROVIDERS.md` — cloud provider registry (OpenRouter, OpenCode Go)
 - `docs/CLI.md` — headless CLI and MCP server
 - `docs/TOPICS.md` — topic segmentation and its report outputs
+- `docs/MEDIA_TYPE.md` — media-type classification and suggestions
 - `docs/TROUBLESHOOTING.md` — common problems and fixes
 - `docs/PACKAGING.md` — Windows release build
 - `docs/PLATFORMS.md` — platform support, paths and secret backends

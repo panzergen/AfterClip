@@ -7,6 +7,7 @@ from pathlib import Path
 from app.application.cancellation import CancelToken, JobCancelled, ProcessingCancelled
 from app.application.cloud_usage import COST_NOTE, estimate_cost_usd
 from app.application.job_context import JobContext, StepRecorder
+from app.application.media_type import classify_tier1, signals_from_metadata
 from app.application.ports import (
     MediaTool,
     TextAnalysisProvider,
@@ -129,6 +130,15 @@ class TranscriptionService:
             "duration": context.metadata.get("duration"),
             "file_size_mb": context.metadata.get("file_size_mb"),
         }
+        guess = classify_tier1(
+            signals_from_metadata(
+                str(request.input_path),
+                context.metadata,
+                has_support_vtt=bool(resolve_speaker_vtt_path(request)),
+            )
+        )
+        context.metadata["media_type"] = guess.to_dict()
+        context.state["media_type"] = guess.to_dict()
         context.state["run_settings"] = {
             "model": request.model,
             "frame_modes": list(

@@ -614,6 +614,23 @@ class JobFormController(QObject):
     def selected_vision_model(self) -> tuple[str, str] | None:
         return self._resolve_model(self._vision_entries, self._vision_model_text, analysis=False)
 
+    @staticmethod
+    def _lookup_model(entries: list, text: str) -> tuple[str, str] | None:
+        """Resolve a model only when it exists in the loaded catalog (strict)."""
+        text = text.strip()
+        if not text:
+            return None
+        for entry in entries:
+            if not entry.get("header") and entry.get("name") == text:
+                return (entry.get("provider"), text)
+        return None
+
+    def lookup_ai_model(self) -> tuple[str, str] | None:
+        return self._lookup_model(self._analysis_entries, self._analysis_model_text)
+
+    def lookup_vision_model(self) -> tuple[str, str] | None:
+        return self._lookup_model(self._vision_entries, self._vision_model_text)
+
     # -- derived values ---------------------------------------------------------------
 
     def selected_frame_modes(self) -> tuple[str, ...]:

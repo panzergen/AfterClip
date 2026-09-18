@@ -561,19 +561,26 @@ class SessionController(QObject):
         prompts = self._provider_prompts()
         form = self.job_form
         if form.analysisEnabled:
-            selection = form.selected_ai_model()
+            selection = form.lookup_ai_model()
             if selection is None:
-                self.alert.emit("AI model missing", "Select a model or disable AI analysis.")
+                self.alert.emit(
+                    "AI text model unavailable",
+                    f"The selected text model '{form.analysisModelText}' is not available for any "
+                    "configured provider. Pick a model from the list, or disable AI text analysis.",
+                )
                 return False, False
             provider_name, model = selection
             if not self._cloud_key_ready(provider_name, "AI analysis"):
                 return False, False
             text_provider = self._build_text_provider(provider_name, model, prompts)
         if form.visionEnabled:
-            selection = form.selected_vision_model()
+            selection = form.lookup_vision_model()
             if selection is None:
                 self.alert.emit(
-                    "AI vision model missing", "Select a vision model or disable vision analysis."
+                    "AI vision model unavailable",
+                    f"The selected vision model '{form.visionModelText}' is not available for any "
+                    "configured provider. Pick a model from the list, or disable "
+                    "AI vision analysis.",
                 )
                 return False, False
             provider_name, model = selection

@@ -697,6 +697,31 @@ def test_settings_load_models_without_key_blanks_list(controllers):
     assert "API key first" in settings.keyStatusText
 
 
+def test_lookup_model_is_strict(controllers):
+    form = controllers.job_form
+    form._analysis_entries = [
+        {"label": "Ollama", "header": True, "provider": "ollama", "name": ""},
+        {"label": "llama3", "header": False, "provider": "ollama", "name": "llama3"},
+    ]
+    form.analysisModelText = "llama3"
+    assert form.lookup_ai_model() == ("ollama", "llama3")
+    form.analysisModelText = "deepseek-v4-flash:cloud"
+    assert form.lookup_ai_model() is None
+
+
+def test_resolve_providers_rejects_unknown_model(controllers):
+    session = controllers.session
+    form = controllers.job_form
+    form.analysisEnabled = True
+    form._analysis_entries = []
+    form.analysisModelText = "deepseek-v4-flash:cloud"
+    alerts = []
+    session.alert.connect(lambda title, message: alerts.append((title, message)))
+    text_provider, vision_provider = session._resolve_providers()
+    assert text_provider is False and vision_provider is False
+    assert alerts and "unavailable" in alerts[-1][0].lower()
+
+
 def test_model_choice_keys_are_not_swapped(qapp, monkeypatch, tmp_path):
     from app.infrastructure.settings import InMemorySettingsStore
     from app.ui.controllers.job_form_controller import JobFormController

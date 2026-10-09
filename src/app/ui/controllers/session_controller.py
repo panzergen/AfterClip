@@ -1,3 +1,4 @@
+import gc
 import logging
 from dataclasses import replace
 from pathlib import Path
@@ -732,6 +733,10 @@ class SessionController(QObject):
 
     @Slot()
     def on_job_finished(self) -> None:
+        if self.worker is not None:
+            release = getattr(self.worker, "release", None)
+            if callable(release):
+                release()
         self.worker = None
         if self.thread:
             self.thread.deleteLater()
@@ -744,6 +749,9 @@ class SessionController(QObject):
         self.batch.set_external_job_running(False)
         self.history.refresh()
         self.refreshForecast()
+        # Reclaim the job's memory (base64 frames, providers, service) now that
+        # the result has been surfaced; prevents lingering peak memory.
+        gc.collect()
 
     # -- batch exclusivity -------------------------------------------------------------
 

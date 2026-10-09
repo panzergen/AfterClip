@@ -44,3 +44,9 @@ class TranscriptionWorker(QObject):
 
     def cancel(self):
         self.token.cancel()
+
+    def release(self):
+        """Drop the service/request references so the job's memory is reclaimable."""
+        self.service = None
+        self.request = None
+        self.resume_dir = None

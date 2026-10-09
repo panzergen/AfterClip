@@ -19,6 +19,10 @@ never the sectioning — those fall back to the first sentence.
 | `cohesion` | cohesion boundaries + first-sentence titles (offline) |
 | `off` | no topic files and no headings (outputs unchanged) |
 
+Section count is **auto-scaled** to the media duration (about one section per
+minute, bounded 4–120); `topic_max_sections` can override it (0 = auto) and
+`topic_min_seconds` is the minimum section length (default 60s).
+
 AI titles need a text provider (they use the same one as AI text analysis, and
 respect the prompt templates). With no provider, `ai` degrades to `cohesion`.
 
@@ -41,8 +45,8 @@ For each job:
 ```json
 {
   "topic_method": "ai",
-  "topic_min_seconds": 120,
-  "topic_max_sections": 20
+  "topic_min_seconds": 60,
+  "topic_max_sections": 0
 }
 ```
 

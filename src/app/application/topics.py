@@ -18,9 +18,18 @@ from app.domain.prompts import PromptSet
 
 TOPIC_METHODS = ("off", "cohesion", "ai")
 DEFAULT_TOPIC_METHOD = "ai"
-DEFAULT_TOPIC_MIN_SECONDS = 120.0
-DEFAULT_TOPIC_MAX_SECTIONS = 20
+DEFAULT_TOPIC_MIN_SECONDS = 60.0
+# 0 means "auto": derive a cap from the media duration so long recordings can
+# split well past the one-hour mark instead of lumping the tail together.
+DEFAULT_TOPIC_MAX_SECTIONS = 0
 DEFAULT_BOUNDARY_SCORE = 0.55
+
+
+def auto_max_sections(duration_seconds: float) -> int:
+    """Cap sections at roughly one per minute, bounded to a sane range."""
+    if duration_seconds <= 0:
+        return 1
+    return max(4, min(120, int(duration_seconds / 60)))
 
 _WORD_PATTERN = re.compile(r"[^\W\d_]+", re.UNICODE)
 
@@ -80,18 +89,23 @@ def _make_segment(block: list[TimelineEntry]) -> TopicSegment:
 def segment_topics_cohesion(
     entries: tuple[TimelineEntry, ...],
     min_seconds: float = DEFAULT_TOPIC_MIN_SECONDS,
-    max_sections: int = DEFAULT_TOPIC_MAX_SECTIONS,
+    max_sections: int | None = None,
     min_score: float = DEFAULT_BOUNDARY_SCORE,
 ) -> list[TopicSegment]:
     """Split merged transcript blocks at the strongest lexical-cohesion valleys.
 
     Boundaries are monotonic and non-overlapping; a minimum section length and a
-    maximum section count keep the result readable.
+    maximum section count keep the result readable. ``max_sections=None`` derives
+    the cap from the media duration.
     """
     if not entries:
         return []
     if len(entries) == 1:
         return [_make_segment(list(entries))]
+    if max_sections is None:
+        total_seconds = (entries[-1].end_ms - entries[0].start_ms) / 1000
+        max_sections = auto_max_sections(total_seconds)
+    max_sections = max(1, int(max_sections))
 
     token_sets = [_tokens(entry.text) for entry in entries]
     candidates: list[tuple[int, float]] = []
@@ -102,7 +116,7 @@ def segment_topics_cohesion(
 
     chosen: list[int] = []
     for index, score in candidates:
-        if len(chosen) >= max(1, max_sections) - 1:
+        if len(chosen) >= max_sections - 1:
             break
         if score < min_score:
             break

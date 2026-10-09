@@ -53,6 +53,7 @@ pytest --cov=app.application --cov=app.infrastructure   # coverage
 - `docs/CLI.md` — headless CLI and MCP server
 - `docs/TOPICS.md` — topic segmentation and its report outputs
 - `docs/MEDIA_TYPE.md` — media-type classification and suggestions
+- `docs/PLAN_TOPICS_HIGHLIGHTS.md` — agreed plan for topics/highlights refinements
 - `docs/TROUBLESHOOTING.md` — common problems and fixes
 - `docs/PACKAGING.md` — Windows release build
 - `docs/PLATFORMS.md` — platform support, paths and secret backends

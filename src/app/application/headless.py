@@ -72,7 +72,7 @@ def resolve_topics() -> tuple[str, float, int]:
         max_sections = int(store.get(TOPIC_MAX_SETTINGS_KEY) or DEFAULT_TOPIC_MAX_SECTIONS)
     except (TypeError, ValueError):
         max_sections = DEFAULT_TOPIC_MAX_SECTIONS
-    return method, max(0.0, min_seconds), max(1, max_sections)
+    return method, max(0.0, min_seconds), max(0, max_sections)
 
 
 def build_providers(

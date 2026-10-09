@@ -54,8 +54,8 @@ class TranscriptionRequest:
     output_language: str = ""
     support_files: tuple[str, ...] = ()
     topic_method: str = "cohesion"
-    topic_min_seconds: float = 120.0
-    topic_max_sections: int = 20
+    topic_min_seconds: float = 60.0
+    topic_max_sections: int = 0
 
 
 @dataclass(frozen=True)

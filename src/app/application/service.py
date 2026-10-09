@@ -421,7 +421,9 @@ class TranscriptionService:
                     entries, request.transcript_merge_seconds, speaker_intervals
                 )
             topics = segment_topics_cohesion(
-                merged, request.topic_min_seconds, request.topic_max_sections
+                merged,
+                request.topic_min_seconds,
+                request.topic_max_sections or None,
             )
             if not topics:
                 return

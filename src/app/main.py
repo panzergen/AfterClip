@@ -1,6 +1,7 @@
 import faulthandler
 import logging
 import sys
+import threading
 
 import app.app_paths as app_paths
 from app.version import version_string
@@ -36,6 +37,24 @@ def _run_gui() -> int:
         format="%(asctime)s %(levelname)s %(message)s",
         handlers=[handler],
     )
+    # Capture otherwise-silent unhandled exceptions (main thread and worker
+    # threads) so a post-job crash has a traceback in app.log, not just a
+    # vanished window.
+    sys.excepthook = lambda exc_type, exc, tb: logging.getLogger("app").error(
+        "Unhandled exception", exc_info=(exc_type, exc, tb)
+    )
+
+    def _thread_excepthook(*args):
+        if len(args) == 1:
+            info = args[0]
+            exc_type, exc, tb = info.exc_type, info.exc_value, info.exc_traceback
+        else:
+            exc_type, exc, tb = args[0], args[1], args[2]
+        logging.getLogger("app").error(
+            "Unhandled exception in worker thread", exc_info=(exc_type, exc, tb)
+        )
+
+    threading.excepthook = _thread_excepthook
     # Fatal crashes (native access violations) leave a Python stack trace in
     # crash.log; a windowed launch shows no console, so this is the only
     # place a crash report can be recovered from.
@@ -54,6 +73,18 @@ def _run_gui() -> int:
     palette.setColor(QPalette.Highlight, QColor("#0a7bd6"))
     palette.setColor(QPalette.HighlightedText, QColor("#ffffff"))
     application.setPalette(palette)
+    # Route Qt/QML warnings/errors into the log so a QML-side crash has a
+    # trace (QtCritical/QtFatal at ERROR, warnings at DEBUG).
+    from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+
+    def _qt_message(mode, _context, message):
+        logger = logging.getLogger("app.qt")
+        if mode in (QtMsgType.QtCriticalMsg, QtMsgType.QtFatalMsg):
+            logger.error("%s", message)
+        elif mode == QtMsgType.QtWarningMsg:
+            logger.debug("%s", message)
+
+    qInstallMessageHandler(_qt_message)
     controllers = build_controllers()
 
     engine = QQmlApplicationEngine()
@@ -73,7 +104,9 @@ def _run_gui() -> int:
         return 1
     # Environment checks probe external executables; run them after show().
     QTimer.singleShot(0, controllers.environment.refresh)
-    return application.exec()
+    code = application.exec()
+    logging.getLogger("app").info("GUI exited (code %s)", code)
+    return code
 
 
 if __name__ == "__main__":

@@ -1,0 +1,119 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v0.3.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[build]"
+
+      - name: Report the version being built
+        run: |
+          python -c "import sys; sys.path.insert(0,'src'); from app.version import __version__; print('Building', __version__)"
+
+      - name: Build the bundle, the zip and the installer
+        shell: pwsh
+        run: |
+          & ./packaging/build_windows.ps1 -Clean -Zip -Installer
+          if ($LASTEXITCODE -ne 0) { throw "build_windows.ps1 failed" }
+
+      - name: Collect the release artifacts
+        shell: pwsh
+        run: |
+          $version = (python -c "import sys; sys.path.insert(0,'src'); from app.version import __version__; print(__version__)").Trim()
+          New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
+          Copy-Item "release/AfterClip-$version-win64.zip" release-artifacts/
+          Copy-Item "release/AfterClip-$version-setup.exe" release-artifacts/
+          Get-ChildItem release-artifacts | Select-Object Name, Length
+
+      - name: Generate checksums
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem release-artifacts -File | Sort-Object Name
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 -Path $file.FullName).Hash.ToLower()
+            "$hash  $($file.Name)"
+          }
+          $lines | Set-Content -Path release-artifacts/SHA256SUMS -Encoding ascii
+          Get-Content release-artifacts/SHA256SUMS
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: release-artifacts/
+
+  publish:
+    name: Publish the GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: release-artifacts
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: AfterClip ${{ inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            release-artifacts/*.zip
+            release-artifacts/*.exe
+            release-artifacts/SHA256SUMS
+          body: |
+            ## Installing
+
+            1. Download the `.exe` installer (recommended) or the `-win64.zip` portable bundle.
+            2. Install [FFmpeg](https://ffmpeg.org/download.html) and `openai-whisper`
+               (`pip install openai-whisper`). These are **not** bundled — see the
+               packaging notes in the README.
+            3. Run `AfterClip.exe`.
+
+            ## Verifying the download
+
+            The `SHA256SUMS` file lists the checksum of every artifact. Compare it
+            with your download before running it:
+
+            ```powershell
+            Get-FileHash -Algorithm SHA256 .\AfterClip-<version>-setup.exe
+            ```
+
+            ## A note on warnings
+
+            These binaries are **not code-signed**, so Windows SmartScreen and some
+            antivirus products will warn on first run. This is expected for an
+            unsigned build.
+
+            ## Known limitations
+
+            - Code signing and notarisation are not implemented.
+            - FFmpeg and `openai-whisper` are not bundled.
+            - macOS and Linux have no packaging workflow yet.

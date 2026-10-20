@@ -70,4 +70,4 @@ def test_packaging_assets_present():
     assert "app.version" in spec
     installer = (ROOT / "packaging" / "afterclip.iss").read_text(encoding="utf-8")
     assert "OutputBaseFilename=AfterClip-{#AppVersion}-setup" in installer
-    assert "SourceDir \"..\\release\\AfterClip\"" in installer
+    assert 'SourceDir "..\\release\\AfterClip"' in installer

@@ -9,6 +9,8 @@ from app.infrastructure.ollama.client import OllamaClient
 class OllamaVisionProvider:
     """Single-frame vision analysis; frames are sent as base64 images."""
 
+    provider_name = "ollama"
+
     def __init__(
         self,
         model: str,
@@ -33,7 +35,10 @@ class OllamaVisionProvider:
         return self.client.generate(
             self.model,
             self.prompts.render(
-                "vision_frame", user_desc=user_task, audio_context=audio_context, lang=language or "en"
+                "vision_frame",
+                user_desc=user_task,
+                audio_context=audio_context,
+                lang=language or "en",
             ),
             cancel_token,
             on_progress,

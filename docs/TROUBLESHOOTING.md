@@ -31,15 +31,28 @@ Whisper transcription flow still works; only local AI analysis is skipped.
 ## "Cloud AI consent required" keeps appearing
 
 Consent is stored per provider in `settings.json`. Accept it in the dialog, or
-grant it up-front in **Settings → Gemini → Grant consent**. If it reappears,
-the settings file may be read-only or a newer schema (see below).
+grant it up-front in **Settings → Cloud provider → Grant consent**. If it
+reappears, the settings file may be read-only or a newer schema (see below).
 
-## "No Gemini API key stored" / "credential manager" error
+## "No API key stored" / "credential manager" error
 
 - Save the key in **Settings**; it is stored in the OS credential manager.
+- The key name depends on the provider: `gemini_api_key`, `openrouter_api_key`
+  or `opencode_go_api_key` (OpenCode Go and Zen share one platform key).
 - A headless Linux session without Secret Service/KWallet cannot store keys;
   the Settings screen reports this instead of crashing.
 - After **Delete key**, cloud jobs stop until a new key is saved.
+
+## The provider rejects the request
+
+- **401** means the key is wrong or expired — re-enter it in Settings.
+- **403** usually means the account or model is not entitled to use that
+  provider.
+- **404** means the selected model does not exist for that provider. Press
+  **Load models** in Settings to fetch the live list and pick one.
+- AfterClip does not silently fall back to another provider: if a selected
+  model is unavailable the job fails with that error rather than sending your
+  transcript somewhere you did not choose.
 
 ## Output directory problems
 

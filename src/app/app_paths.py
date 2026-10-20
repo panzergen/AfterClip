@@ -96,3 +96,8 @@ def log_file() -> Path:
 def crash_file() -> Path:
     """Fatal-crash report written by faulthandler; bounds the log directory."""
     return app_data_dir() / "logs" / "crash.log"
+
+
+def notification_sound_default() -> Path:
+    """Bundled default completion sound (synthesized, public-domain-equivalent)."""
+    return package_dir() / "ui" / "assets" / "complete.wav"

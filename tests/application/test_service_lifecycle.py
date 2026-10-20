@@ -30,7 +30,19 @@ class CountingMedia:
             cancel_token.cancel()
         return input_path
 
-    def extract_interval_frames(self, input_path, frames_dir, interval, cancel_token, clip_start=None, clip_end=None, highlight_times=(), mode="interval", sensitivity=0.35, resolution="full"):
+    def extract_interval_frames(
+        self,
+        input_path,
+        frames_dir,
+        interval,
+        cancel_token,
+        clip_start=None,
+        clip_end=None,
+        highlight_times=(),
+        mode="interval",
+        sensitivity=0.35,
+        resolution="full",
+    ):
         return ()
 
 
@@ -40,13 +52,21 @@ def write_resumable_job(output_dir: Path, source: Path, audio_path: Path, status
     audio_path.parent.mkdir(parents=True, exist_ok=True)
     audio_path.write_bytes(b"wav")
     (job / "job_state.json").write_text(
-        json.dumps({
-            "status": status,
-            "input_path": str(source),
-            "output_name": "sample",
-            "audio_path": str(audio_path),
-            "steps": {"media_preparation": {"name": "Media preparation", "status": "completed", "duration_seconds": 0.1}},
-        }),
+        json.dumps(
+            {
+                "status": status,
+                "input_path": str(source),
+                "output_name": "sample",
+                "audio_path": str(audio_path),
+                "steps": {
+                    "media_preparation": {
+                        "name": "Media preparation",
+                        "status": "completed",
+                        "duration_seconds": 0.1,
+                    }
+                },
+            }
+        ),
         encoding="utf-8",
     )
     return job
@@ -59,7 +79,9 @@ def test_cancel_between_steps_does_not_run_next_step(tmp_path):
     provider = CountingProvider()
     media = CountingMedia(cancel_after_prepare=True)
     with pytest.raises(JobCancelled):
-        TranscriptionService(provider, media).run(TranscriptionRequest(source, output), lambda _: None, CancellationToken())
+        TranscriptionService(provider, media).run(
+            TranscriptionRequest(source, output), lambda _: None, CancellationToken()
+        )
     assert provider.calls == 0
     state = json.loads((output / "sample" / "job_state.json").read_text(encoding="utf-8"))
     assert state["status"] == "Cancelled"
@@ -73,7 +95,9 @@ def test_resume_after_cancelled_replays_completed_steps(tmp_path):
     job = write_resumable_job(output, source, audio, "cancelled")
     provider = CountingProvider()
     media = CountingMedia()
-    result = TranscriptionService(provider, media).run(TranscriptionRequest(source, output), lambda _: None, CancellationToken())
+    result = TranscriptionService(provider, media).run(
+        TranscriptionRequest(source, output), lambda _: None, CancellationToken()
+    )
     assert media.prepares == 0
     assert provider.calls == 1
     assert result.output_dir == job / "Transcripts"
@@ -87,7 +111,9 @@ def test_resume_after_failed_replays_completed_steps(tmp_path):
     job = write_resumable_job(output, source, audio, "failed")
     provider = CountingProvider()
     media = CountingMedia()
-    result = TranscriptionService(provider, media).run(TranscriptionRequest(source, output), lambda _: None, CancellationToken())
+    result = TranscriptionService(provider, media).run(
+        TranscriptionRequest(source, output), lambda _: None, CancellationToken()
+    )
     assert media.prepares == 0
     assert provider.calls == 1
     assert result.output_dir == job / "Transcripts"
@@ -102,7 +128,9 @@ def test_stale_audio_path_in_state_triggers_reprepare(tmp_path):
     stale_audio.unlink()
     provider = CountingProvider()
     media = CountingMedia()
-    TranscriptionService(provider, media).run(TranscriptionRequest(source, output), lambda _: None, CancellationToken())
+    TranscriptionService(provider, media).run(
+        TranscriptionRequest(source, output), lambda _: None, CancellationToken()
+    )
     assert media.prepares == 1
     assert provider.calls == 1
     state = json.loads((job / "job_state.json").read_text(encoding="utf-8"))
@@ -136,7 +164,8 @@ def test_zero_frames_produce_a_visible_warning(tmp_path):
     output = tmp_path / "out"
     TranscriptionService(CountingProvider(), CountingMedia()).run(
         TranscriptionRequest(source, output, extract_frames=True, frame_modes=("scene",)),
-        events.append, CancellationToken(),
+        events.append,
+        CancellationToken(),
     )
     assert any("0 frames" in event.message for event in events)
 
@@ -163,15 +192,26 @@ def test_output_language_is_independent_of_transcription_language(tmp_path):
     output = tmp_path / "out"
     provider = LanguageRecordingTextProvider()
     TranscriptionService(CountingProvider(), CountingMedia(), provider).run(
-        TranscriptionRequest(source, output, language="tr", output_language="de", analyze_text=True, analysis_model="test-model"),
-        lambda _: None, CancellationToken(),
+        TranscriptionRequest(
+            source,
+            output,
+            language="tr",
+            output_language="de",
+            analyze_text=True,
+            analysis_model="test-model",
+        ),
+        lambda _: None,
+        CancellationToken(),
     )
     assert provider.languages and all(language == "de" for language in provider.languages)
 
     provider = LanguageRecordingTextProvider()
     TranscriptionService(CountingProvider(), CountingMedia(), provider).run(
-        TranscriptionRequest(source, output, language="tr", analyze_text=True, analysis_model="test-model"),
-        lambda _: None, CancellationToken(),
+        TranscriptionRequest(
+            source, output, language="tr", analyze_text=True, analysis_model="test-model"
+        ),
+        lambda _: None,
+        CancellationToken(),
     )
     assert provider.languages and all(language == "tr" for language in provider.languages)
 
@@ -181,9 +221,12 @@ def test_multiple_frame_modes_run_sequentially(tmp_path):
     source.write_bytes(b"fixture")
     output = tmp_path / "out"
     TranscriptionService(CountingProvider(), CountingMedia()).run(
-        TranscriptionRequest(source, output, extract_frames=True, frame_modes=("interval", "scene")), lambda _: None, CancellationToken()
+        TranscriptionRequest(
+            source, output, extract_frames=True, frame_modes=("interval", "scene")
+        ),
+        lambda _: None,
+        CancellationToken(),
     )
     state = (output / "sample" / "job_state.json").read_text(encoding="utf-8")
     assert '"frame_extraction_interval"' in state
     assert '"frame_extraction_scene"' in state
-

@@ -103,9 +103,7 @@ class OpenAICompatClient:
         self.max_retries = max_retries
         self.min_interval = min_interval
         self.session_id = session_id or uuid.uuid4().hex
-        self.key_getter = key_getter or (
-            lambda: KeyringSecretStore().get(f"{provider}_api_key")
-        )
+        self.key_getter = key_getter or (lambda: KeyringSecretStore().get(f"{provider}_api_key"))
         self.transport_fn = transport_fn or http_post_json
         self.get_fn = get_fn or http_get_json
         self.sleep_fn = sleep_fn or time.sleep
@@ -166,7 +164,8 @@ class OpenAICompatClient:
         def request(url_: str, payload_: dict, timeout_: float) -> dict:
             return self.transport_fn(url_, payload_, timeout_, headers)
 
-        for attempt in range(self.max_retries + 1):
+        attempt = 0
+        while attempt <= self.max_retries:
             self._throttle(cancel_token)
             try:
                 raw = post_json_cancellable(url, payload, self.timeout, cancel_token, request)
@@ -213,6 +212,7 @@ class OpenAICompatClient:
                     raise OpenAICompatError(f"{self.provider} request failed: {error}") from error
                 delay = self._backoff(0, attempt)
                 self._sleep_interruptible(delay, cancel_token)
+            attempt += 1
 
     def _throttle(self, cancel_token: CancelToken | None) -> None:
         if self._last_request_time is None:
@@ -241,9 +241,9 @@ class OpenAICompatClient:
         try:
             payload = self.get_fn(f"{self.base_url}/models", 30.0, headers)
         except urllib.error.HTTPError as error:
+            body = self._read_error_body(error)
             raise OpenAICompatError(
-                f"{self.provider} model list failed: HTTP {error.code}"
-                f"{self._read_error_body(error)}"
+                f"{self.provider} model list failed: HTTP {error.code}{body}"
             ) from error
         return self._extract_model_items(payload)
 

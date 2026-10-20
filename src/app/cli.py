@@ -47,7 +47,9 @@ def _add_job_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--language", help="Transcription language hint")
     parser.add_argument("--report-language", help="Language for summaries/highlights/vision")
     parser.add_argument("--task", default="", help="Extra instructions for AI analysis")
-    parser.add_argument("--provider", help="ollama | gemini | openrouter | opencode_go")
+    parser.add_argument(
+        "--provider", help="ollama | gemini | openrouter | opencode_go | opencode_zen"
+    )
     parser.add_argument("--text-model", default="", help="Text analysis model id")
     parser.add_argument("--vision-model", default="", help="Vision analysis model id")
     parser.add_argument("--analyze-text", action="store_true", help="Enable AI text analysis")
@@ -264,9 +266,7 @@ def process_one(args, preset: Preset | None = None) -> int:
             print(f"[{percent}] {event.message}", file=sys.stderr)
 
     try:
-        result = run_request(
-            request, text_provider, vision_provider, sanitizer, on_event, token
-        )
+        result = run_request(request, text_provider, vision_provider, sanitizer, on_event, token)
     except JobCancelled:
         _emit_error(args, "Cancelled", code=EXIT_CANCELLED)
         return EXIT_CANCELLED
@@ -279,9 +279,7 @@ def process_one(args, preset: Preset | None = None) -> int:
         return EXIT_FAILURE
 
     job_dir = (
-        result.output_dir.parent
-        if result.output_dir.name == "Transcripts"
-        else result.output_dir
+        result.output_dir.parent if result.output_dir.name == "Transcripts" else result.output_dir
     )
     payload = {
         "status": "succeeded",

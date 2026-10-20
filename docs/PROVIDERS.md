@@ -9,6 +9,19 @@ shared OpenAI-compatible adapter.
 | Gemini (cloud) | `gemini` | gemini | `generativelanguage.googleapis.com` | `gemini_api_key` |
 | OpenRouter (cloud) | `openrouter` | openai_compat | `https://openrouter.ai/api/v1` | `openrouter_api_key` |
 | OpenCode Go (cloud) | `opencode_go` | openai_compat | `https://opencode.ai/zen/go/v1` | `opencode_go_api_key` |
+| OpenCode Zen (cloud) | `opencode_zen` | openai_compat | `https://opencode.ai/zen/v1` | `opencode_go_api_key` (shared platform key) |
+
+Zen and Go share one OpenCode platform key: saving it under either provider
+unlocks both catalogs. Zen's `/models` endpoint also lists `/responses`,
+`/messages`, `/systemone` and native-Google ids that this app cannot speak, so
+those prefixes (`gpt-`, `claude-`, `gemini-`, `grok-`, `muse-spark-`, `jev-`,
+`qwen3.5/3.6/3.7-`, `qwen3.8-flash`) are filtered out of the Zen section — only
+`/chat/completions` models are offered (see `exclude_name_prefixes` in
+`application/provider_registry.py`).
+
+The model list is never hard-coded: every `openai_compat` provider uses the
+live `GET {base_url}/models` response (Settings → Load models). Providers other
+than Gemini have no static fallback, so an invalid model name is never offered.
 
 `application/provider_registry.py` is the source of truth (label, base URL,
 credential name, endpoint, kind). Adding a provider is a registry entry plus an

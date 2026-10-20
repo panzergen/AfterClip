@@ -19,22 +19,6 @@ def clean_thinking_tags(text: str) -> str:
     return cleaned.strip()
 
 
-def clean_highlights_output(text: str) -> str:
-    """Keep timestamped highlight lines and drop model reasoning noise."""
-    cleaned = clean_thinking_tags(text)
-    timestamped_lines = []
-    timestamp_pattern = re.compile(
-        r"^\s*(?:[-*+]\s+|\d+[.)]\s+)?(?:\[)?"
-        r"\d{2}:\d{2}(?::\d{2})?(?:[,.]\d{3})?(?:\])?"
-    )
-    for line in cleaned.splitlines():
-        if timestamp_pattern.match(line):
-            normalized = line.strip()
-            if normalized not in timestamped_lines:
-                timestamped_lines.append(normalized)
-    return "\n".join(timestamped_lines).strip() or cleaned
-
-
 def chunk_text(text: str, size: int = 3500) -> tuple[str, ...]:
     text = text.strip()
     if len(text) <= size:
@@ -51,9 +35,7 @@ def chunk_text(text: str, size: int = 3500) -> tuple[str, ...]:
     return tuple(chunk for chunk in chunks if chunk)
 
 
-def http_post_json(
-    url: str, payload: dict, timeout: float, headers: dict | None = None
-) -> dict:
+def http_post_json(url: str, payload: dict, timeout: float, headers: dict | None = None) -> dict:
     merged = {"Content-Type": "application/json"}
     if headers:
         merged.update(headers)
@@ -96,7 +78,7 @@ def post_json_cancellable(
         nonlocal result, error
         try:
             result = request_fn(url, payload, timeout)
-        except BaseException as request_error:  # noqa: BLE001 - surfaced to caller
+        except BaseException as request_error:
             error = request_error
         finally:
             done.set()

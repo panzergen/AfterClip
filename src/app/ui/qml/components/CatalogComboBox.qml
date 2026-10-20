@@ -40,12 +40,50 @@ Button {
 
     onClicked: popup.opened ? popup.close() : popup.open()
 
+    // Provider of the currently selected model in this dropdown ("" if none).
+    function selectedProvider() {
+        for (let i = 0; i < root.entries.length; ++i) {
+            const e = root.entries[i];
+            if (!e.header && e.name === root.currentModel)
+                return e.provider;
+        }
+        return "";
+    }
+
+    function sectionCount(provider) {
+        let n = 0;
+        for (let i = 0; i < root.entries.length; ++i) {
+            const e = root.entries[i];
+            if (!e.header && e.provider === provider)
+                ++n;
+        }
+        return n;
+    }
+
+    // Collapse every section except the selected provider's, so the popup
+    // opens focused on the active provider while the rest show a model count.
+    function resetCollapsed() {
+        const sel = selectedProvider();
+        const next = {};
+        for (let i = 0; i < root.entries.length; ++i) {
+            const e = root.entries[i];
+            if (e.header && e.provider !== sel)
+                next[e.provider] = true;
+        }
+        root.collapsed = next;
+    }
+
     Popup {
         id: popup
         y: root.height
         width: root.width
         padding: 1
         implicitHeight: Math.min(list.contentHeight + 2, 360)
+
+        onOpenedChanged: {
+            if (opened)
+                root.resetCollapsed();
+        }
 
         contentItem: ListView {
             id: list
@@ -69,9 +107,14 @@ Button {
                 height: collapsedSection ? 0 : implicitHeight
 
                 contentItem: Text {
-                    text: (entry.isHeader
-                           ? (root.collapsed[entry.modelData.provider] === true ? "\u25B6  " : "\u25BC  ")
-                           : "     ") + (entry.modelData.label || "")
+                    text: {
+                        if (!entry.isHeader)
+                            return "     " + (entry.modelData.label || "");
+                        const isCollapsed = root.collapsed[entry.modelData.provider] === true;
+                        const arrow = isCollapsed ? "\u25B6  " : "\u25BC  ";
+                        const suffix = isCollapsed ? " (" + root.sectionCount(entry.modelData.provider) + ")" : "";
+                        return arrow + (entry.modelData.label || "") + suffix;
+                    }
                     font.pixelSize: Theme.fontSizeSmall
                     font.bold: entry.isHeader
                     elide: Text.ElideRight

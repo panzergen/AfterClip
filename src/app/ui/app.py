@@ -19,6 +19,7 @@ from app.ui.controllers.presets_controller import PresetsController
 from app.ui.controllers.record_controller import RecordController
 from app.ui.controllers.session_controller import SessionController
 from app.ui.controllers.settings_controller import SettingsController
+from app.ui.controllers.voiceprint_enrollment_controller import VoiceprintEnrollmentController
 
 
 @dataclass
@@ -32,6 +33,7 @@ class AppControllers:
     settings: SettingsController
     session: SessionController
     presets: PresetsController
+    voiceprint_enrollment: VoiceprintEnrollmentController
 
     def connect(self) -> None:
         """Wire controller signals (idempotent; safe to call once per instance)."""
@@ -50,6 +52,9 @@ class AppControllers:
         )
         self.batch.batchRunningChanged.connect(self.session.on_batch_running)
         self.batch.set_enqueue_settings_provider(self.session.batch_enqueue_settings)
+        self.batch.set_voiceprint_deps_provider(self.session.voiceprint_runtime)
+        self.session.voiceprintEnrollmentRequested.connect(self.voiceprint_enrollment.prepare)
+        self.voiceprint_enrollment.reprocessRequested.connect(self.session.reprocessVoiceprints)
         self.job_form.outputChanged.connect(self.record.set_output_dir)
         self.job_form.analysisEnabledChanged.connect(self.session.on_analysis_toggled)
         for signal in (
@@ -98,6 +103,7 @@ def build_controllers(
         media, job_form, batch, history, environment, record, settings, prompt_store
     )
     presets = PresetsController(job_form, prompt_store, preset_store)
+    voiceprint_enrollment = VoiceprintEnrollmentController()
     controllers = AppControllers(
         environment=environment,
         job_form=job_form,
@@ -108,6 +114,7 @@ def build_controllers(
         settings=settings,
         session=session,
         presets=presets,
+        voiceprint_enrollment=voiceprint_enrollment,
     )
     controllers.connect()
     return controllers

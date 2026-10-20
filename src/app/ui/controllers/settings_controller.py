@@ -1,11 +1,17 @@
 import logging
 from datetime import datetime
+from pathlib import Path
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
+import app.app_paths as app_paths
 from app.application.cloud_consent import grant_consent, has_consent, revoke_consent
 from app.application.provider_registry import KIND_GEMINI, cloud_provider_ids, get_provider
 from app.application.transcript_sanitizer import SanitizerConfig
+from app.application.voiceprints import (
+    DEFAULT_CLUSTER_THRESHOLD,
+    DEFAULT_IDENTIFY_THRESHOLD,
+)
 from app.domain.prompts import (
     TEMPLATE_NAMES,
     TEMPLATE_PLACEHOLDERS,
@@ -17,6 +23,9 @@ from app.infrastructure.openai_compat import OpenAICompatClient
 from app.infrastructure.prompts import JsonPromptStore
 from app.infrastructure.secrets import KeyringSecretStore, SecretStoreUnavailableError
 from app.infrastructure.settings import JsonSettingsStore
+from app.infrastructure.voiceprint_embedder import SpeakerOnnxEmbedder, voiceprints_available
+from app.infrastructure.voiceprints import JsonVoiceprintStore
+from app.ui.notification_sound import NotificationSound
 
 SEGMENT_CHOICES = (
     ("Whisper default (no merging)", 0.0),
@@ -29,6 +38,10 @@ SEGMENT_SETTINGS_KEY = "transcript_segment_seconds"
 GEMINI_MODEL_SETTINGS_KEY = "gemini_model"
 REPORT_LANGUAGE_SETTINGS_KEY = "report_language"
 SANITIZER_SETTINGS_KEY = "transcript_filter"
+VOICEPRINT_IDENTIFY_THRESHOLD_KEY = "voiceprint_identify_threshold"
+VOICEPRINT_CLUSTER_THRESHOLD_KEY = "voiceprint_cluster_threshold"
+NOTIFICATION_SOUND_ENABLED_KEY = "notification_sound_enabled"
+NOTIFICATION_SOUND_PATH_KEY = "notification_sound_path"
 GEMINI_MODEL_CHOICES = ("gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-pro")
 
 #: Cloud providers offered in Settings, in registry order.
@@ -89,8 +102,24 @@ class SettingsController(QObject):
         self._prompt_text = ""
         self._prompt_status_text = ""
         self._prompt_status_ok = True
+        self._voiceprint_store = JsonVoiceprintStore()
+        self._voiceprint_embedder = SpeakerOnnxEmbedder() if voiceprints_available() else None
+        self._voiceprint_identify_threshold = self._load_voiceprint_threshold(
+            VOICEPRINT_IDENTIFY_THRESHOLD_KEY, DEFAULT_IDENTIFY_THRESHOLD
+        )
+        self._voiceprint_cluster_threshold = self._load_voiceprint_threshold(
+            VOICEPRINT_CLUSTER_THRESHOLD_KEY, DEFAULT_CLUSTER_THRESHOLD
+        )
+        self._voiceprint_names: list = []
+        self._voiceprint_status_text = ""
+        self._voiceprint_enroll_name = ""
+        self._voiceprint_enroll_path = ""
+        self._notification_enabled = self.store.get(NOTIFICATION_SOUND_ENABLED_KEY) is not False
+        self._notification_path = str(self.store.get(NOTIFICATION_SOUND_PATH_KEY) or "")
+        self._notification_sound = NotificationSound()
         self._load_prompt_editor()
         self._refresh_key_status()
+        self._refresh_voiceprint_names()
 
     def _provider_id(self) -> str:
         return CLOUD_PROVIDER_IDS[self._cloud_provider_index]
@@ -213,9 +242,7 @@ class SettingsController(QObject):
     keyStatusText = Property(str, _get_key_status_text, notify=keyStatusChanged)
     keyStored = Property(bool, _get_key_stored, notify=keyStatusChanged)
     modelOptions = Property("QVariantList", _get_model_options, notify=modelOptionsChanged)
-    cloudConsentGranted = Property(
-        bool, _get_cloud_consent_granted, notify=cloudConsentChanged
-    )
+    cloudConsentGranted = Property(bool, _get_cloud_consent_granted, notify=cloudConsentChanged)
     cloudConsentText = Property(str, _get_cloud_consent_text, notify=cloudConsentChanged)
     cloudProviderLabels = Property("QVariantList", _get_cloud_provider_labels, constant=True)
     cloudProviderIndex = Property(
@@ -225,13 +252,9 @@ class SettingsController(QObject):
     promptPlaceholders = Property(
         "QVariantList", _get_prompt_placeholders, notify=promptIndexChanged
     )
-    promptIndex = Property(
-        int, _get_prompt_index, _set_prompt_index, notify=promptIndexChanged
-    )
+    promptIndex = Property(int, _get_prompt_index, _set_prompt_index, notify=promptIndexChanged)
     promptText = Property(str, _get_prompt_text, _set_prompt_text, notify=promptTextChanged)
-    promptStatusText = Property(
-        str, _get_prompt_status_text, notify=promptStatusChanged
-    )
+    promptStatusText = Property(str, _get_prompt_status_text, notify=promptStatusChanged)
     promptStatusOk = Property(bool, _get_prompt_status_ok, notify=promptStatusChanged)
 
     def _get_key_input(self) -> str:
@@ -344,8 +367,7 @@ class SettingsController(QObject):
         if not available:
             self._key_stored = False
             self._set_key_status(
-                "No OS credential manager is available; API keys cannot be stored "
-                "on this system.",
+                "No OS credential manager is available; API keys cannot be stored on this system.",
                 ok=False,
             )
             return
@@ -372,6 +394,9 @@ class SettingsController(QObject):
         self.store.set(SEGMENT_SETTINGS_KEY, value)
         self.store.set(GEMINI_MODEL_SETTINGS_KEY, self._gemini_model.strip())
         self.store.set(REPORT_LANGUAGE_SETTINGS_KEY, self._report_language.strip())
+        self._save_voiceprint_thresholds()
+        self.store.set(NOTIFICATION_SOUND_ENABLED_KEY, self._notification_enabled)
+        self.store.set(NOTIFICATION_SOUND_PATH_KEY, self._notification_path.strip())
 
     def segment_seconds(self) -> float | None:
         value = SEGMENT_CHOICES[self._segment_index][1]
@@ -436,3 +461,224 @@ class SettingsController(QObject):
     def reloadPrompts(self) -> None:
         self._load_prompt_editor()
         self._set_prompt_status("", True)
+
+    # -- voiceprints -----------------------------------------------------------
+
+    @staticmethod
+    def _load_voiceprint_threshold(key: str, default: float) -> float:
+        try:
+            value = float(JsonSettingsStore().get(key) or default)
+        except (TypeError, ValueError):
+            value = default
+        return min(1.0, max(0.0, value))
+
+    def _get_voiceprint_identify_threshold(self) -> float:
+        return self._voiceprint_identify_threshold
+
+    def _set_voiceprint_identify_threshold(self, value) -> None:
+        self._voiceprint_identify_threshold = min(1.0, max(0.0, float(value)))
+        self.voiceprintIdentifyThresholdChanged.emit()
+
+    def _get_voiceprint_cluster_threshold(self) -> float:
+        return self._voiceprint_cluster_threshold
+
+    def _set_voiceprint_cluster_threshold(self, value) -> None:
+        self._voiceprint_cluster_threshold = min(1.0, max(0.0, float(value)))
+        self.voiceprintClusterThresholdChanged.emit()
+
+    def _get_voiceprint_names(self) -> list:
+        return list(self._voiceprint_names)
+
+    def _get_voiceprint_status_text(self) -> str:
+        return self._voiceprint_status_text
+
+    def _get_voiceprint_available(self) -> bool:
+        return self._voiceprint_embedder is not None
+
+    def _get_voiceprint_enroll_name(self) -> str:
+        return self._voiceprint_enroll_name
+
+    def _set_voiceprint_enroll_name(self, value) -> None:
+        self._voiceprint_enroll_name = str(value)
+
+    def _get_voiceprint_enroll_path(self) -> str:
+        return self._voiceprint_enroll_path
+
+    def _set_voiceprint_enroll_path(self, value) -> None:
+        self._voiceprint_enroll_path = str(value)
+
+    voiceprintIdentifyThresholdChanged = Signal()
+    voiceprintClusterThresholdChanged = Signal()
+    voiceprintNamesChanged = Signal()
+    voiceprintStatusChanged = Signal()
+    voiceprintEnrollNameChanged = Signal()
+    voiceprintEnrollPathChanged = Signal()
+
+    voiceprintIdentifyThreshold = Property(
+        float,
+        _get_voiceprint_identify_threshold,
+        _set_voiceprint_identify_threshold,
+        notify=voiceprintIdentifyThresholdChanged,
+    )
+    voiceprintClusterThreshold = Property(
+        float,
+        _get_voiceprint_cluster_threshold,
+        _set_voiceprint_cluster_threshold,
+        notify=voiceprintClusterThresholdChanged,
+    )
+    voiceprintNames = Property("QVariantList", _get_voiceprint_names, notify=voiceprintNamesChanged)
+    voiceprintStatusText = Property(
+        str, _get_voiceprint_status_text, notify=voiceprintStatusChanged
+    )
+    voiceprintAvailable = Property(bool, _get_voiceprint_available, constant=True)
+    voiceprintEnrollName = Property(
+        str,
+        _get_voiceprint_enroll_name,
+        _set_voiceprint_enroll_name,
+        notify=voiceprintEnrollNameChanged,
+    )
+    voiceprintEnrollPath = Property(
+        str,
+        _get_voiceprint_enroll_path,
+        _set_voiceprint_enroll_path,
+        notify=voiceprintEnrollPathChanged,
+    )
+
+    def voiceprint_identify_threshold(self) -> float:
+        return self._voiceprint_identify_threshold
+
+    def voiceprint_cluster_threshold(self) -> float:
+        return self._voiceprint_cluster_threshold
+
+    def _refresh_voiceprint_names(self) -> None:
+        self._voiceprint_names = sorted(self._voiceprint_store.load())
+        self.voiceprintNamesChanged.emit()
+
+    @Slot()
+    def refreshVoiceprints(self) -> None:
+        self._refresh_voiceprint_names()
+
+    @Slot()
+    def enrollVoiceprint(self) -> None:
+        name = self._voiceprint_enroll_name.strip()
+        path = self._voiceprint_enroll_path.strip()
+        if not name:
+            self._set_voiceprint_status("Enter a name for this speaker.", ok=False)
+            return
+        if not path:
+            self._set_voiceprint_status("Choose an audio sample for this speaker.", ok=False)
+            return
+        if self._voiceprint_embedder is None:
+            self._set_voiceprint_status(
+                "Voiceprints are unavailable: install the 'voiceprint' extra.", ok=False
+            )
+            return
+        from pathlib import Path
+
+        sample = Path(path)
+        if not sample.is_file():
+            self._set_voiceprint_status("The chosen sample was not found.", ok=False)
+            return
+        try:
+            embedding = self._voiceprint_embedder.embed(sample)
+        except Exception as error:
+            logging.getLogger(__name__).warning("Voiceprint enrollment failed: %s", error)
+            self._set_voiceprint_status(f"Enrollment failed: {error}", ok=False)
+            return
+        self._voiceprint_store.save(name, embedding)
+        self._voiceprint_enroll_name = ""
+        self._voiceprint_enroll_path = ""
+        self.voiceprintEnrollNameChanged.emit()
+        self.voiceprintEnrollPathChanged.emit()
+        self._refresh_voiceprint_names()
+        self._set_voiceprint_status(f"Enrolled '{name}'.", ok=True)
+
+    @Slot(int)
+    def removeVoiceprint(self, index: int) -> None:
+        if 0 <= index < len(self._voiceprint_names):
+            name = self._voiceprint_names[index]
+            self._voiceprint_store.remove(name)
+            self._refresh_voiceprint_names()
+            self._set_voiceprint_status(f"Removed '{name}'.", ok=True)
+
+    @Slot(int, str)
+    def reenrollVoiceprint(self, index: int, path: str) -> None:
+        """Re-embed a new sample for an existing name (overwrites its voiceprint)."""
+        if not (0 <= index < len(self._voiceprint_names)):
+            return
+        name = self._voiceprint_names[index]
+        if self._voiceprint_embedder is None:
+            self._set_voiceprint_status(
+                "Voiceprints are unavailable: install the 'voiceprint' extra.", ok=False
+            )
+            return
+        from pathlib import Path
+
+        sample = Path(path)
+        if not sample.is_file():
+            self._set_voiceprint_status("The chosen sample was not found.", ok=False)
+            return
+        try:
+            embedding = self._voiceprint_embedder.embed(sample)
+        except Exception as error:
+            logging.getLogger(__name__).warning("Voiceprint re-enrollment failed: %s", error)
+            self._set_voiceprint_status(f"Re-enrollment failed: {error}", ok=False)
+            return
+        self._voiceprint_store.save(name, embedding)
+        self._set_voiceprint_status(f"Re-enrolled '{name}'.", ok=True)
+
+    def _set_voiceprint_status(self, text: str, ok: bool) -> None:
+        self._voiceprint_status_text = text
+        self.voiceprintStatusChanged.emit()
+
+    def _save_voiceprint_thresholds(self) -> None:
+        self.store.set(VOICEPRINT_IDENTIFY_THRESHOLD_KEY, self._voiceprint_identify_threshold)
+        self.store.set(VOICEPRINT_CLUSTER_THRESHOLD_KEY, self._voiceprint_cluster_threshold)
+
+    # -- notifications ---------------------------------------------------------
+
+    def _get_notification_enabled(self) -> bool:
+        return self._notification_enabled
+
+    def _set_notification_enabled(self, value: bool) -> None:
+        self._notification_enabled = bool(value)
+        self.notificationEnabledChanged.emit()
+
+    def _get_notification_path(self) -> str:
+        return self._notification_path
+
+    def _set_notification_path(self, value) -> None:
+        self._notification_path = str(value)
+        self.notificationPathChanged.emit()
+
+    def _get_notification_default(self) -> str:
+        return str(app_paths.notification_sound_default())
+
+    notificationEnabledChanged = Signal()
+    notificationPathChanged = Signal()
+
+    notificationSoundEnabled = Property(
+        bool,
+        _get_notification_enabled,
+        _set_notification_enabled,
+        notify=notificationEnabledChanged,
+    )
+    notificationSoundPath = Property(
+        str, _get_notification_path, _set_notification_path, notify=notificationPathChanged
+    )
+    notificationSoundDefault = Property(str, _get_notification_default, constant=True)
+
+    def play_notification_sound(self) -> None:
+        if not self._notification_enabled:
+            return
+        self._notification_sound.play(self._resolve_notification_path())
+
+    @Slot()
+    def testNotificationSound(self) -> None:
+        self._notification_sound.play(self._resolve_notification_path())
+
+    def _resolve_notification_path(self) -> str:
+        path = Path(self._notification_path.strip()) if self._notification_path.strip() else None
+        if path is not None and path.is_file():
+            return str(path)
+        return str(app_paths.notification_sound_default())

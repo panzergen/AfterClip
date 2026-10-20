@@ -21,6 +21,8 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files
 
+# PyInstaller sets SPECPATH to the directory holding this spec file (packaging/),
+# so the repository root is its parent. Keep that relationship explicit.
 ROOT = Path(SPECPATH).resolve().parent
 SRC = ROOT / "src"
 APP = SRC / "app"
@@ -31,6 +33,7 @@ from app.version import __version__  # noqa: E402  (spec-time single source of t
 # Application QML sources plus the PySide6 QML modules/translations the engine
 # resolves at runtime (the PySide6 hooks handle Qt shared libraries/plugins).
 datas = [(str(APP / "ui" / "qml"), "app/ui/qml")]
+datas += [(str(APP / "ui" / "assets"), "app/ui/assets")]
 datas += collect_data_files("PySide6", includes=["qml/**/*", "translations/**/*"])
 
 # keyring discovers its backend dynamically, so PyInstaller cannot see it.
@@ -38,6 +41,8 @@ hiddenimports = [
     "keyring.backends.Windows",
     "keyring.backends.SecretService",
     "keyring.backends.kwallet",
+    "keyring.backends.macOS",
+    "keyring.backends.fail",
 ]
 
 

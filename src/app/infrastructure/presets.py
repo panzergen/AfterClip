@@ -1,21 +1,14 @@
 import json
 import logging
-import os
 from pathlib import Path
 
 from app.app_paths import app_data_dir
 from app.domain.presets import Preset
+from app.infrastructure.atomic_file import atomic_write_text as _atomic_write_text
 
 LOGGER = logging.getLogger(__name__)
 
 PRESETS_SCHEMA_VERSION = 1
-
-
-def _atomic_write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(f".{path.name}.tmp")
-    temp.write_text(text, encoding="utf-8")
-    os.replace(temp, path)
 
 
 class InMemoryPresetStore:

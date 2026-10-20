@@ -8,7 +8,9 @@ def test_scan_job_history_finds_jobs_newest_first(tmp_path: Path):
     for name, status in (("job_old", "Succeeded"), ("job_new", "Failed")):
         job_dir = tmp_path / name
         job_dir.mkdir()
-        (job_dir / "job_state.json").write_text(json.dumps({"status": status, "input_path": f"x/{name}.mp4"}), encoding="utf-8")
+        (job_dir / "job_state.json").write_text(
+            json.dumps({"status": status, "input_path": f"x/{name}.mp4"}), encoding="utf-8"
+        )
     # make job_old older than job_new
     import os
     import time

@@ -25,7 +25,14 @@ MEDIA_TYPES = (
 KEYWORD_MAP: dict[str, tuple[str, ...]] = {
     "webinar": ("webinar",),
     "meeting": (
-        "meeting", "standup", "stand-up", "weekly", "retro", "sync", "toplantı", "toplanti"
+        "meeting",
+        "standup",
+        "stand-up",
+        "weekly",
+        "retro",
+        "sync",
+        "toplantı",
+        "toplanti",
     ),
     "interview": ("interview", "mülakat", "mulakat"),
     "lecture": ("lecture", "ders", "seminar", "seminer", "course", "class"),
@@ -89,9 +96,7 @@ def _keyword_scores(filename: str) -> dict[str, int]:
     words = {match.group(0).lower() for match in _WORD_PATTERN.finditer(lowered)}
     scores: dict[str, int] = {}
     for media_type, keywords in KEYWORD_MAP.items():
-        hits = sum(
-            1 for keyword in keywords if keyword in words or keyword in lowered
-        )
+        hits = sum(1 for keyword in keywords if keyword in words or keyword in lowered)
         if hits:
             scores[media_type] = hits
     return scores

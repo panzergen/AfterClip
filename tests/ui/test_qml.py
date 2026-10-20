@@ -129,9 +129,7 @@ def test_settings_dialog_loads(qapp, monkeypatch, tmp_path):
     QQuickStyle.setStyle("Fusion")
     engine = QQmlEngine()
     _set_context(engine.rootContext(), controllers)
-    component = QQmlComponent(
-        engine, QUrl.fromLocalFile(str(QML_DIR / "SettingsDialog.qml"))
-    )
+    component = QQmlComponent(engine, QUrl.fromLocalFile(str(QML_DIR / "SettingsDialog.qml")))
     dialog = component.create(engine.rootContext())
     try:
         assert component.errors() == [], [error.toString() for error in component.errors()]
@@ -152,9 +150,7 @@ def test_prompts_dialog_loads(qapp, monkeypatch, tmp_path):
     QQuickStyle.setStyle("Fusion")
     engine = QQmlEngine()
     _set_context(engine.rootContext(), controllers)
-    component = QQmlComponent(
-        engine, QUrl.fromLocalFile(str(QML_DIR / "PromptsDialog.qml"))
-    )
+    component = QQmlComponent(engine, QUrl.fromLocalFile(str(QML_DIR / "PromptsDialog.qml")))
     dialog = component.create(engine.rootContext())
     try:
         assert component.errors() == [], [error.toString() for error in component.errors()]
@@ -197,4 +193,3 @@ def test_settings_dialog_footer_does_not_overlap_content(qapp, monkeypatch, tmp_
         for root in roots:
             root.close()
         engine.deleteLater()
-

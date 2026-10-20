@@ -7,6 +7,7 @@ from app.application.cancellation import CancellationToken
 from app.application.providers import build_text_provider, build_vision_provider
 from app.application.service import TranscriptionService
 from app.application.transcript_sanitizer import SanitizerConfig
+from app.application.voiceprints import DEFAULT_CLUSTER_THRESHOLD, DEFAULT_IDENTIFY_THRESHOLD
 from app.infrastructure.process import FfmpegMediaTool, WhisperCliProvider
 
 LOGGER = logging.getLogger(__name__)
@@ -18,10 +19,21 @@ class BatchWorker(QObject):
     progress = Signal(str)
     finished = Signal()
 
-    def __init__(self, store: BatchStore):
+    def __init__(
+        self,
+        store: BatchStore,
+        voiceprint_store=None,
+        voiceprint_embedder=None,
+        voiceprint_identify_threshold: float = DEFAULT_IDENTIFY_THRESHOLD,
+        voiceprint_cluster_threshold: float = DEFAULT_CLUSTER_THRESHOLD,
+    ):
         super().__init__()
         self.store = store
         self.token = CancellationToken()
+        self.voiceprint_store = voiceprint_store
+        self.voiceprint_embedder = voiceprint_embedder
+        self.voiceprint_identify_threshold = voiceprint_identify_threshold
+        self.voiceprint_cluster_threshold = voiceprint_cluster_threshold
 
     @Slot()
     def run(self):
@@ -39,6 +51,10 @@ class BatchWorker(QObject):
             build_text_provider(job.text_spec()),
             build_vision_provider(job.vision_spec()),
             sanitizer_config=config,
+            voiceprint_store=self.voiceprint_store,
+            voiceprint_embedder=self.voiceprint_embedder,
+            voiceprint_identify_threshold=self.voiceprint_identify_threshold,
+            voiceprint_cluster_threshold=self.voiceprint_cluster_threshold,
         )
         service.run(job.to_request(), lambda event: on_event(event.message), token)
 

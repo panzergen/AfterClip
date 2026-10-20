@@ -76,9 +76,7 @@ class PresetsController(QObject):
 
     def _current_prompt_overrides(self) -> dict[str, str]:
         current = self.prompt_store.load().to_dict()
-        return {
-            key: value for key, value in current.items() if value != DEFAULT_PROMPTS.get(key)
-        }
+        return {key: value for key, value in current.items() if value != DEFAULT_PROMPTS.get(key)}
 
     @Slot()
     def refresh(self) -> None:

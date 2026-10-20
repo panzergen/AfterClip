@@ -1,0 +1,52 @@
+name: Feature request
+description: Suggest a new capability or an improvement
+labels: ["enhancement", "needs triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the workflow you are trying to do, not the solution you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like AfterClip to do?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area does this belong to?
+      options:
+        - Transcription / media handling
+        - AI text analysis
+        - AI vision analysis
+        - Reports and outputs
+        - User interface
+        - Batch and history
+        - Providers and models
+        - Packaging and installation
+        - CLI / MCP
+        - Documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: >
+            This feature should work fully offline and must not require sending
+            media or transcripts to a cloud provider.

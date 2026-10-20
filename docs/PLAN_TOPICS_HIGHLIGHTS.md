@@ -29,7 +29,7 @@ Settings keys (unchanged names): `topic_method`, `topic_min_seconds`,
 
 Status: **implemented and tested** (295 + 58).
 
-## 2. Highlights — rework (PLANNED)
+## 2. Highlights — rework (implemented)
 
 **Problem:** highlights are extracted *per transcription chunk* (85 chunks for a
 2 h meeting) and concatenated, so they are numerous and scoped to each chunk,
@@ -77,4 +77,14 @@ not the overall video.
 - Ensure the topic/highlight tests are updated (`tests/application/test_service.py`,
   `tests/application/test_topics.py`, plus a new aggregator unit test).
 
-Status: **NOT implemented** — do this next chat per the decisions above.
+Status: **implemented and tested.**
+
+Implementation notes:
+- `DEFAULT_PROMPTS["highlights"]` now asks for a compact JSON array of scored
+  candidates (`start`/`end`/`title`/`score`/`reason`) instead of a bullet list.
+- New `application/highlights.py` exposes `parse_candidates(chunk_text)` (tolerant
+  JSON extraction) and `aggregate_highlights(candidates)` (drop `< 7`, dedupe
+  near-duplicate titles, keep 1 per 5-minute window, sort desc, top 3, render the
+  existing bullet/timestamp format).
+- The Gemini/Ollama/OpenAI-compat providers call `aggregate_highlights(parse_candidates(…))`
+  instead of `clean_highlights_output`, which was removed along with its exports.

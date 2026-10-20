@@ -121,6 +121,17 @@ ColumnLayout {
             ToolTip.delay: 400
             ToolTip.text: qsTr("Drops hallucinated segments using Whisper probabilities and a boilerplate list. The raw transcript is kept as *.raw.* plus transcript_filter_report.json.")
         }
+
+        CheckBox {
+            Layout.fillWidth: true
+            text: qsTr("Identify speakers by voice (voiceprints)")
+            checked: jobForm.voiceprintEnabled
+            onToggled: jobForm.voiceprintEnabled = checked
+            font.pixelSize: Theme.fontSizeSmall
+            ToolTip.visible: hovered
+            ToolTip.delay: 400
+            ToolTip.text: qsTr("Fills speaker gaps with local voiceprints: matches enrolled speakers and clusters unknowns into Speaker N. Never overrides the speaker VTT. Requires the optional 'voiceprint' extra (onnxruntime + speakeronnx).")
+        }
     }
 
     // -- AI analysis ---------------------------------------------------------

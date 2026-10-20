@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from app.application.ports import ProcessingCancelled
@@ -9,7 +7,6 @@ from app.infrastructure.ollama import (
     OllamaError,
     OllamaTextProvider,
     chunk_text,
-    clean_highlights_output,
     clean_thinking_tags,
 )
 
@@ -30,17 +27,6 @@ def test_clean_thinking_tags_removes_reasoning_noise():
     text = f"\x1b[2K\r{THINK_OPEN}hidden reasoning{THINK_CLOSE}Final answer"
     assert clean_thinking_tags(text) == "Final answer"
     assert clean_thinking_tags("") == ""
-
-
-def test_clean_highlights_output_keeps_timestamped_lines():
-    text = "reasoning noise\n- 00:01:23 important moment\n* 01:02 key conclusion\nplain sentence\n- 00:01:23 important moment"
-    cleaned = clean_highlights_output(text)
-    assert cleaned == "- 00:01:23 important moment\n* 01:02 key conclusion"
-
-
-def test_clean_highlights_output_preserves_unrecognized_format():
-    text = "no timestamps at all"
-    assert clean_highlights_output(text) == "no timestamps at all"
 
 
 def test_chunk_text_splits_on_line_boundaries():
@@ -109,7 +95,9 @@ def test_summarize_chunks_long_transcript_and_combines():
         prompts.append(payload["prompt"])
         return {"response": f"partial {len(prompts)}"}
 
-    provider = OllamaTextProvider("llama3", client=OllamaClient(request_fn=fake_request), chunk_size=200)
+    provider = OllamaTextProvider(
+        "llama3", client=OllamaClient(request_fn=fake_request), chunk_size=200
+    )
     transcript = "\n".join(f"sentence {index} with some padding text" for index in range(30))
     result = provider.summarize(transcript, "tr")
     assert result.startswith("partial ")
@@ -124,7 +112,9 @@ def test_summarize_single_chunk_skips_combine():
         prompts.append(payload["prompt"])
         return {"response": "final summary"}
 
-    provider = OllamaTextProvider("llama3", client=OllamaClient(request_fn=fake_request), chunk_size=5000)
+    provider = OllamaTextProvider(
+        "llama3", client=OllamaClient(request_fn=fake_request), chunk_size=5000
+    )
     assert provider.summarize("short transcript", "en") == "final summary"
     assert len(prompts) == 1
     assert "Transcript:" in prompts[0]
@@ -132,7 +122,12 @@ def test_summarize_single_chunk_skips_combine():
 
 def test_extract_highlights_uses_srt_content():
     def fake_request(url, payload, timeout):
-        return {"response": "- 00:01:23 important moment"}
+        return {
+            "response": (
+                '[{"start":"00:01:23","end":"00:01:40","title":"important moment",'
+                '"score":8,"reason":"explicit commitment"}]'
+            )
+        }
 
     provider = OllamaTextProvider("llama3", client=OllamaClient(request_fn=fake_request))
     result = provider.extract_highlights("1\n00:00:00,000 --> 00:00:01,000\nHello\n", "en")
@@ -140,7 +135,9 @@ def test_extract_highlights_uses_srt_content():
 
 
 def test_extract_highlights_empty_content_raises():
-    provider = OllamaTextProvider("llama3", client=OllamaClient(request_fn=lambda url, payload, timeout: {}))
+    provider = OllamaTextProvider(
+        "llama3", client=OllamaClient(request_fn=lambda url, payload, timeout: {})
+    )
     with pytest.raises(OllamaError, match="empty"):
         provider.extract_highlights("   ", "en")
 
@@ -158,4 +155,3 @@ def test_text_provider_uses_injected_prompt_set():
     )
     assert provider.summarize("hello world", "tr") == "summary"
     assert seen == ["CUSTOM:tr:hello world"]
-

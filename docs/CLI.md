@@ -8,7 +8,7 @@ produce reports without the GUI. The CLI path never imports PySide6.
 `afterclip` with no arguments still opens the GUI; subcommands run headless.
 
 ```powershell
-afterclip run --input "C:\media\meeting.mp4" --output "F:\Output-Folder" `
+afterclip run --input "C:\media\meeting.mp4" --output "$env:USERPROFILE\Output-Folder" `
     --model turbo --report-language tr --frames scene `
     --provider opencode_go --analyze-text --text-model glm-5.2 `
     --analyze-vision --vision-model deepseek-v4-flash-vision-exp `
@@ -23,8 +23,8 @@ afterclip run --input "C:\media\meeting.mp4" --output "F:\Output-Folder" `
 | `mcp` | Run the MCP stdio server |
 
 Common flags: `--model`, `--language`, `--report-language`, `--task`,
-`--provider` (`ollama`/`gemini`/`openrouter`/`opencode_go`), `--text-model`,
-`--vision-model`, `--analyze-text`, `--analyze-vision`, `--frames`
+`--provider` (`ollama`/`gemini`/`openrouter`/`opencode_go`/`opencode_zen`),
+`--text-model`, `--vision-model`, `--analyze-text`, `--analyze-vision`, `--frames`
 (`none`/`interval`/`scene`/`both`), `--frame-interval`, `--scene-sensitivity`,
 `--frame-resolution`, `--clip-start`, `--clip-end`, `--vtt`, `--segment`,
 `--embed-frames`, `--no-filter`, `--preset`, `--output-name`, `--json`,
@@ -45,7 +45,7 @@ the GUI, so outputs are identical for the same inputs (T43).
 Install the optional SDK and run over stdio:
 
 ```powershell
-pip install "afterclip[mcp]"
+pip install -e ".[mcp]"
 afterclip mcp
 ```
 

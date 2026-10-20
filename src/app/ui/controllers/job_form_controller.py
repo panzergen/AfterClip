@@ -18,6 +18,7 @@ PROVIDER_LABELS = {
     "gemini": "Gemini (cloud)",
     "openrouter": "OpenRouter (cloud)",
     "opencode_go": "OpenCode Go (cloud)",
+    "opencode_zen": "OpenCode Zen (cloud)",
 }
 WHISPER_MODELS = ("tiny", "base", "small", "medium", "large", "turbo")
 FRAME_RESOLUTION_LABELS = (
@@ -74,6 +75,7 @@ class JobFormController(QObject):
         self._embed_frames = False
         self._reuse_transcription = False
         self._transcript_filter = True
+        self._voiceprint_enabled = False
         self._analysis_entries: list[dict] = []
         self._vision_entries: list[dict] = []
         self._apply_stored_defaults()
@@ -339,6 +341,13 @@ class JobFormController(QObject):
         self._transcript_filter = bool(value)
         self.transcriptFilterChanged.emit()
 
+    def _get_voiceprint_enabled(self) -> bool:
+        return self._voiceprint_enabled
+
+    def _set_voiceprint_enabled(self, value: bool) -> None:
+        self._voiceprint_enabled = bool(value)
+        self.voiceprintEnabledChanged.emit()
+
     intervalModeChanged = Signal()
     sceneModeChanged = Signal()
     frameIntervalChanged = Signal()
@@ -347,6 +356,7 @@ class JobFormController(QObject):
     embedFramesChanged = Signal()
     reuseTranscriptionChanged = Signal()
     transcriptFilterChanged = Signal()
+    voiceprintEnabledChanged = Signal()
 
     intervalMode = Property(
         bool, _get_interval_mode, _set_interval_mode, notify=intervalModeChanged
@@ -376,6 +386,12 @@ class JobFormController(QObject):
         _get_transcript_filter,
         _set_transcript_filter,
         notify=transcriptFilterChanged,
+    )
+    voiceprintEnabled = Property(
+        bool,
+        _get_voiceprint_enabled,
+        _set_voiceprint_enabled,
+        notify=voiceprintEnabledChanged,
     )
 
     # -- support files -----------------------------------------------------------
@@ -674,4 +690,5 @@ class JobFormController(QObject):
             "vision_provider_name": vision_selection[0] if vision_selection else "ollama",
             "vision_model": vision_selection[1] if vision_selection else "",
             "analyze_vision": self._vision_enabled and vision_selection is not None,
+            "voiceprint_enabled": self._voiceprint_enabled,
         }

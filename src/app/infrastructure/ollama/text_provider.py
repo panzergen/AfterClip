@@ -2,8 +2,9 @@ import logging
 from collections.abc import Callable
 
 from app.application.cancellation import CancelToken
+from app.application.highlights import aggregate_highlights, parse_candidates
 from app.domain.prompts import PromptSet
-from app.infrastructure.llm.transport import chunk_text, clean_highlights_output
+from app.infrastructure.llm.transport import chunk_text
 from app.infrastructure.ollama.client import OllamaClient, OllamaError
 
 LOGGER = logging.getLogger(__name__)
@@ -28,13 +29,17 @@ class OllamaTextProvider:
         self.chunk_size = chunk_size
         self.prompts = prompts or PromptSet()
 
-    def generate(
-        self, prompt: str, cancel_token: CancelToken | None = None
-    ) -> str:
+    def generate(self, prompt: str, cancel_token: CancelToken | None = None) -> str:
         """Single-prompt generation (used for topic titles and similar)."""
         return self.client.generate(self.model, prompt, cancel_token)
 
-    def summarize(self, transcript: str, language: str, on_progress: Callable[[str], None] | None = None, cancel_token: CancelToken | None = None) -> str:
+    def summarize(
+        self,
+        transcript: str,
+        language: str,
+        on_progress: Callable[[str], None] | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> str:
         chunks = chunk_text(transcript, self.chunk_size)
         if not chunks:
             raise OllamaError("Transcript was empty; nothing to summarize.")
@@ -70,7 +75,13 @@ class OllamaTextProvider:
             on_progress,
         )
 
-    def extract_highlights(self, srt_content: str, language: str, on_progress: Callable[[str], None] | None = None, cancel_token: CancelToken | None = None) -> str:
+    def extract_highlights(
+        self,
+        srt_content: str,
+        language: str,
+        on_progress: Callable[[str], None] | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> str:
         chunks = chunk_text(srt_content, self.chunk_size)
         if not chunks:
             raise OllamaError("Subtitle content was empty; no highlights can be extracted.")
@@ -91,4 +102,4 @@ class OllamaTextProvider:
                 LOGGER.error("Highlights section %d/%d failed: %s", index, len(chunks), error)
         if not sections:
             raise OllamaError("Highlights failed for all sections.")
-        return clean_highlights_output("\n".join(sections))
+        return aggregate_highlights(parse_candidates("\n".join(sections)))

@@ -666,9 +666,9 @@ def test_populate_models_restores_last_choice(controllers, monkeypatch):
     monkeypatch.setattr(
         form,
         "_load_model_choice",
-        lambda analysis: {"provider": "gemini", "name": "gemini-2.5-flash"}
-        if not analysis
-        else None,
+        lambda analysis: (
+            {"provider": "gemini", "name": "gemini-2.5-flash"} if not analysis else None
+        ),
     )
     sections = (
         ModelSection(
@@ -727,9 +727,7 @@ def test_model_choice_keys_are_not_swapped(qapp, monkeypatch, tmp_path):
     from app.ui.controllers.job_form_controller import JobFormController
 
     store = InMemorySettingsStore()
-    monkeypatch.setattr(
-        "app.ui.controllers.job_form_controller.JsonSettingsStore", lambda: store
-    )
+    monkeypatch.setattr("app.ui.controllers.job_form_controller.JsonSettingsStore", lambda: store)
     form = JobFormController(tmp_path, tmp_path)
     form._analysis_entries = [
         {"label": "OpenRouter", "header": True, "provider": "openrouter", "name": ""},
@@ -807,4 +805,3 @@ def test_forecast_uses_similar_history(controllers, tmp_path):
     session.refreshForecast()
     assert session.forecastText.startswith("Estimated")
     assert "similar job" in session.forecastText
-

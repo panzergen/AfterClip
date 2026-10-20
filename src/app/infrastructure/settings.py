@@ -43,8 +43,7 @@ def migrate_settings(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         version = 0
     if version > SETTINGS_SCHEMA_VERSION:
         raise SettingsSchemaError(
-            f"settings schema v{version} is newer than supported "
-            f"v{SETTINGS_SCHEMA_VERSION}"
+            f"settings schema v{version} is newer than supported v{SETTINGS_SCHEMA_VERSION}"
         )
     changed = False
     while version < SETTINGS_SCHEMA_VERSION:

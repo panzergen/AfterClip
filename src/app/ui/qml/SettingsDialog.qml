@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
+import QtQuick.Dialogs
 import "components"
 
 Dialog {
@@ -91,7 +92,75 @@ Dialog {
                     font.pixelSize: Theme.fontSizeSmall
                     onClicked: promptsDialog.open()
                 }
+                Button {
+                    text: qsTr("Manage voiceprints…")
+                    font.pixelSize: Theme.fontSizeSmall
+                    onClicked: voiceprintsDialog.open()
+                }
                 Item { Layout.fillWidth: true }
+            }
+
+            GroupBox {
+                Layout.fillWidth: true
+                implicitHeight: notificationLayout.implicitHeight + topPadding + bottomPadding
+                title: qsTr("Notifications")
+                font.pixelSize: Theme.fontSizeSmall
+
+                background: Rectangle {
+                    color: Theme.panel
+                    border.color: Theme.border
+                    radius: 4
+                }
+
+                ColumnLayout {
+                    id: notificationLayout
+                    anchors.fill: parent
+                    spacing: 8
+
+                    CheckBox {
+                        Layout.fillWidth: true
+                        text: qsTr("Play a sound when processing finishes")
+                        checked: settings.notificationSoundEnabled
+                        onToggled: settings.notificationSoundEnabled = checked
+                        font.pixelSize: Theme.fontSizeSmall
+                    }
+
+                    RowLayout {
+                        spacing: 8
+                        Text {
+                            Layout.preferredWidth: 90
+                            text: qsTr("Sound clip")
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.muted
+                        }
+                        TextField {
+                            Layout.fillWidth: true
+                            placeholderText: settings.notificationSoundDefault
+                            text: settings.notificationSoundPath
+                            font.pixelSize: Theme.fontSizeSmall
+                            selectByMouse: true
+                            onTextEdited: settings.notificationSoundPath = text
+                        }
+                        Button {
+                            text: qsTr("Browse…")
+                            font.pixelSize: Theme.fontSizeSmall
+                            onClicked: soundDialog.open()
+                        }
+                        Button {
+                            text: qsTr("Test")
+                            font.pixelSize: Theme.fontSizeSmall
+                            onClicked: settings.testNotificationSound()
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Leave the path blank to use the built-in sound.")
+                        font.pixelSize: Theme.fontSizeCaption
+                        color: Theme.muted
+                        wrapMode: Text.Wrap
+                    }
+                }
             }
 
             GroupBox {
@@ -233,10 +302,23 @@ Dialog {
                     }
                 }
             }
+
         }
     }
 
     PromptsDialog {
         id: promptsDialog
+    }
+
+    VoiceprintsDialog {
+        id: voiceprintsDialog
+    }
+
+    FileDialog {
+        id: soundDialog
+        title: qsTr("Select a notification sound")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [qsTr("WAV audio (*.wav)")]
+        onAccepted: settings.notificationSoundPath = selectedFile
     }
 }

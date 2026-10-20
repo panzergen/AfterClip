@@ -255,7 +255,8 @@ def write_master_timeline(
     payloads: list[dict] = []
     markdown_lines = [
         "# Master Chronological Timeline\n\n",
-        "This document combines **Audio Transcription**, **Speaker Diarization**, and **Vision AI Scene Analysis**"
+        "This document combines **Audio Transcription**, **Speaker Diarization**, "
+        "and **Vision AI Scene Analysis**"
         " in a unified chronological sequence.\n\n---\n\n",
     ]
     topic_list = list(topics)
@@ -401,10 +402,12 @@ def _html_report_sections(summary: str, highlights: str, topics_summary: str) ->
 
 
 HTML_STYLE = (
-    "body{font-family:'Segoe UI',sans-serif;margin:24px auto;max-width:900px;background:#f5f6f8;color:#222}"
+    "body{font-family:'Segoe UI',sans-serif;margin:24px auto;max-width:900px;"
+    "background:#f5f6f8;color:#222}"
     "h1{margin-bottom:4px}h2{margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px}"
     ".prose{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px 16px}"
-    ".entry{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px 16px;margin:12px 0}"
+    ".entry{background:#fff;border:1px solid #ddd;border-radius:8px;"
+    "padding:12px 16px;margin:12px 0}"
     ".badge{font-size:12px;color:#666;letter-spacing:.4px}"
     ".topic{margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px}"
     ".topic .badge{margin-left:8px;font-weight:400}"

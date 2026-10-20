@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from app.application.forecast import (
     HistoricalJob,
     forecast,
@@ -8,8 +10,16 @@ from app.application.forecast import (
 )
 
 
-def _state(duration, model, modes, analyze_text=False, analyze_vision=False, transcription=100):
-    return {
+def _state(
+    duration,
+    model,
+    modes,
+    analyze_text=False,
+    analyze_vision=False,
+    transcription=100,
+    forecast=None,
+):
+    state = {
         "status": "Succeeded",
         "media": {"duration": duration, "file_size_mb": 10},
         "run_settings": {
@@ -24,6 +34,9 @@ def _state(duration, model, modes, analyze_text=False, analyze_vision=False, tra
             "master_timeline": {"status": "completed", "duration_seconds": 2},
         },
     }
+    if forecast is not None:
+        state["forecast"] = forecast
+    return state
 
 
 def test_load_history_reads_media_and_settings(tmp_path):
@@ -48,6 +61,32 @@ def test_load_history_reads_media_and_settings(tmp_path):
 
 def test_load_history_handles_missing_directory(tmp_path):
     assert load_history(tmp_path / "nope") == []
+
+
+def test_load_history_reads_stored_prediction(tmp_path):
+    out = tmp_path / "out"
+    (out / "job1").mkdir(parents=True)
+    state = _state(1000, "turbo", ("interval",), forecast={"expected_seconds": 250.0})
+    (out / "job1" / "job_state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    jobs = load_history(out)
+    assert jobs[0].predicted_seconds == 250.0
+
+
+def test_load_history_ignores_missing_or_zero_prediction(tmp_path):
+    out = tmp_path / "out"
+    (out / "job1").mkdir(parents=True)
+    (out / "job1" / "job_state.json").write_text(
+        json.dumps(_state(1000, "turbo", ("interval",))), encoding="utf-8"
+    )
+    (out / "job2").mkdir(parents=True)
+    (out / "job2" / "job_state.json").write_text(
+        json.dumps(_state(1000, "turbo", ("interval",), forecast={"expected_seconds": 0})),
+        encoding="utf-8",
+    )
+
+    jobs = load_history(out)
+    assert all(job.predicted_seconds is None for job in jobs)
 
 
 def test_forecast_uses_similar_history_median_rate():
@@ -81,6 +120,27 @@ def test_forecast_relaxes_to_model_then_heuristic():
     assert heuristic.basis == "heuristic"
     assert heuristic.sample_count == 0
     assert heuristic.expected_seconds == 150  # 600 * 0.25
+
+
+def _job(predicted_seconds=None):
+    return HistoricalJob(
+        1000, 200, "turbo", ("interval",), False, False, "full", predicted_seconds=predicted_seconds
+    )
+
+
+def test_forecast_self_corrects_from_stored_predictions():
+    history = [_job(100), _job(100), _job(100)]
+    result = forecast(1000, "turbo", ("interval",), False, False, history=history)
+    # raw rate 0.2 -> 200s; median actual/predicted = 2.0 -> corrected to 400s.
+    assert result.expected_seconds == pytest.approx(400.0)
+    assert result.low_seconds == pytest.approx(400.0)
+    assert result.high_seconds == pytest.approx(400.0)
+
+
+def test_forecast_ignores_few_predictions():
+    history = [_job(100), _job(100), _job()]
+    result = forecast(1000, "turbo", ("interval",), False, False, history=history)
+    assert result.expected_seconds == pytest.approx(200.0)
 
 
 def test_forecast_unavailable_without_duration():

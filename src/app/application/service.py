@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.application.cancellation import CancelToken, JobCancelled, ProcessingCancelled
 from app.application.cloud_usage import COST_NOTE, estimate_cost_usd
+from app.application.forecast import forecast, load_history
 from app.application.job_context import JobContext, StepRecorder
 from app.application.media_type import classify_tier1, signals_from_metadata
 from app.application.ports import (
@@ -35,10 +36,12 @@ from app.application.timeline import (
     merge_transcript_entries,
     parse_speaker_vtt,
     parse_srt,
+    resolve_speaker,
     write_master_timeline,
 )
 from app.application.topics import (
     DEFAULT_TOPIC_METHOD,
+    TopicSegment,
     render_topics_summary,
     retitle_with_provider,
     segment_topics_cohesion,
@@ -51,11 +54,28 @@ from app.application.transcript_sanitizer import (
     render_text,
     sanitize_segments,
 )
+from app.application.vision_sanitizer import (
+    VisionSanitizerConfig,
+    sanitize_description,
+)
+from app.application.voiceprints import (
+    DEFAULT_CLUSTER_THRESHOLD,
+    DEFAULT_IDENTIFY_THRESHOLD,
+    SpeakerSegment,
+    analyse_speakers,
+    load_voiceprint_sidecar,
+    write_voiceprint_sidecar,
+)
 from app.domain.models import ProgressEvent, TranscriptionRequest, TranscriptionResult
+from app.infrastructure.audio import TARGET_RATE, read_wav_samples, slice_samples, to_16k_mono
 from app.infrastructure.llm.transport import chunk_text
 from app.infrastructure.process import get_media_metadata
 
 LOGGER = logging.getLogger(__name__)
+
+# Voiceprint embeddings are computed over merged transcript blocks (not raw
+# Whisper cues) so each embedding averages ~20s of speech and clusters cleanly.
+VOICEPRINT_BLOCK_SECONDS = 20.0
 
 __all__ = ["JobCancelled", "TranscriptionService", "next_available_job_dir", "parse_clip_time"]
 
@@ -68,6 +88,13 @@ def resolve_speaker_vtt_path(request: TranscriptionRequest) -> str:
     return request.speaker_vtt_path
 
 
+def vision_analysis_label(vision_provider: object) -> str:
+    """Step name naming the provider and model actually used for the run."""
+    provider = getattr(vision_provider, "provider_name", "") or "ollama"
+    model = getattr(vision_provider, "model", "")
+    return f"Vision analysis ({provider}: {model})" if model else f"Vision analysis ({provider})"
+
+
 class TranscriptionService:
     def __init__(
         self,
@@ -76,13 +103,24 @@ class TranscriptionService:
         text_provider: TextAnalysisProvider | None = None,
         vision_provider: VisionProvider | None = None,
         sanitizer_config: SanitizerConfig | None = None,
+        vision_sanitizer_config: VisionSanitizerConfig | None = None,
+        voiceprint_store=None,
+        voiceprint_embedder=None,
+        voiceprint_identify_threshold: float = DEFAULT_IDENTIFY_THRESHOLD,
+        voiceprint_cluster_threshold: float = DEFAULT_CLUSTER_THRESHOLD,
     ):
         self.provider = provider
         self.media_tool = media_tool
         self.text_provider = text_provider
         self.vision_provider = vision_provider
         self.sanitizer_config = sanitizer_config
+        self.vision_sanitizer_config = vision_sanitizer_config or VisionSanitizerConfig()
+        self.voiceprint_store = voiceprint_store
+        self.voiceprint_embedder = voiceprint_embedder
+        self.voiceprint_identify_threshold = voiceprint_identify_threshold
+        self.voiceprint_cluster_threshold = voiceprint_cluster_threshold
         self._topics: list = []
+        self._speaker_intervals: tuple = ()
 
     def run(
         self,
@@ -144,13 +182,14 @@ class TranscriptionService:
         context.state["run_settings"] = {
             "model": request.model,
             "frame_modes": list(
-                request.frame_modes
-                or ((request.frame_mode,) if request.extract_frames else ())
+                request.frame_modes or ((request.frame_mode,) if request.extract_frames else ())
             ),
             "frame_resolution": request.frame_resolution,
             "analyze_text": request.analyze_text,
             "analyze_vision": request.analyze_vision,
+            "voiceprint_enabled": request.voiceprint_enabled,
         }
+        self._record_forecast(context, request)
         recorder.save()
 
         audio_path = None
@@ -244,7 +283,8 @@ class TranscriptionService:
                     LOGGER.warning("Frame extraction produced 0 frames in %s", frames_dir)
                     recorder.context.on_event(
                         ProgressEvent(
-                            "Frame extraction produced 0 frames; lower scene sensitivity or enable Interval mode",
+                            "Frame extraction produced 0 frames; lower scene sensitivity "
+                            "or enable Interval mode",
                             98,
                         )
                     )
@@ -264,7 +304,9 @@ class TranscriptionService:
                     else set()
                 )
                 described = (
-                    set(parse_vision_descriptions(vision_srt)) if vision_srt.is_file() else set()
+                    set(parse_vision_descriptions(vision_srt, self.vision_sanitizer_config))
+                    if vision_srt.is_file()
+                    else set()
                 )
                 vision_completed = (
                     context.steps.get("vision_analysis", {}).get("status") == "completed"
@@ -286,6 +328,7 @@ class TranscriptionService:
                         )
                     self._run_vision_analysis(recorder, transcript_dir, audio_path, cancel_token)
             self._record_cloud_usage(recorder)
+            self._run_voiceprint_labelling(recorder, transcript_dir, audio_path, cancel_token)
             self._run_master_timeline_step(recorder, job_dir, base_name, transcript_dir, audio_path)
         except ProcessingCancelled as error:
             recorder.finish("Cancelled")
@@ -300,6 +343,35 @@ class TranscriptionService:
         recorder.finish("Succeeded")
         on_event(ProgressEvent("Transcription complete", 100))
         return result
+
+    def _record_forecast(self, context: JobContext, request: TranscriptionRequest) -> None:
+        """Persist the pre-start estimate so later jobs can self-correct against it."""
+        try:
+            duration = float(context.metadata.get("duration") or 0.0)
+        except (TypeError, ValueError):
+            duration = 0.0
+        if request.clip_end and request.clip_end > (request.clip_start or 0.0):
+            duration = request.clip_end - (request.clip_start or 0.0)
+        modes = tuple(request.frame_modes) or (
+            (request.frame_mode,) if request.extract_frames else ()
+        )
+        result = forecast(
+            duration,
+            request.model,
+            modes,
+            bool(request.analyze_text),
+            bool(request.analyze_vision),
+            request.frame_resolution,
+            load_history(request.output_dir),
+        )
+        if result.expected_seconds is not None and "forecast" not in context.state:
+            context.state["forecast"] = {
+                "expected_seconds": result.expected_seconds,
+                "low_seconds": result.low_seconds,
+                "high_seconds": result.high_seconds,
+                "basis": result.basis,
+                "sample_count": result.sample_count,
+            }
 
     @staticmethod
     def _transcript_filter_cached(context: JobContext, report_path: Path) -> bool:
@@ -469,7 +541,10 @@ class TranscriptionService:
                 else srt_transcript_text(srt_path)
             )
             language = request.output_language.strip() or request.language.strip() or "en"
-            progress = lambda message: recorder.context.on_event(ProgressEvent(message))
+
+            def progress(message: str) -> None:
+                recorder.context.on_event(ProgressEvent(message))
+
             chunks = chunk_text(transcript_text, getattr(self.text_provider, "chunk_size", 3500))
             recorder.context.on_event(
                 ProgressEvent(f"AI analysis: transcript split into {len(chunks)} section(s)", 96)
@@ -517,7 +592,10 @@ class TranscriptionService:
         audio_path: Path,
         cancel_token: CancelToken,
     ) -> None:
-        """Describe extracted frames through the vision provider; failure is non-fatal (T16 policy)."""
+        """Describe extracted frames through the vision provider.
+
+        Failure is non-fatal (T16 policy).
+        """
         request = recorder.context.request
         frames_dir = recorder.context.job_dir / "Vision" / "frames"
         frames = tuple(sorted(frames_dir.glob("*.png"))) if frames_dir.is_dir() else ()
@@ -532,6 +610,7 @@ class TranscriptionService:
 
         def action() -> None:
             entries = []
+            changes: list[dict] = []
             for index, frame in enumerate(frames, 1):
                 recorder.context.on_event(
                     ProgressEvent(f"Vision analysis frame {index}/{len(frames)}", 97)
@@ -548,8 +627,18 @@ class TranscriptionService:
                     None,
                     cancel_token,
                 )
+                cleaned = sanitize_description(description, self.vision_sanitizer_config)
+                if cleaned.changed:
+                    changes.append(
+                        {
+                            "frame": frame.name,
+                            "reason": cleaned.reason,
+                            "original": description,
+                            "cleaned": cleaned.text,
+                        }
+                    )
                 window = frame_window(frame, request.frame_interval)
-                entries.append((timestamp, window, frame.name, description))
+                entries.append((timestamp, window, frame.name, cleaned.text))
             vision_dir.mkdir(parents=True, exist_ok=True)
             with (vision_dir / "vision_analysis.srt").open("w", encoding="utf-8") as vision_srt:
                 for number, (timestamp, window, frame_name, description) in enumerate(entries, 1):
@@ -559,14 +648,162 @@ class TranscriptionService:
                         f"FILE: {frame_name}\n"
                         f"DESCRIPTION: {description}\n\n"
                     )
+            report = {
+                "collapsed_count": len(changes),
+                "frame_count": len(entries),
+                "config": self.vision_sanitizer_config.to_dict(),
+                "changes": changes,
+            }
+            (vision_dir / "vision_filter_report.json").write_text(
+                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            recorder.context.state["vision_filter"] = {"collapsed": len(changes)}
 
         recorder.record(
             "vision_analysis",
-            "Vision analysis (Ollama)",
+            vision_analysis_label(self.vision_provider),
             97,
             action,
             tolerated_failure_event=("Vision analysis failed; other results are kept", 97),
         )
+
+    def _run_voiceprint_labelling(
+        self,
+        recorder: StepRecorder,
+        transcript_dir: Path,
+        audio_path: Path,
+        cancel_token: CancelToken,
+    ) -> None:
+        """Fill speaker gaps with voiceprints; never overrides the speaker VTT.
+
+        Voiceprints complement the VTT: a segment already covered by the VTT
+        keeps its label, and only unlabeled segments are identified (against
+        enrolled voiceprints) or clustered into ``Speaker N``.
+        """
+        request = recorder.context.request
+        vtt_intervals = parse_speaker_vtt(resolve_speaker_vtt_path(request))
+        self._speaker_intervals = vtt_intervals
+        if not request.voiceprint_enabled:
+            return
+        if self.voiceprint_embedder is None or self.voiceprint_store is None:
+            LOGGER.warning("Voiceprints enabled but unavailable; skipping speaker identification.")
+            recorder.context.state["voiceprint_labelling"] = {
+                "status": "skipped",
+                "reason": "voiceprint extra not installed",
+            }
+            recorder.save()
+            return
+        transcript_srt = find_transcript_srt(transcript_dir, audio_path.stem)
+        if transcript_srt is None:
+            return
+
+        def action():
+            # Embed merged blocks, not raw Whisper cues: a ~2s cue yields a
+            # noisy embedding that fragments clustering, while a ~20s block is
+            # robust and produces a handful of speaker groups.
+            entries = parse_srt(transcript_srt, "TRANSCRIPTION")
+            blocks = merge_transcript_entries(entries, VOICEPRINT_BLOCK_SECONDS, ())
+            unlabelled = [
+                (entry.start_ms, entry.end_ms)
+                for entry in blocks
+                if resolve_speaker(vtt_intervals, entry.start_ms, entry.end_ms) is None
+            ]
+            if not unlabelled:
+                return vtt_intervals
+            samples, rate, channels = read_wav_samples(audio_path)
+            samples = to_16k_mono(samples, rate, channels)
+            voiceprints = self.voiceprint_store.load()
+            work_dir = recorder.context.job_dir / "temp"
+            speaker_segments = []
+            labelled = []
+            for start_ms, end_ms in unlabelled:
+                chunk = slice_samples(samples, start_ms / 1000.0, end_ms / 1000.0, TARGET_RATE)
+                if len(chunk) < TARGET_RATE * 0.3:
+                    continue
+                try:
+                    embedding = self.voiceprint_embedder.embed_samples(chunk, TARGET_RATE, work_dir)
+                except Exception as error:  # a failed slice must not fail the job
+                    LOGGER.warning(
+                        "Voiceprint embedding failed for %d–%dms: %s", start_ms, end_ms, error
+                    )
+                    continue
+                labelled.append((start_ms, end_ms))
+                speaker_segments.append(SpeakerSegment(start_ms, end_ms, embedding))
+            if not labelled:
+                return vtt_intervals
+            analysis = analyse_speakers(
+                labelled,
+                [segment.embedding for segment in speaker_segments],
+                voiceprints,
+                self.voiceprint_identify_threshold,
+                self.voiceprint_cluster_threshold,
+            )
+            write_voiceprint_sidecar(
+                recorder.context.job_dir / "Voiceprints.json", speaker_segments, analysis.clusters
+            )
+            return vtt_intervals + tuple(analysis.intervals)
+
+        combined = recorder.record(
+            "voiceprint_labelling",
+            "Speaker identification",
+            99,
+            action,
+            tolerated_failure_event=(
+                "Speaker identification failed; timeline keeps VTT speakers",
+                99,
+            ),
+        )
+        self._speaker_intervals = tuple(combined) if combined is not None else vtt_intervals
+
+    def reprocess_voiceprints(
+        self,
+        request: TranscriptionRequest,
+        job_dir: Path,
+        on_event: Callable[[ProgressEvent], None],
+        cancel_token: CancelToken,
+    ) -> bool:
+        """Re-label a finished job from its stored embeddings (no audio re-read).
+
+        Used after enrollment: the same segment embeddings are re-matched against
+        the updated voiceprint store and the master timeline is rewritten. All
+        other steps (Whisper, frames, text/vision) are untouched.
+        """
+        sidecar_path = job_dir / "Voiceprints.json"
+        segments, _ = load_voiceprint_sidecar(sidecar_path)
+        if not segments:
+            return False
+        state = load_state(job_dir / "job_state.json")
+        self._topics = [
+            TopicSegment(**topic) for topic in state.get("topics", []) if isinstance(topic, dict)
+        ]
+        voiceprints = self.voiceprint_store.load() if self.voiceprint_store is not None else {}
+        vtt_intervals = parse_speaker_vtt(resolve_speaker_vtt_path(request))
+        analysis = analyse_speakers(
+            [(segment.start_ms, segment.end_ms) for segment in segments],
+            [segment.embedding for segment in segments],
+            voiceprints,
+            self.voiceprint_identify_threshold,
+            self.voiceprint_cluster_threshold,
+        )
+        self._speaker_intervals = vtt_intervals + tuple(analysis.intervals)
+        write_voiceprint_sidecar(sidecar_path, segments, analysis.clusters)
+
+        base_name = request.output_name.strip() or Path(state.get("input_path", "")).stem
+        audio_path = Path(state.get("audio_path") or "converted_audio.wav")
+        context = JobContext(
+            job_dir=job_dir,
+            state_path=job_dir / "job_state.json",
+            report_path=job_dir / "Summary_Report.md",
+            request=request,
+            metadata=state.get("media_type", {}),
+            state=state,
+            steps=state.setdefault("steps", {}),
+            on_event=on_event,
+        )
+        self._run_master_timeline_step(
+            StepRecorder(context), job_dir, base_name, job_dir / "Transcripts", audio_path
+        )
+        return True
 
     def _run_master_timeline_step(
         self,
@@ -577,7 +814,9 @@ class TranscriptionService:
         audio_path: Path,
     ) -> None:
         request = recorder.context.request
-        speaker_intervals = parse_speaker_vtt(resolve_speaker_vtt_path(request))
+        speaker_intervals = self._speaker_intervals or parse_speaker_vtt(
+            resolve_speaker_vtt_path(request)
+        )
         transcript_srt = find_transcript_srt(transcript_dir, audio_path.stem)
         if transcript_srt is None:
             LOGGER.info("Master timeline skipped: no transcript subtitles found.")
@@ -602,7 +841,7 @@ class TranscriptionService:
                     request.frame_interval,
                     request.clip_start,
                     request.highlight_times,
-                    parse_vision_descriptions(ai_vision_srt),
+                    parse_vision_descriptions(ai_vision_srt, self.vision_sanitizer_config),
                 )
             analysis_path = job_dir / "AI_Analysis.md"
             analysis_markdown = (

@@ -9,10 +9,12 @@ steps cover what unit tests cannot (packaged UI, external tools, hardware).
 python -m pytest -q
 $env:QT_QPA_PLATFORM="offscreen"; python -m pytest -m ui -q
 python -m ruff check src tests packaging
+python -m ruff format --check src tests packaging
 ```
 
-Expected: all pass (UI tests need `QT_QPA_PLATFORM=offscreen`). Lint has known
-pre-existing debt; ensure no *new* findings in changed files.
+Expected: all pass. UI tests need `QT_QPA_PLATFORM=offscreen`. The two ruff
+commands are the same ones CI runs, so a green local run means a green CI run.
+`ruff` is part of the `dev` extra (`pip install -e ".[dev]"`).
 
 ## Build
 
@@ -41,8 +43,8 @@ powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1 -Clean -Zip
 - **Resume (T26)** — re-running an interrupted file reuses completed steps.
 - **Batch (T08b/T26b)** — multiple files queue, run in order, and survive a
   restart (pending jobs reload).
-- **Cloud consent** — first Gemini job prompts; revoke in Settings re-prompts;
-  no Gemini key → no cloud request.
+- **Cloud consent** — the first cloud job prompts for the selected provider;
+  revoking consent in Settings re-prompts; no API key → no cloud request.
 - **Usage/cost** — `Summary_Report.md` shows the Cloud Usage section after a
   cloud job.
 - **Shortcuts** — `Ctrl+O`, `Ctrl+Enter`, `Ctrl+.`, `Ctrl+1..4`, `Ctrl+,`.

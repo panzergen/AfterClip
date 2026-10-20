@@ -25,6 +25,7 @@ class EnvironmentStatus:
     ffmpeg: bool
     ffprobe: bool
     whisper: bool
+    voiceprint: bool
 
 
 @dataclass(frozen=True)
@@ -45,10 +46,13 @@ class GpuInfo:
 
 
 def check_environment() -> EnvironmentStatus:
+    from app.infrastructure.voiceprint_embedder import voiceprints_available
+
     return EnvironmentStatus(
         ffmpeg=executable_available("ffmpeg"),
         ffprobe=executable_available("ffprobe"),
         whisper=find_whisper_executable() is not None,
+        voiceprint=voiceprints_available(),
     )
 
 
@@ -136,6 +140,7 @@ def collect_diagnostics(output_dir: Path | None = None) -> dict:
         "ffmpeg": env.ffmpeg,
         "ffprobe": env.ffprobe,
         "whisper": env.whisper,
+        "voiceprint": env.voiceprint,
         "gpu": None if gpu is None else {"name": gpu.name, "memory_mb": gpu.memory_mb},
         "memory": {
             "unified": profile.unified,

@@ -43,6 +43,7 @@ class SessionController(QObject):
 
     alert = Signal(str, str)
     cloudConsentRequested = Signal(str, str, str)
+    voiceprintEnrollmentRequested = Signal(str, str, float)
 
     def __init__(
         self,
@@ -85,6 +86,7 @@ class SessionController(QObject):
         self._pending_consent_provider = None
         self._forecast_text = ""
         self._media_type_text = ""
+        self._last_request = None
 
     # -- Qt properties --------------------------------------------------------
 
@@ -377,6 +379,7 @@ class SessionController(QObject):
         if text_provider is False or vision_provider is False:
             return
         request = self._build_request(text_provider, vision_provider, conditions)
+        self._last_request = request
         LOGGER.info(
             "Job start | model=%s extract_frames=%s frame_modes=%s analyze_text=%s "
             "analyze_vision=%s embed_frames=%s speaker_vtt=%r clip=%s->%s",
@@ -485,6 +488,7 @@ class SessionController(QObject):
         from app.application.service import TranscriptionService
 
         config = self._sanitizer_config()
+        store, embedder, identify_threshold, cluster_threshold = self._voiceprint_deps()
         return TranscriptionWorker(
             TranscriptionService(
                 WhisperCliProvider(condition_on_previous_text=not config.enabled),
@@ -492,10 +496,73 @@ class SessionController(QObject):
                 text_provider,
                 vision_provider,
                 sanitizer_config=config,
+                voiceprint_store=store,
+                voiceprint_embedder=embedder,
+                voiceprint_identify_threshold=identify_threshold,
+                voiceprint_cluster_threshold=cluster_threshold,
             ),
             request,
             resume_dir=resume_dir,
         )
+
+    def voiceprint_runtime(self):
+        """Resolve the voiceprint runtime: (store, embedder, identify, cluster).
+
+        Unlike ``_voiceprint_deps`` this ignores the per-job toggle, because
+        the batch queue carries its own ``voiceprint_enabled`` flag per job.
+        Returns ``(None, None, ...)`` when the optional extra is not installed.
+        """
+        from app.application.voiceprints import (
+            DEFAULT_CLUSTER_THRESHOLD,
+            DEFAULT_IDENTIFY_THRESHOLD,
+        )
+        from app.infrastructure.voiceprint_embedder import (
+            SpeakerOnnxEmbedder,
+            voiceprints_available,
+        )
+        from app.infrastructure.voiceprints import JsonVoiceprintStore
+
+        if not voiceprints_available():
+            return None, None, DEFAULT_IDENTIFY_THRESHOLD, DEFAULT_CLUSTER_THRESHOLD
+        settings = self.settings
+        identify_threshold = (
+            settings.voiceprint_identify_threshold()
+            if settings is not None
+            else DEFAULT_IDENTIFY_THRESHOLD
+        )
+        cluster_threshold = (
+            settings.voiceprint_cluster_threshold()
+            if settings is not None
+            else DEFAULT_CLUSTER_THRESHOLD
+        )
+        return JsonVoiceprintStore(), SpeakerOnnxEmbedder(), identify_threshold, cluster_threshold
+
+    def _voiceprint_deps(self):
+        """Resolve voiceprint store/embedder/thresholds; all None/disabled when off."""
+        if not self.job_form.voiceprintEnabled:
+            from app.application.voiceprints import (
+                DEFAULT_CLUSTER_THRESHOLD,
+                DEFAULT_IDENTIFY_THRESHOLD,
+            )
+
+            return None, None, DEFAULT_IDENTIFY_THRESHOLD, DEFAULT_CLUSTER_THRESHOLD
+        from app.infrastructure.voiceprint_embedder import voiceprints_available
+
+        if not voiceprints_available():
+            self.alert.emit(
+                "Voiceprints unavailable",
+                "Voiceprints were requested but the optional 'voiceprint' extra is not "
+                "installed (onnxruntime + speakeronnx). The job will run without "
+                "speaker identification. Install it with:\n\n"
+                'pip install -e ".[voiceprint]"',
+            )
+            from app.application.voiceprints import (
+                DEFAULT_CLUSTER_THRESHOLD,
+                DEFAULT_IDENTIFY_THRESHOLD,
+            )
+
+            return None, None, DEFAULT_IDENTIFY_THRESHOLD, DEFAULT_CLUSTER_THRESHOLD
+        return self.voiceprint_runtime()
 
     def _sanitizer_config(self) -> SanitizerConfig:
         """Filter config: settings thresholds, enabled by the per-job toggle."""
@@ -682,6 +749,7 @@ class SessionController(QObject):
             topic_method,
             topic_min,
             topic_max,
+            voiceprint_enabled=form.voiceprintEnabled,
         )
 
     @Slot()
@@ -704,17 +772,77 @@ class SessionController(QObject):
             self._progress_value = event.percent
             self.progressValueChanged.emit()
 
+    def _play_completion_sound(self) -> None:
+        if self.settings is not None:
+            self.settings.play_notification_sound()
+
     @Slot(object)
     def on_success(self, result) -> None:
         self._set_status(f"Completed: {len(result.transcript_files)} transcript file(s)")
         self._update_title(status="completed")
         self._progress_value = 100
         self.progressValueChanged.emit()
+        self._play_completion_sound()
         output_dir = Path(result.output_dir)
         # The service reports the Transcripts folder; the job folder holding
         # every output (reports, frames, transcripts) is its parent.
         folder = output_dir.parent if output_dir.name == "Transcripts" else output_dir
         self._set_output_folder(str(folder))
+        self._offer_voiceprint_enrollment(folder)
+
+    def _offer_voiceprint_enrollment(self, job_dir: Path) -> None:
+        """Open the post-job dialog when the job has nameable speaker clusters."""
+        sidecar = job_dir / "Voiceprints.json"
+        if not sidecar.is_file():
+            return
+        try:
+            from app.application.voiceprints import load_voiceprint_sidecar
+
+            _segments, clusters = load_voiceprint_sidecar(sidecar)
+        except Exception as error:  # a broken sidecar must not interrupt completion
+            LOGGER.warning("Could not read voiceprint sidecar %s: %s", sidecar, error)
+            return
+        if clusters:
+            input_path = ""
+            clip_start = 0.0
+            if self._last_request is not None:
+                input_path = str(self._last_request.input_path)
+                clip_start = self._last_request.clip_start or 0.0
+            self.voiceprintEnrollmentRequested.emit(str(job_dir), input_path, clip_start)
+
+    @Slot()
+    def reprocessVoiceprints(self) -> None:
+        """Re-label the last job from its stored embeddings after enrollment."""
+        if self._last_request is None or not self._output_folder:
+            return
+        try:
+            from app.application.service import TranscriptionService
+
+            _store, _embedder, identify, cluster = self._voiceprint_deps()
+            service = TranscriptionService(
+                None,
+                None,
+                voiceprint_store=_store,
+                voiceprint_embedder=_embedder,
+                voiceprint_identify_threshold=identify,
+                voiceprint_cluster_threshold=cluster,
+            )
+            ok = service.reprocess_voiceprints(
+                self._last_request, Path(self._output_folder), lambda _event: None, None
+            )
+        except Exception as error:
+            LOGGER.error("Voiceprint reprocess failed: %s", error)
+            self.alert.emit("Reprocess failed", str(error))
+            return
+        if ok:
+            self.alert.emit(
+                "Timeline updated", "Speaker labels were refreshed from the updated voiceprints."
+            )
+        else:
+            self.alert.emit(
+                "Nothing to reprocess", "No stored voiceprint data was found for this job."
+            )
+        self.history.refresh()
 
     @Slot()
     def openOutputFolder(self) -> None:
@@ -726,6 +854,7 @@ class SessionController(QObject):
         self._set_status("Failed")
         self._update_title(status="failed")
         self.alert.emit("Processing error", message)
+        self._play_completion_sound()
 
     @Slot()
     def on_cancelled(self) -> None:
@@ -760,6 +889,8 @@ class SessionController(QObject):
         self._batch_running = running
         self.startEnabledChanged.emit()
         self.batch.set_external_job_running(self.worker is not None)
+        if not running:
+            self._play_completion_sound()
 
     # -- settings ----------------------------------------------------------------------
 

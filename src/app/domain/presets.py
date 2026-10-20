@@ -61,9 +61,7 @@ class Preset:
         form.embedFrames = self.embed_frames
 
     @classmethod
-    def capture(
-        cls, name: str, form, prompt_overrides: dict[str, str] | None = None
-    ) -> "Preset":
+    def capture(cls, name: str, form, prompt_overrides: dict[str, str] | None = None) -> "Preset":
         """Snapshot the current job form into a preset."""
         return cls(
             name=name,

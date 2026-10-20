@@ -45,16 +45,26 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "Partial summaries:\n{summaries}"
     ),
     "highlights": (
-        "Analyze the following SRT subtitles (which include exact timestamps). "
-        "Identify key highlights where the speaker says something important (e.g. 'it is "
-        "important', key conclusions, or phrases indicating showing/referring to something "
-        "on screen like 'look at this', 'here on the screen', 'as you can see').\n"
-        "Format the output strictly as a bulleted list with exact timestamp (seconds / "
-        "timestamp) and description.\n"
+        "Analyze the following SRT subtitles (which include exact timestamps) and "
+        "identify the key highlights — decisions, commitments, assigned actions or "
+        "scheduled follow-ups.\n"
+        "Score each candidate 0-10 as a highlight.\n"
+        "High score when: the speaker emphasizes importance/commitment ('this is "
+        "important', 'we definitely do this', 'we must…'); a decision changes ('we said "
+        "X before, now we change to Y'); an action is assigned ('I'll add this to my "
+        "list', '<person> will do it', 'we will open a task/ticket'); a follow-up is "
+        "scheduled ('let's talk about this next meeting', 'we'll revisit this').\n"
+        "Low score when: the item is optional, a 'nice to have', or for the distant "
+        "future.\n"
+        "Return a compact JSON array of scored candidates only, no prose. Each candidate "
+        'has "start" (HH:MM:SS), "end" (HH:MM:SS), "title", "score" (integer 0-10) '
+        'and "reason".\n'
+        'Example: [{"start":"00:03:10","end":"00:03:45","title":"Launch date '
+        'moved to May","score":8,"reason":"Explicit commitment"}]\n'
         "CRITICAL REQUIREMENT: Do NOT output any thinking, reasoning steps, or internal "
-        "monologue. Output ONLY the final bulleted list.\n"
-        "CRITICAL REQUIREMENT: You MUST write your response entirely in the language "
-        "corresponding to language code '{lang}'.\n\n"
+        "monologue. Output ONLY the JSON array.\n"
+        'CRITICAL REQUIREMENT: You MUST write "title" and "reason" entirely in the '
+        "language corresponding to language code '{lang}'.\n\n"
         "SRT Subtitles:\n{srt_content}"
     ),
     "vision_frame": (

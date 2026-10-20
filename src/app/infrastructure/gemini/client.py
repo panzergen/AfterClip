@@ -55,10 +55,15 @@ def _http_post_with_status(url: str, payload: dict, timeout: float) -> dict:
 def extract_text(response: dict) -> str:
     for candidate in response.get("candidates", []):
         parts = candidate.get("content", {}).get("parts", [])
-        text = "".join(part.get("text", "") for part in parts if isinstance(part, dict) and "text" in part)
+        text = "".join(
+            part.get("text", "") for part in parts if isinstance(part, dict) and "text" in part
+        )
         if text.strip():
             return clean_thinking_tags(text.strip())
-    reason = next((candidate.get("finishReason", "unknown") for candidate in response.get("candidates", [])), "no candidates")
+    reason = next(
+        (candidate.get("finishReason", "unknown") for candidate in response.get("candidates", [])),
+        "no candidates",
+    )
     raise GeminiError(f"Gemini returned no text (finishReason: {reason})")
 
 
@@ -114,7 +119,10 @@ class GeminiClient:
     def generate(self, parts: list[dict], cancel_token: CancelToken | None = None) -> str:
         key = self.key_getter()
         if not key:
-            raise GeminiKeyMissing("No Gemini API key is stored. Add one in Settings; it is kept in the OS credential manager.")
+            raise GeminiKeyMissing(
+                "No Gemini API key is stored. Add one in Settings; "
+                "it is kept in the OS credential manager."
+            )
         SECRET_REDACTOR.register(key)
         payload = {
             "contents": [{"parts": parts}],
@@ -138,19 +146,32 @@ class GeminiClient:
             except urllib.error.HTTPError as error:
                 if error.code == 404:
                     raise GeminiError(
-                        f"Gemini model '{self.model}' was not found (404). Open Settings and pick a valid model.",
+                        f"Gemini model '{self.model}' was not found (404). "
+                        "Open Settings and pick a valid model.",
                         retryable=False,
                     ) from error
                 if attempt >= self.max_retries or not _error_is_retryable(error):
-                    raise GeminiError(f"Gemini request failed: HTTP {error.code}", retryable=False) from error
+                    raise GeminiError(
+                        f"Gemini request failed: HTTP {error.code}", retryable=False
+                    ) from error
                 delay = self._backoff(error.code, attempt)
-                LOGGER.warning("Gemini request attempt %d failed (HTTP %d); retrying in %.1fs", attempt + 1, error.code, delay)
+                LOGGER.warning(
+                    "Gemini request attempt %d failed (HTTP %d); retrying in %.1fs",
+                    attempt + 1,
+                    error.code,
+                    delay,
+                )
                 self._sleep_interruptible(delay, cancel_token)
             except Exception as error:
                 if attempt >= self.max_retries or not _error_is_retryable(error):
                     raise GeminiError(f"Gemini request failed: {error}", retryable=False) from error
                 delay = self._backoff(0, attempt)
-                LOGGER.warning("Gemini request attempt %d failed (%s); retrying in %.1fs", attempt + 1, error, delay)
+                LOGGER.warning(
+                    "Gemini request attempt %d failed (%s); retrying in %.1fs",
+                    attempt + 1,
+                    error,
+                    delay,
+                )
                 self._sleep_interruptible(delay, cancel_token)
 
     def _throttle(self, cancel_token: CancelToken | None) -> None:
@@ -176,7 +197,10 @@ class GeminiClient:
         """Generate-capable model names from the live API (Settings 'Load models')."""
         key = self.key_getter()
         if not key:
-            raise GeminiKeyMissing("No Gemini API key is stored. Add one in Settings; it is kept in the OS credential manager.")
+            raise GeminiKeyMissing(
+                "No Gemini API key is stored. Add one in Settings; "
+                "it is kept in the OS credential manager."
+            )
         request = urllib.request.Request(f"{self.base_url}/v1beta/models?key={key}&pageSize=1000")
         with urllib.request.urlopen(request, timeout=30) as response:
             data = json.loads(response.read().decode("utf-8"))

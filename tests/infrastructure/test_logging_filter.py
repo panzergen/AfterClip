@@ -1,6 +1,6 @@
 import logging
 
-from app.infrastructure.logging_filter import REDACTED, SECRET_REDACTOR, SecretRedactionFilter
+from app.infrastructure.logging_filter import REDACTED, SecretRedactionFilter
 
 
 def test_redacts_registered_secret_from_message(caplog):

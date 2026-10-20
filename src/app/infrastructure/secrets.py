@@ -61,8 +61,7 @@ class KeyringSecretStore:
             keyring.set_password(self.service, name, value)
         except Exception as error:  # platform backends raise varied exception types
             raise SecretStoreUnavailableError(
-                "Could not store the credential in the OS credential manager: "
-                f"{error}"
+                f"Could not store the credential in the OS credential manager: {error}"
             ) from error
         SECRET_REDACTOR.register(value)
 
@@ -79,6 +78,5 @@ class KeyringSecretStore:
             return
         except Exception as error:  # platform backends raise varied exception types
             raise SecretStoreUnavailableError(
-                "Could not delete the credential from the OS credential manager: "
-                f"{error}"
+                f"Could not delete the credential from the OS credential manager: {error}"
             ) from error

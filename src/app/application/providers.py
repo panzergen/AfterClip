@@ -3,6 +3,7 @@
 Provider identity is resolved through ``application.provider_registry`` so
 adding a provider is a registry entry plus an adapter, not a new branch here.
 """
+
 from app.application.provider_registry import (
     KIND_GEMINI,
     KIND_OPENAI_COMPAT,

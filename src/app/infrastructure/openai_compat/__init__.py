@@ -1,6 +1,7 @@
 """OpenAI-compatible provider adapter (Phase 4 WS-A).
 
-Shared by OpenRouter (``openrouter``) and OpenCode Go (``opencode_go``). The
+Shared by OpenRouter (``openrouter``), OpenCode Go (``opencode_go``) and
+OpenCode Zen (``opencode_zen``). The
 upload policy in :mod:`app.infrastructure.cloud_policy` ensures only text and
 single frames are ever sent (video is impossible); keys live in the OS
 credential manager and are scrubbed from logs.

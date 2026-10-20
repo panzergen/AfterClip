@@ -8,7 +8,7 @@ release-quality.
 | --- | --- | --- | --- |
 | Runtime | Primary, release target | Experimental (source) | Experimental (source) |
 | Packaging | PyInstaller onedir (`packaging/`) | Not started | Not started |
-| Installer | Inno Setup (planned) | `.app`/`.dmg` (planned) | AppImage/`.deb` (planned) |
+| Installer | Inno Setup (`packaging/afterclip.iss`) | `.app`/`.dmg` (planned) | AppImage/`.deb` (planned) |
 | Secret storage | Credential Manager | Keychain | Secret Service / KWallet |
 | Data dir | `%LOCALAPPDATA%\AfterClip` | `~/Library/Application Support/AfterClip` | `$XDG_DATA_HOME/AfterClip` or `~/.local/share/AfterClip` |
 | Workspace (Input/Output) | `%USERPROFILE%\AfterClip` (frozen) | `~/AfterClip` (frozen) | `~/AfterClip` (frozen) |

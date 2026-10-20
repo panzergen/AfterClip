@@ -39,6 +39,7 @@ class HistoricalJob:
     analyze_text: bool
     analyze_vision: bool
     frame_resolution: str
+    predicted_seconds: float | None = None
 
     @property
     def rate(self) -> float | None:
@@ -92,9 +93,7 @@ def _history_from_state(state: dict) -> HistoricalJob | None:
     if not isinstance(steps, dict):
         return None
     total = sum(
-        _as_float(step.get("duration_seconds"))
-        for step in steps.values()
-        if isinstance(step, dict)
+        _as_float(step.get("duration_seconds")) for step in steps.values() if isinstance(step, dict)
     )
     if total <= 0:
         return None
@@ -102,6 +101,8 @@ def _history_from_state(state: dict) -> HistoricalJob | None:
     settings = state.get("run_settings") if isinstance(state.get("run_settings"), dict) else {}
     modes = settings.get("frame_modes")
     modes = tuple(str(mode) for mode in modes) if isinstance(modes, (list, tuple)) else ()
+    forecast_state = state.get("forecast") if isinstance(state.get("forecast"), dict) else {}
+    predicted = _as_float(forecast_state.get("expected_seconds"))
     return HistoricalJob(
         duration_seconds=_as_float(media.get("duration")),
         total_seconds=total,
@@ -110,6 +111,7 @@ def _history_from_state(state: dict) -> HistoricalJob | None:
         analyze_text=bool(settings.get("analyze_text")),
         analyze_vision=bool(settings.get("analyze_vision")),
         frame_resolution=str(settings.get("frame_resolution", "")),
+        predicted_seconds=predicted if predicted > 0 else None,
     )
 
 
@@ -156,6 +158,18 @@ def _percentile(values: list[float], fraction: float) -> float:
     return values[lower] * (1 - weight) + values[upper] * weight
 
 
+def _self_correction_factor(jobs: list[HistoricalJob]) -> float:
+    """Median actual/predicted ratio across jobs that stored a forecast.
+
+    A ratio above 1.0 means past estimates ran under; below 1.0 over. Clamped
+    to a sane band so a single outlier cannot swing the estimate wildly.
+    """
+    ratios = [job.total_seconds / job.predicted_seconds for job in jobs if job.predicted_seconds]
+    if len(ratios) < MIN_SAMPLES:
+        return 1.0
+    return min(2.0, max(0.5, statistics.median(ratios)))
+
+
 def forecast(
     duration_seconds: float,
     model: str,
@@ -173,8 +187,7 @@ def forecast(
     matches = [
         job
         for job in history
-        if job.rate is not None
-        and _is_similar(job, model, modes, analyze_text, analyze_vision)
+        if job.rate is not None and _is_similar(job, model, modes, analyze_text, analyze_vision)
     ]
     basis = "similar"
     if len(matches) < MIN_SAMPLES:
@@ -189,9 +202,10 @@ def forecast(
             :MAX_NEIGHBOURS
         ]
         rates = sorted(job.rate for job in nearest if job.rate is not None)
-        expected = statistics.median(rates) * duration_seconds
-        low = _percentile(rates, 0.1) * duration_seconds
-        high = _percentile(rates, 0.9) * duration_seconds
+        correction = _self_correction_factor(nearest)
+        expected = statistics.median(rates) * duration_seconds * correction
+        low = _percentile(rates, 0.1) * duration_seconds * correction
+        high = _percentile(rates, 0.9) * duration_seconds * correction
         return Forecast(True, expected, low, high, len(nearest), basis)
 
     factor = HEURISTIC_FACTORS.get(model, DEFAULT_HEURISTIC_FACTOR)

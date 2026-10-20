@@ -55,7 +55,16 @@ change, and after each finished job.
 
 Hardware dominates: CPU vs GPU and unified memory make the same job vary a lot.
 The forecast therefore always shows a **range** and is bucketed by
-configuration; it never presents a single precise number. Storing forecast vs
-actual for self-correction is a planned follow-up.
+configuration; it never presents a single precise number.
 
 The estimate is local only — no cloud request is made to compute it.
+
+## Self-correction
+
+Each job stores its pre-start estimate (`job_state.json` → `forecast`) alongside
+the recorded step durations. On a later estimate, past jobs that stored a
+forecast contribute a correction factor: the median ratio of actual total time
+to predicted total time, clamped to 0.5–2.0 so one outlier cannot swing the
+estimate wildly. The raw rate-based estimate (and its p10–p90 band) is scaled by
+that factor. Correction only applies once at least three comparable jobs have
+stored a forecast; earlier runs fall back to the uncorrected estimate.

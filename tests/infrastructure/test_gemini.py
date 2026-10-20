@@ -37,11 +37,9 @@ def ok_response(text="answer"):
 
 
 def http_error(code):
-    return urllib.error.HTTPError("https://generativelanguage.googleapis.com/x", code, "err", None, None)
-
-
-def http_error(code):
-    return urllib.error.HTTPError("https://generativelanguage.googleapis.com/x", code, "err", None, None)
+    return urllib.error.HTTPError(
+        "https://generativelanguage.googleapis.com/x", code, "err", None, None
+    )
 
 
 def test_inline_data_part_rejects_video_mime():
@@ -62,8 +60,15 @@ def test_vision_provider_refuses_video_files_without_any_request():
 
 def test_text_provider_sends_only_text_parts():
     sleeps = []
-    request = RecordingRequest([ok_response("partial one"), ok_response("partial two"), ok_response("final summary")])
-    provider = GeminiTextProvider(key_getter=lambda: "sk-gemini-test-key", request_fn=request, sleep_fn=sleeps.append, min_interval=0)
+    request = RecordingRequest(
+        [ok_response("partial one"), ok_response("partial two"), ok_response("final summary")]
+    )
+    provider = GeminiTextProvider(
+        key_getter=lambda: "sk-gemini-test-key",
+        request_fn=request,
+        sleep_fn=sleeps.append,
+        min_interval=0,
+    )
     summary = provider.summarize("a" * 5000, "tr")
     assert summary == "final summary"
     assert len(request.calls) == 3  # two chunk summaries + combine
@@ -77,12 +82,14 @@ def test_text_provider_sends_only_text_parts():
 
 def test_vision_payload_contains_only_png_inline_data(tmp_path):
     request = RecordingRequest([ok_response("frame described")])
-    provider = GeminiVisionProvider(client=GeminiClient(key_getter=lambda: "sk-gemini-test-key", request_fn=request))
+    provider = GeminiVisionProvider(
+        client=GeminiClient(key_getter=lambda: "sk-gemini-test-key", request_fn=request)
+    )
     frame = tmp_path / "scene_00h00m02s.png"
     frame.write_bytes(b"\x89PNG-fake-bytes")
     result = provider.analyze_frame(frame, "spoken words", "task", "tr")
     assert result == "frame described"
-    url, payload, _timeout = request.calls[0]
+    _url, payload, _timeout = request.calls[0]
     parts = payload["contents"][0]["parts"]
     assert parts[0]["text"].startswith("This frame belongs to a video recording")
     inline = parts[1]["inline_data"]
@@ -95,7 +102,13 @@ def test_vision_payload_contains_only_png_inline_data(tmp_path):
 def test_retry_on_rate_limit_then_success():
     sleeps = []
     request = RecordingRequest([http_error(429), http_error(429), ok_response("recovered")])
-    client = GeminiClient(key_getter=lambda: "k", request_fn=request, sleep_fn=sleeps.append, max_retries=3, min_interval=0)
+    client = GeminiClient(
+        key_getter=lambda: "k",
+        request_fn=request,
+        sleep_fn=sleeps.append,
+        max_retries=3,
+        min_interval=0,
+    )
     assert client.generate([{"text": "hi"}]) == "recovered"
     assert sleeps == [8.0, 16.0]
 
@@ -103,7 +116,13 @@ def test_retry_on_rate_limit_then_success():
 def test_retry_is_bounded_and_raises_when_exhausted():
     sleeps = []
     request = RecordingRequest([http_error(503)] * 4)
-    client = GeminiClient(key_getter=lambda: "k", request_fn=request, sleep_fn=sleeps.append, max_retries=2, min_interval=0)
+    client = GeminiClient(
+        key_getter=lambda: "k",
+        request_fn=request,
+        sleep_fn=sleeps.append,
+        max_retries=2,
+        min_interval=0,
+    )
     with pytest.raises(GeminiError, match="Gemini request failed"):
         client.generate([{"text": "hi"}])
     assert len(request.calls) == 3  # initial + 2 retries, never infinite
@@ -127,7 +146,13 @@ def test_requests_are_throttled_to_min_interval():
         now[0] += 1.0  # each request takes 1s of clock time
         return request(url, payload, timeout)
 
-    client = GeminiClient(key_getter=lambda: "k", request_fn=serving_request, sleep_fn=fake_sleep, clock_fn=clock, min_interval=4.0)
+    client = GeminiClient(
+        key_getter=lambda: "k",
+        request_fn=serving_request,
+        sleep_fn=fake_sleep,
+        clock_fn=clock,
+        min_interval=4.0,
+    )
     client.generate([{"text": "a"}])  # finishes at t=101, gap measured from request end
     client.generate([{"text": "b"}])  # waits the full 4s after finish -> t->106
     client.generate([{"text": "c"}])  # waits 4s again -> t->111
@@ -137,7 +162,9 @@ def test_requests_are_throttled_to_min_interval():
 def test_auth_error_fails_immediately_without_retry():
     sleeps = []
     request = RecordingRequest([http_error(401)])
-    client = GeminiClient(key_getter=lambda: "k", request_fn=request, sleep_fn=sleeps.append, max_retries=3)
+    client = GeminiClient(
+        key_getter=lambda: "k", request_fn=request, sleep_fn=sleeps.append, max_retries=3
+    )
     with pytest.raises(GeminiError):
         client.generate([{"text": "hi"}])
     assert len(request.calls) == 1
@@ -146,7 +173,9 @@ def test_auth_error_fails_immediately_without_retry():
 
 def test_model_404_gives_actionable_error_without_retry():
     request = RecordingRequest([http_error(404)])
-    client = GeminiClient(key_getter=lambda: "k", request_fn=request, sleep_fn=lambda _s: None, max_retries=3)
+    client = GeminiClient(
+        key_getter=lambda: "k", request_fn=request, sleep_fn=lambda _s: None, max_retries=3
+    )
     with pytest.raises(GeminiError, match="was not found") as error:
         client.generate([{"text": "hi"}])
     assert "Settings" in str(error.value)
@@ -154,12 +183,14 @@ def test_model_404_gives_actionable_error_without_retry():
 
 
 def test_list_models_returns_generate_capable_names(monkeypatch):
-    import types
     import urllib.request
 
     payload = {
         "models": [
-            {"name": "models/gemini-flash-latest", "supportedGenerationMethods": ["generateContent"]},
+            {
+                "name": "models/gemini-flash-latest",
+                "supportedGenerationMethods": ["generateContent"],
+            },
             {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},
             {"name": "models/some-tts", "supportedGenerationMethods": ["synthesizeContent"]},
         ]
@@ -209,7 +240,10 @@ def test_highlights_partial_section_failure_keeps_partial_output():
         calls.append(payload)
         if len(calls) == 2:
             raise http_error(503)  # only the second section fails
-        return ok_response("- 00:00:01,000 important point")
+        return ok_response(
+            '[{"start":"00:00:01","end":"00:00:05","title":"important point",'
+            '"score":9,"reason":"assigned action"}]'
+        )
 
     provider = GeminiTextProvider(
         key_getter=lambda: "k",
@@ -219,7 +253,7 @@ def test_highlights_partial_section_failure_keeps_partial_output():
         chunk_size=10,
     )
     result = provider.extract_highlights("a b c d e f g h i j k l m n o p", "en")
-    assert "00:00:01,000 important point" in result
+    assert "00:00:01 important point" in result
 
 
 def test_missing_key_raises_without_request():
@@ -232,7 +266,11 @@ def test_missing_key_raises_without_request():
 
 def test_api_key_is_redacted_from_logs():
     key = "sk-unique-gemini-redaction-key"
-    client = GeminiClient(key_getter=lambda: key, request_fn=RecordingRequest([ok_response("ok")]), sleep_fn=lambda _seconds: None)
+    client = GeminiClient(
+        key_getter=lambda: key,
+        request_fn=RecordingRequest([ok_response("ok")]),
+        sleep_fn=lambda _seconds: None,
+    )
     client.generate([{"text": "hi"}])
     assert key not in SECRET_REDACTOR.redact(f"error with {key} leaked")
     assert REDACTED in SECRET_REDACTOR.redact(f"error with {key} leaked")
@@ -289,5 +327,3 @@ def test_text_provider_uses_injected_prompt_set():
     provider.summarize("hello", "tr")
     parts = request.calls[0][1]["contents"][0]["parts"]
     assert parts[0]["text"] == "CUSTOM tr hello"
-
-

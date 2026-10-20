@@ -355,4 +355,18 @@ ApplicationWindow {
             onClosed: window.settingsOpen = false
         }
     }
+
+    VoiceprintEnrollmentDialog {
+        id: voiceprintEnrollmentDialog
+    }
+
+    Connections {
+        target: voiceprintEnrollment
+        function onVisibleChanged() {
+            if (voiceprintEnrollment.visible)
+                voiceprintEnrollmentDialog.open()
+            else
+                voiceprintEnrollmentDialog.close()
+        }
+    }
 }

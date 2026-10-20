@@ -2,8 +2,9 @@ import logging
 from collections.abc import Callable
 
 from app.application.cancellation import CancelToken
+from app.application.highlights import aggregate_highlights, parse_candidates
 from app.domain.prompts import PromptSet
-from app.infrastructure.llm.transport import chunk_text, clean_highlights_output
+from app.infrastructure.llm.transport import chunk_text
 from app.infrastructure.openai_compat.client import (
     DEFAULT_OPENAI_COMPAT_BASE_URL,
     OpenAICompatClient,
@@ -109,4 +110,4 @@ class OpenAICompatTextProvider:
                 LOGGER.error("Highlights section %d/%d failed: %s", index, len(chunks), error)
         if not sections:
             raise OpenAICompatError("Highlights failed for all sections.")
-        return clean_highlights_output("\n".join(sections))
+        return aggregate_highlights(parse_candidates("\n".join(sections)))

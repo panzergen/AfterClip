@@ -48,10 +48,15 @@ status.
 
 - **Ollama (local)** — summaries, highlights and frame descriptions; nothing
   leaves the machine.
-- **Gemini (cloud)** — same features via Google. The first cloud job shows a
-  consent dialog naming the provider/model and what is uploaded; accept it to
-  proceed. Grant/revoke consent any time in Settings. Video is **never**
-  uploaded — only transcript text and single frames.
+- **Cloud providers** — **Gemini**, **OpenRouter**, **OpenCode Go** and
+  **OpenCode Zen** offer the same features over their own APIs. The first cloud
+  job shows a consent dialog naming the provider/model and what is uploaded;
+  accept it to proceed. Grant or revoke consent any time in Settings. Video is
+  **never** uploaded — only transcript text and single frames.
+
+Pick the provider in the job form, then set its key and model list in
+**Settings → Cloud provider**. See `PROVIDERS.md` for the endpoints and
+credential names.
 
 ## Outputs
 

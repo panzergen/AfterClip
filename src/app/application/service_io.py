@@ -1,12 +1,13 @@
 import datetime
 import json
 import logging
-import os
 import re
 from pathlib import Path
 
 from app.application.timeline import find_transcript_srt, parse_srt
+from app.application.vision_sanitizer import VisionSanitizerConfig, sanitize_description
 from app.domain.models import TranscriptionRequest
+from app.infrastructure.atomic_file import atomic_write_text as write_atomic_text
 
 LOGGER = logging.getLogger(__name__)
 
@@ -16,15 +17,8 @@ HIGHLIGHT_FRAME_PATTERN = re.compile(r"highlight_(\d+)$")
 
 
 def atomic_write_text(path: Path, text: str) -> None:
-    """Write text via a temp file + replace so a crash cannot truncate it.
-
-    ``os.replace`` is atomic on the same filesystem, so readers (resume,
-    history) always see either the old or the new complete file.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(f".{path.name}.tmp")
-    temp.write_text(text, encoding="utf-8")
-    os.replace(temp, path)
+    """Write text via a temp file + replace so a crash cannot truncate it."""
+    write_atomic_text(path, text)
 
 
 def validate_request(request: TranscriptionRequest) -> None:
@@ -192,7 +186,7 @@ def transcript_context(transcript_dir: Path, audio_stem: str, timestamp: float) 
 
 
 def srt_timestamp(seconds: float) -> str:
-    total_ms = max(0, int(round(seconds * 1000)))
+    total_ms = max(0, round(seconds * 1000))
     hours, remainder = divmod(total_ms, 3600000)
     minutes, remainder = divmod(remainder, 60000)
     seconds, milliseconds = divmod(remainder, 1000)
@@ -231,8 +225,15 @@ VISION_FILE_LINE = re.compile(r"FILE:\s*(.+)")
 VISION_DESCRIPTION_LINE = re.compile(r"DESCRIPTION:\s*([\s\S]+)")
 
 
-def parse_vision_descriptions(srt_path: Path | None) -> dict[str, str]:
-    """Map frame file name -> AI description from a vision SRT (empty when absent)."""
+def parse_vision_descriptions(
+    srt_path: Path | None, config: VisionSanitizerConfig | None = None
+) -> dict[str, str]:
+    """Map frame file name -> AI description from a vision SRT (empty when absent).
+
+    Descriptions are run through the vision sanitizer on read, so a stale cache
+    written before the sanitizer existed is still cleaned for the timeline
+    without re-running the vision model.
+    """
     if not srt_path:
         return {}
     path = Path(srt_path)
@@ -248,9 +249,8 @@ def parse_vision_descriptions(srt_path: Path | None) -> dict[str, str]:
         if not file_match:
             continue
         description_match = VISION_DESCRIPTION_LINE.search(block)
-        descriptions[file_match.group(1).strip()] = (
-            description_match.group(1).strip() if description_match else ""
-        )
+        raw = description_match.group(1).strip() if description_match else ""
+        descriptions[file_match.group(1).strip()] = sanitize_description(raw, config).text
     return descriptions
 
 
@@ -297,7 +297,8 @@ def write_report(
     step_lines = ["| Step | Status | Duration (seconds) |", "| --- | --- | ---: |"]
     for step in steps.values():
         step_lines.append(
-            f"| {step.get('name', 'Unknown')} | {step.get('status', 'unknown')} | {step.get('duration_seconds', '')} |"
+            f"| {step.get('name', 'Unknown')} | {step.get('status', 'unknown')} "
+            f"| {step.get('duration_seconds', '')} |"
         )
     usage = metadata.get("cloud_usage")
     usage_lines = ""
@@ -322,6 +323,8 @@ def write_report(
             f"- **Media type:** `{media_guess.get('media_type', 'unknown')}` "
             f"(confidence {media_guess.get('confidence', 0)}, {media_guess.get('tier', '')})\n"
         )
+    clip_start = request.clip_start if request.clip_start is not None else 0
+    clip_end = request.clip_end if request.clip_end is not None else "end"
     content = (
         "# AfterClip Processing Report\n\n"
         "- **Report version:** `1`\n\n"
@@ -343,7 +346,7 @@ def write_report(
         f"- **Output name:** `{request.output_name or request.input_path.stem}`\n"
         f"- **Model:** `{request.model}`\n"
         f"- **Language:** `{request.language or 'Auto-detect'}`\n"
-        f"- **Clip range:** `{request.clip_start if request.clip_start is not None else 0} -> {request.clip_end if request.clip_end is not None else 'end'}`\n"
+        f"- **Clip range:** `{clip_start} -> {clip_end}`\n"
         f"{usage_lines}"
     )
     atomic_write_text(path, content)

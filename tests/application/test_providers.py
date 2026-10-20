@@ -22,10 +22,20 @@ def test_build_openai_compat_for_openrouter_and_opencode_go():
     assert vision.provider_name == "opencode_go"
 
 
+def test_build_openai_compat_for_zen_shares_go_key():
+    from app.application.provider_registry import get_provider
+
+    assert get_provider("opencode_zen").key_name == get_provider("opencode_go").key_name
+    text = build_text_provider(("opencode_zen", "deepseek-v4.1-flash-free"))
+    assert isinstance(text, OpenAICompatTextProvider)
+    assert text.provider_name == "opencode_zen"
+    vision = build_vision_provider(("opencode_zen", "nemotron-3.5-super-vl-free"))
+    assert isinstance(vision, OpenAICompatVisionProvider)
+    assert vision.provider_name == "opencode_zen"
+
+
 def test_build_local_and_gemini():
     assert isinstance(build_text_provider(("ollama", "llama3")), OllamaTextProvider)
     assert isinstance(build_vision_provider(("ollama", "llava")), OllamaVisionProvider)
     assert isinstance(build_text_provider(("gemini", "gemini-2.5-flash")), GeminiTextProvider)
-    assert isinstance(
-        build_vision_provider(("gemini", "gemini-2.5-flash")), GeminiVisionProvider
-    )
+    assert isinstance(build_vision_provider(("gemini", "gemini-2.5-flash")), GeminiVisionProvider)

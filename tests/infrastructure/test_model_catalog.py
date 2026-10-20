@@ -49,7 +49,15 @@ def test_ollama_section_none_when_tags_fail():
 
 
 def test_gemini_section_live_models_with_capability_heuristics():
-    section = gemini_section(key_getter=lambda: "k", list_models_fn=lambda: ("gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-flash-preview-tts", "text-embedding-004"))
+    section = gemini_section(
+        key_getter=lambda: "k",
+        list_models_fn=lambda: (
+            "gemini-flash-latest",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-preview-tts",
+            "text-embedding-004",
+        ),
+    )
     names = [entry.name for entry in section.entries]
     assert "gemini-flash-latest" in names
     # The catalog marks capabilities; populate_models does the filtering.
@@ -85,6 +93,32 @@ def test_opencode_go_section_metadata_free_capability():
     assert by_name["deepseek-v4-flash-vision-exp"].vision_capable is True
     assert by_name["glm-5.2"].vision_capable is False
     assert by_name["muse-spark-1.3-contributor"].vision_capable is False
+
+
+def test_zen_section_hides_non_chat_transports():
+    """Zen lists every transport on /models; only chat ids reach the dropdown."""
+    spec = get_provider("opencode_zen")
+    items = [
+        {"id": "gpt-5.5"},
+        {"id": "claude-haiku-5-5"},
+        {"id": "gemini-3.8-flash"},
+        {"id": "grok-4.6"},
+        {"id": "muse-spark-1.3-contributor-free"},
+        {"id": "jev-1.13-free"},
+        {"id": "qwen3.8-flash"},
+        {"id": "deepseek-v4.1-flash-free"},
+        {"id": "space-bunny-free"},
+        {"id": "qwen3.8-max"},
+        {"id": "glm-5.3"},
+    ]
+    section = openai_compat_section(spec, key_getter=lambda: "k", list_fn=lambda: items)
+    names = [entry.name for entry in section.entries]
+    assert names == [
+        "deepseek-v4.1-flash-free",
+        "space-bunny-free",
+        "qwen3.8-max",
+        "glm-5.3",
+    ]
 
 
 def test_collect_catalog_merges_available_sections():

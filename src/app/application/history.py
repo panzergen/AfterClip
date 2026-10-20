@@ -1,4 +1,5 @@
 """Job history scan and log tail access for the UI panels."""
+
 import json
 import logging
 from dataclasses import dataclass
@@ -19,7 +20,9 @@ class JobHistoryEntry:
 def scan_job_history(output_dir: Path) -> list[JobHistoryEntry]:
     """Job folders under the output root, newest first."""
     entries = []
-    for state_path in sorted(output_dir.glob("*/job_state.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+    for state_path in sorted(
+        output_dir.glob("*/job_state.json"), key=lambda p: p.stat().st_mtime, reverse=True
+    ):
         try:
             state = json.loads(state_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:

@@ -1,0 +1,100 @@
+name: Bug report
+description: Something in AfterClip does not work as expected
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this.
+
+        **Do not paste API keys, transcripts or private media into this form.**
+        AfterClip stores cloud provider keys in the OS credential manager, but
+        if a key does end up here, treat it as compromised and rotate it.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect instead?
+      placeholder: The job stops at "AI analysis" and the report is never written.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: AfterClip version
+      description: Shown in the log header, or in the About dialog.
+      placeholder: 0.3.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: Only relevant if you are running from source.
+      placeholder: "3.12.4"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: source
+    attributes:
+      label: How are you running AfterClip?
+      options:
+        - Windows installer
+        - Windows zip / portable bundle
+        - From source (pip install -e)
+        - CLI / MCP server
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which AI provider was selected?
+      description: Leave as "None / local only" if the issue is unrelated to AI.
+      options:
+        - None / local only (Ollama)
+        - Gemini
+        - OpenRouter
+        - OpenCode Go
+        - OpenCode Zen
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log excerpt
+      description: |
+        From `<data dir>/logs/app.log`, the last ~50 lines around the problem.
+        Remove anything sensitive. The log is already redacted for API keys.
+      render: text
+    validations:
+      required: false

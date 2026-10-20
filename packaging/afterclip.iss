@@ -1,6 +1,11 @@
-; AfterClip Inno Setup script (Phase 3 installer).
+; AfterClip Inno Setup script.
 ;
 ; Compile after building the PyInstaller bundle:
+;   powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1 -Clean -Zip -Installer
+;
+; The version is always supplied by the build script, which reads it from
+; src/app/version.py -- the single source of truth. Compiling this file by hand
+; requires passing it explicitly:
 ;   ISCC.exe /DAppVersion=0.3.0 packaging\afterclip.iss
 ;
 ; The source tree is the one-directory bundle produced by
@@ -11,7 +16,7 @@
 ; links to the setup docs instead.
 
 #ifndef AppVersion
-  #define AppVersion "0.3.0"
+  #error AppVersion is not defined. Build via packaging\build_windows.ps1 -Installer, or pass /DAppVersion=<version>.
 #endif
 
 #define AppName "AfterClip"

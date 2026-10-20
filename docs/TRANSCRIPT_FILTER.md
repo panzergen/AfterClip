@@ -56,5 +56,7 @@ filter is disabled the Whisper invocation and output are unchanged.
 Any missing/invalid value falls back to the built-in default. The batch queue
 uses the default configuration.
 
-An optional AI cleanup pass (using the `transcript_cleanup` prompt) is planned
-and will stay off by default.
+An optional AI cleanup pass (using the `transcript_cleanup` prompt) is **not
+wired up** — the template ships in the prompt store so you can edit or inspect
+it, but no code path calls it and there is no UI toggle. The rule-based filter
+above is what actually runs.

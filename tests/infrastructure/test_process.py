@@ -143,9 +143,9 @@ def test_extract_interval_frames_scales_highlights(tmp_path):
         mode="interval",
         resolution="mid",
     )
-    highlight_command = [
+    highlight_command = next(
         command for command in tool.runner.commands if "highlight" in str(command[-1])
-    ][0]
+    )
     assert "-vf" in highlight_command and "scale=1024:-2" in highlight_command
 
 

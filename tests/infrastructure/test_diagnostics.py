@@ -72,7 +72,7 @@ def test_collect_diagnostics_shape(tmp_path, monkeypatch):
     monkeypatch.setattr(
         diagnostics,
         "check_environment",
-        lambda: diagnostics.EnvironmentStatus(True, True, False),
+        lambda: diagnostics.EnvironmentStatus(True, True, False, False),
     )
     payload = collect_diagnostics(tmp_path)
     assert payload["app_version"]
@@ -80,6 +80,7 @@ def test_collect_diagnostics_shape(tmp_path, monkeypatch):
     assert payload["ffmpeg"] is True
     assert payload["ffprobe"] is True
     assert payload["whisper"] is False
+    assert payload["voiceprint"] is False
     assert payload["gpu"] == {"name": "Test GPU", "memory_mb": 8192}
     assert payload["disk"]["free_gb"] >= 0
     assert payload["output_dir"] == str(tmp_path)

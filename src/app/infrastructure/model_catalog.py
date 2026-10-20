@@ -5,9 +5,9 @@ of `ModelEntry` items; the UI renders each section as a disabled group header
 with its models underneath. A model available in several providers simply
 appears under each section.
 """
+
 import json
 import logging
-import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -138,10 +138,13 @@ def openai_compat_section(spec, key_getter, list_fn=None) -> ModelSection | None
     except Exception as error:
         LOGGER.info("%s model list unavailable: %s", spec.label, error)
         return None
+    excluded = tuple(prefix.lower() for prefix in (spec.exclude_name_prefixes or ()))
     entries = []
     for item in items or []:
         name = str(item.get("id") or "")
         if not name:
+            continue
+        if excluded and name.lower().startswith(excluded):
             continue
         vision = infer_vision_capable(item) or (
             spec.vision_default and _ollama_heuristic_vision(name)

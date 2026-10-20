@@ -12,6 +12,7 @@ from app.infrastructure.gemini.client import DEFAULT_GEMINI_URL, GEMINI_KEY_NAME
 OLLAMA_BASE_URL = "http://localhost:11434"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1"
+OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1"
 
 OPENROUTER_KEY_NAME = "openrouter_api_key"
 OPENCODE_GO_KEY_NAME = "opencode_go_api_key"
@@ -32,6 +33,11 @@ class ProviderSpec:
     models_path: str = "/models"
     #: When live capability metadata is unavailable, assume all models can see.
     vision_default: bool = False
+    #: Lowercase id prefixes hidden from the model catalog. Used when a
+    #: provider serves several transports on one /models endpoint but this app
+    #: only speaks /chat/completions (e.g. OpenCode Zen also lists /responses,
+    #: /messages, /systemone and native-Google ids).
+    exclude_name_prefixes: tuple[str, ...] = ()
 
     @property
     def is_cloud(self) -> bool:
@@ -67,6 +73,31 @@ PROVIDERS: dict[str, ProviderSpec] = {
         kind=KIND_OPENAI_COMPAT,
         base_url=OPENCODE_GO_BASE_URL,
         key_name=OPENCODE_GO_KEY_NAME,
+    ),
+    "opencode_zen": ProviderSpec(
+        id="opencode_zen",
+        label="OpenCode Zen (cloud)",
+        kind=KIND_OPENAI_COMPAT,
+        base_url=OPENCODE_ZEN_BASE_URL,
+        # Same platform key as Go; one key opens both catalogs.
+        key_name=OPENCODE_GO_KEY_NAME,
+        exclude_name_prefixes=(
+            # /responses transport (AfterClip only speaks /chat/completions).
+            "gpt-",
+            "grok-",
+            "muse-spark-",
+            # Anthropic /messages transport.
+            "claude-",
+            # Native Google SDK transport.
+            "gemini-",
+            # TypeSafe /systemone transport (decisions, not text).
+            "jev-",
+            # Qwen variants served over /messages (qwen3.8-max stays: chat).
+            "qwen3.8-flash",
+            "qwen3.7-",
+            "qwen3.6-",
+            "qwen3.5-",
+        ),
     ),
 }
 

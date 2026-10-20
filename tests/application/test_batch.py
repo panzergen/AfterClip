@@ -1,8 +1,6 @@
-import json
 from pathlib import Path
 
 from app.application.batch import (
-    BatchJob,
     BatchStore,
     new_batch_job,
     run_batch,
@@ -40,7 +38,13 @@ def test_store_recovers_running_jobs_to_pending_on_load(tmp_path: Path):
 
 
 def test_to_request_round_trip():
-    job = make_job(extract_frames=True, frame_modes=("scene",), analyze_text=True, text_provider_name="gemini", text_model="m")
+    job = make_job(
+        extract_frames=True,
+        frame_modes=("scene",),
+        analyze_text=True,
+        text_provider_name="gemini",
+        text_model="m",
+    )
     request = job.to_request()
     assert isinstance(request, TranscriptionRequest)
     assert request.frame_modes == ("scene",)
@@ -84,5 +88,11 @@ def test_run_batch_skips_non_pending_jobs(tmp_path: Path):
     store = BatchStore(tmp_path / "batch_queue.json")
     store.save([make_job("done.mp4", status="completed"), make_job("todo.mp4")])
     ran = []
-    run_batch(store.load(), store, lambda job, e, t: ran.append(job.display_name), lambda m: None, CancellationToken())
+    run_batch(
+        store.load(),
+        store,
+        lambda job, e, t: ran.append(job.display_name),
+        lambda m: None,
+        CancellationToken(),
+    )
     assert ran == ["todo.mp4"]

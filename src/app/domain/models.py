@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 """Domain objects shared by every layer.
@@ -18,7 +18,7 @@ TranscriptionRequest field groups:
 """
 
 
-class JobState(str, Enum):
+class JobState(StrEnum):
     IDLE = "idle"
     RUNNING = "running"
     CANCELLING = "cancelling"
@@ -56,6 +56,7 @@ class TranscriptionRequest:
     topic_method: str = "cohesion"
     topic_min_seconds: float = 60.0
     topic_max_sections: int = 0
+    voiceprint_enabled: bool = False
 
 
 @dataclass(frozen=True)

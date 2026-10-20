@@ -46,3 +46,10 @@ The asynchronous Tier-2 probes and the live AI refinement loop (updating the
 suggestion only if the user has not overridden it) are the remaining WS-D work;
 the pure classification and parsing logic they build on is implemented and
 tested.
+
+In the current release, the classification runs from the Tier-1 signals only
+(duration, container/codec and extension). The heavier probes described above
+are designed but not scheduled, so the media type can be less specific than
+the design intends — for example an interview is reported from its container
+and duration rather than from a spoken-word probe. The tier-1 fallback always
+stands, so a job never blocks on this.

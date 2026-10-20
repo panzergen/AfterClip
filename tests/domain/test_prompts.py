@@ -24,9 +24,7 @@ def test_render_substitutes_named_placeholders():
 
 
 def test_render_is_safe_with_stray_braces_in_values():
-    rendered = PromptSet().render(
-        "summary", lang="en", transcript="{not_a_field} {a.b}"
-    )
+    rendered = PromptSet().render("summary", lang="en", transcript="{not_a_field} {a.b}")
     assert "{not_a_field}" in rendered
     assert "{a.b}" in rendered
 

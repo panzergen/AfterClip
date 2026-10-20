@@ -80,12 +80,30 @@ class JsonTranscriptProvider:
 
 def _hallucinated_segments():
     return [
-        {"text": "hello world", "start": 0.0, "end": 1.0, "no_speech_prob": 0.0,
-         "avg_logprob": -0.2, "compression_ratio": 1.2},
-        {"text": "Thanks for watching", "start": 1.0, "end": 2.0, "no_speech_prob": 0.0,
-         "avg_logprob": -0.2, "compression_ratio": 1.2},
-        {"text": "   ", "start": 2.0, "end": 3.0, "no_speech_prob": 0.0,
-         "avg_logprob": -0.2, "compression_ratio": 1.2},
+        {
+            "text": "hello world",
+            "start": 0.0,
+            "end": 1.0,
+            "no_speech_prob": 0.0,
+            "avg_logprob": -0.2,
+            "compression_ratio": 1.2,
+        },
+        {
+            "text": "Thanks for watching",
+            "start": 1.0,
+            "end": 2.0,
+            "no_speech_prob": 0.0,
+            "avg_logprob": -0.2,
+            "compression_ratio": 1.2,
+        },
+        {
+            "text": "   ",
+            "start": 2.0,
+            "end": 3.0,
+            "no_speech_prob": 0.0,
+            "avg_logprob": -0.2,
+            "compression_ratio": 1.2,
+        },
     ]
 
 
@@ -224,6 +242,29 @@ def test_text_analysis_failure_does_not_fail_job(tmp_path: Path):
     assert "Ollama is down" in state
 
 
+def test_service_records_forecast_at_start(tmp_path: Path):
+    from app.application.job_context import JobContext
+
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"fixture")
+    request = TranscriptionRequest(source, tmp_path / "out", model="turbo")
+    service = TranscriptionService(FakeProvider(), FakeMedia())
+    context = JobContext(
+        job_dir=tmp_path / "job",
+        state_path=tmp_path / "job" / "job_state.json",
+        report_path=tmp_path / "job" / "Summary_Report.md",
+        request=request,
+        metadata={"duration": 1000.0},
+        state={"steps": {}},
+        steps={},
+        on_event=lambda _: None,
+    )
+    service._record_forecast(context, request)
+    assert context.state["forecast"]["expected_seconds"] == 250.0
+    assert context.state["forecast"]["basis"] == "heuristic"
+    assert "forecast" not in context.state["steps"]
+
+
 def test_process_runner_drains_large_child_output():
     result = ProcessRunner().run(
         [
@@ -347,9 +388,7 @@ def test_transcript_filter_removes_hallucination_keeps_raw(tmp_path: Path):
     assert "Thanks for watching" not in cleaned
     assert (result.output_dir / "sample.raw.srt").read_text(encoding="utf-8") == "raw srt"
     assert (result.output_dir / "sample.raw.json").is_file()
-    report = json.loads(
-        (job_dir / "transcript_filter_report.json").read_text(encoding="utf-8")
-    )
+    report = json.loads((job_dir / "transcript_filter_report.json").read_text(encoding="utf-8"))
     assert report["removed_count"] == 2
     state = json.loads((job_dir / "job_state.json").read_text(encoding="utf-8"))
     assert state["steps"]["transcript_filter"]["status"] == "completed"
@@ -401,9 +440,7 @@ class MultiSegmentProvider:
 def test_topic_segmentation_writes_topics_and_feeds_reports(tmp_path: Path):
     source = tmp_path / "sample.wav"
     source.write_bytes(b"fixture")
-    result = TranscriptionService(
-        MultiSegmentProvider(), FakeMedia(), FakeTextProvider()
-    ).run(
+    result = TranscriptionService(MultiSegmentProvider(), FakeMedia(), FakeTextProvider()).run(
         TranscriptionRequest(
             source,
             tmp_path / "out",

@@ -234,3 +234,12 @@ def test_extract_text_variants():
         extract_text({})
     with pytest.raises(OpenAICompatError, match="finish_reason"):
         extract_text({"choices": [{"message": {"content": ""}, "finish_reason": "length"}]})
+
+
+def test_forbidden_is_not_retried():
+    """A 403 is a hard failure: it is surfaced immediately, without retrying."""
+    transport = RecordingTransport([http_error(403)])
+    client = make_client(transport, max_retries=2)
+    with pytest.raises(OpenAICompatError, match="HTTP 403"):
+        client.generate([{"type": "text", "text": "hi"}])
+    assert len(transport.calls) == 1

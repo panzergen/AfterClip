@@ -50,7 +50,17 @@ class VideoPreviewExtractor:
     def _extract_frame(input_path: Path, frame: Path, timestamp: float) -> bool:
         """Extract one frame; False when the file can't provide it (skip, don't abort)."""
         result = subprocess.run(
-            ["ffmpeg", "-y", "-ss", str(timestamp), "-i", str(input_path), "-frames:v", "1", str(frame)],
+            [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                str(timestamp),
+                "-i",
+                str(input_path),
+                "-frames:v",
+                "1",
+                str(frame),
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,

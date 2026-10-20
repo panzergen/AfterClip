@@ -40,13 +40,12 @@ class EnvironmentController(QObject):
             ("FFprobe", status.ffprobe, "MISSING"),
             ("Whisper", status.whisper, "MISSING"),
             ("Ollama", self._ollama_available, "OFFLINE"),
+            ("Voiceprint", status.voiceprint, "MISSING"),
         ]
         lines = [f"{name}: {'OK' if ok else fallback}" for name, ok, fallback in checks]
         gpu = detect_gpu()
         lines.append(f"GPU: {gpu.name} ({gpu.memory_mb} MB)" if gpu else "GPU: not detected")
-        profile = detect_memory_profile(
-            gpu.name if gpu else None, gpu.memory_mb if gpu else None
-        )
+        profile = detect_memory_profile(gpu.name if gpu else None, gpu.memory_mb if gpu else None)
         memory_kind = "unified" if profile.unified else "system"
         lines.append(
             f"Memory: {profile.total_ram_gb} GB {memory_kind}, "

@@ -5,12 +5,13 @@ directory. Jobs are executed one at a time; individual failures do not stop
 the batch, and a batch cancel leaves pending jobs pending so the batch can be
 resumed later.
 """
+
 import json
 import logging
 import uuid
-from dataclasses import asdict, dataclass, field
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable
 
 from app.application.cancellation import CancellationToken
 from app.application.service import JobCancelled
@@ -48,6 +49,7 @@ class BatchJob:
     transcript_merge_seconds: float | None = None
     output_language: str = ""
     output_name: str = ""
+    voiceprint_enabled: bool = False
     status: str = "pending"
     error: str = ""
 
@@ -86,6 +88,7 @@ class BatchJob:
             frame_resolution=self.frame_resolution,
             transcript_merge_seconds=self.transcript_merge_seconds,
             output_language=self.output_language,
+            voiceprint_enabled=self.voiceprint_enabled,
         )
 
 

@@ -34,9 +34,7 @@ def test_mcp_server_import_is_qt_and_sdk_free():
         "bad = [m for m in sys.modules if m.startswith('PySide6') or m == 'mcp']; "
         "assert not bad, bad"
     )
-    result = subprocess.run(
-        [sys.executable, "-c", code], env=env, capture_output=True, text=True
-    )
+    result = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
 
 

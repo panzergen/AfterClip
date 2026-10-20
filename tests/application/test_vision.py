@@ -71,6 +71,16 @@ class BrokenVisionProvider:
         raise RuntimeError("vision model is not installed")
 
 
+class LoopingVisionProvider:
+    provider_name = "ollama"
+    model = "llava:7b"
+
+    def analyze_frame(
+        self, image_path, audio_context, user_task, language, on_progress=None, cancel_token=None
+    ):
+        return "the menu bar, the menu bar, the menu bar, the menu bar"
+
+
 def run_job(
     tmp_path,
     vision_provider,
@@ -159,6 +169,24 @@ def test_vision_analysis_writes_srt_and_feeds_master_timeline(tmp_path):
     assert '"event_type": "vision"' in jsonl and '"frame_path": "Vision/frames/' in jsonl
     state = json.loads((job_dir / "job_state.json").read_text(encoding="utf-8"))
     assert state["steps"]["vision_analysis"]["status"] == "completed"
+
+
+def test_vision_loop_is_sanitized_before_writing(tmp_path):
+    run_job(tmp_path, LoopingVisionProvider())
+    job_dir = tmp_path / "out" / "sample"
+    vision_srt = (job_dir / "Vision" / "vision_analysis.srt").read_text(encoding="utf-8")
+    assert "DESCRIPTION: the menu bar" in vision_srt
+    assert vision_srt.count("the menu bar, the menu bar") == 0
+    report = json.loads(
+        (job_dir / "Vision" / "vision_filter_report.json").read_text(encoding="utf-8")
+    )
+    assert report["collapsed_count"] == 3
+    assert report["changes"][0]["reason"] == "repetition"
+    state = json.loads((job_dir / "job_state.json").read_text(encoding="utf-8"))
+    assert state["steps"]["vision_analysis"]["name"] == "Vision analysis (ollama: llava:7b)"
+    # The master timeline renders the cleaned description, not the loop.
+    markdown = (job_dir / "Master_Timeline.md").read_text(encoding="utf-8")
+    assert "the menu bar, the menu bar" not in markdown
 
 
 class PartialTextProvider:

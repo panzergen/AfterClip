@@ -39,7 +39,13 @@ class StepRecorder:
         save_state(self.context.state_path, self.context.state)
 
     def report(self, status: str) -> None:
-        write_report(self.context.report_path, self.context.request, status, self.context.metadata, self.context.steps)
+        write_report(
+            self.context.report_path,
+            self.context.request,
+            status,
+            self.context.metadata,
+            self.context.steps,
+        )
 
     def discard(self, key: str) -> None:
         self.context.steps.pop(key, None)
@@ -76,27 +82,49 @@ class StepRecorder:
         try:
             result = action()
         except ProcessingCancelled as error:
-            self.context.steps[key] = {"name": name, "status": "cancelled", "duration_seconds": round(time.monotonic() - started, 2)}
+            self.context.steps[key] = {
+                "name": name,
+                "status": "cancelled",
+                "duration_seconds": round(time.monotonic() - started, 2),
+            }
             self.save(current_step=key)
             self.report("Cancelled")
             raise JobCancelled from error
         except Exception as error:
-            self.context.steps[key] = {"name": name, "status": "failed", "duration_seconds": round(time.monotonic() - started, 2), "error": str(error)}
+            self.context.steps[key] = {
+                "name": name,
+                "status": "failed",
+                "duration_seconds": round(time.monotonic() - started, 2),
+                "error": str(error),
+            }
             self.save(current_step=key)
             self.report("Failed")
             if tolerated_failure_event is None:
                 raise
             LOGGER.warning("%s failed; keeping existing results: %s", name, error)
-            self.context.on_event(ProgressEvent(tolerated_failure_event[0], tolerated_failure_event[1]))
+            self.context.on_event(
+                ProgressEvent(tolerated_failure_event[0], tolerated_failure_event[1])
+            )
             return None
         duration = round(time.monotonic() - started, 2)
-        self.context.steps[key] = {"name": name, "status": "completed", "duration_seconds": duration}
+        self.context.steps[key] = {
+            "name": name,
+            "status": "completed",
+            "duration_seconds": duration,
+        }
         self.save(current_step=None)
         self.report("Running")
-        self.context.on_event(ProgressEvent(f"{name} finished in {duration} seconds", end_percent if end_percent is not None else percent))
+        self.context.on_event(
+            ProgressEvent(
+                f"{name} finished in {duration} seconds",
+                end_percent if end_percent is not None else percent,
+            )
+        )
         return result
 
     def finish(self, status: str) -> None:
-        self.context.state.update({"status": status, "steps": self.context.steps, "current_step": None})
+        self.context.state.update(
+            {"status": status, "steps": self.context.steps, "current_step": None}
+        )
         save_state(self.context.state_path, self.context.state)
         self.report(status)

@@ -13,6 +13,7 @@ from PySide6.QtCore import (
 )
 
 from app.application.batch import BatchJob, BatchStore, new_batch_job
+from app.application.voiceprints import DEFAULT_CLUSTER_THRESHOLD, DEFAULT_IDENTIFY_THRESHOLD
 from app.workers.batch_worker import BatchWorker
 
 STATUS_ORDER = {"pending": 0, "running": 1, "completed": 2, "failed": 3, "cancelled": 4}
@@ -75,6 +76,12 @@ class BatchController(QObject):
         self._worker = None
         self._external_job_running = False
         self.enqueue_settings_provider = lambda: {}
+        self.voiceprint_deps_provider = lambda: (
+            None,
+            None,
+            DEFAULT_IDENTIFY_THRESHOLD,
+            DEFAULT_CLUSTER_THRESHOLD,
+        )
         self.jobs_model = BatchJobsModel(self)
         self._status_text = "Ready"
         self._running = False
@@ -114,6 +121,15 @@ class BatchController(QObject):
 
     def set_enqueue_settings_provider(self, provider) -> None:
         self.enqueue_settings_provider = provider
+
+    def set_voiceprint_deps_provider(self, provider) -> None:
+        """Late-bind the voiceprint runtime used by queued jobs.
+
+        The provider returns ``(store, embedder, identify_threshold,
+        cluster_threshold)``. It is late-bound because the session controller
+        owns the settings the thresholds come from.
+        """
+        self.voiceprint_deps_provider = provider
 
     @Slot(bool)
     def set_external_job_running(self, running: bool) -> None:
@@ -209,7 +225,14 @@ class BatchController(QObject):
             self._set_status("No pending jobs in the queue.")
             return
         self._thread = QThread(self)
-        self._worker = BatchWorker(self.store)
+        store, embedder, identify, cluster = self.voiceprint_deps_provider()
+        self._worker = BatchWorker(
+            self.store,
+            voiceprint_store=store,
+            voiceprint_embedder=embedder,
+            voiceprint_identify_threshold=identify,
+            voiceprint_cluster_threshold=cluster,
+        )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.progress.connect(self._on_progress)

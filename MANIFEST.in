@@ -1,0 +1,28 @@
+# Files that must be in the source distribution even though they live outside
+# the Python package tree.
+include LICENSE
+include README.md
+include CHANGELOG.md
+include CONTRIBUTING.md
+include CODE_OF_CONDUCT.md
+include SECURITY.md
+include pyproject.toml
+
+# The QML tree and the bundled completion chime are package data; setuptools
+# handles them for wheels, but the sdist needs them listed explicitly.
+recursive-include src/app/ui/qml *.qml
+include src/app/ui/qml/components/qmldir
+recursive-include src/app/ui/assets *.wav
+
+# Tests and packaging scripts ship with the sdist so it can be built and
+# verified from a checkout.
+recursive-include tests *.py
+recursive-include packaging *.py *.ps1 *.iss *.spec
+recursive-include docs *.md
+
+# Never ship local artefacts.
+global-exclude *.py[cod]
+global-exclude __pycache__
+prune build
+prune release
+prune .github

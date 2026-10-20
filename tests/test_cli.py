@@ -24,9 +24,7 @@ def test_cli_import_is_qt_free():
         "bad = [m for m in sys.modules if m.startswith('PySide6')]; "
         "assert not bad, bad"
     )
-    result = subprocess.run(
-        [sys.executable, "-c", code], env=env, capture_output=True, text=True
-    )
+    result = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
 
 
@@ -35,11 +33,34 @@ def test_build_request_maps_flags(tmp_path):
     out = tmp_path / "out"
     args = build_parser().parse_args(
         [
-            "run", "--input", str(source), "--output", str(out),
-            "--model", "small", "--language", "tr", "--report-language", "en",
-            "--frames", "both", "--frame-interval", "20", "--frame-resolution", "mid",
-            "--analyze-text", "--text-model", "glm-5.2", "--provider", "opencode_go",
-            "--clip-start", "10", "--clip-end", "01:00", "--segment", "15",
+            "run",
+            "--input",
+            str(source),
+            "--output",
+            str(out),
+            "--model",
+            "small",
+            "--language",
+            "tr",
+            "--report-language",
+            "en",
+            "--frames",
+            "both",
+            "--frame-interval",
+            "20",
+            "--frame-resolution",
+            "mid",
+            "--analyze-text",
+            "--text-model",
+            "glm-5.2",
+            "--provider",
+            "opencode_go",
+            "--clip-start",
+            "10",
+            "--clip-end",
+            "01:00",
+            "--segment",
+            "15",
         ]
     )
     request = build_request(args)
@@ -89,8 +110,17 @@ def test_build_request_topic_flags(tmp_path):
 
     off_args = build_parser().parse_args(
         [
-            "run", "--input", str(source), "--output", str(tmp_path / "out"),
-            "--topics", "off", "--topic-min-seconds", "300", "--topic-max-sections", "5",
+            "run",
+            "--input",
+            str(source),
+            "--output",
+            str(tmp_path / "out"),
+            "--topics",
+            "off",
+            "--topic-min-seconds",
+            "300",
+            "--topic-max-sections",
+            "5",
         ]
     )
     request = build_request(off_args)
@@ -102,8 +132,12 @@ def test_build_request_topic_flags(tmp_path):
 def test_cli_missing_input_returns_validation(tmp_path, capsys):
     code = main(
         [
-            "run", "--input", str(tmp_path / "missing.mp4"),
-            "--output", str(tmp_path / "out"), "--json",
+            "run",
+            "--input",
+            str(tmp_path / "missing.mp4"),
+            "--output",
+            str(tmp_path / "out"),
+            "--json",
         ]
     )
     assert code == 2
@@ -127,8 +161,17 @@ def test_cli_cloud_provider_without_key_is_validation(tmp_path, capsys, monkeypa
     source = _source(tmp_path)
     code = main(
         [
-            "run", "--input", str(source), "--output", str(tmp_path / "out"),
-            "--provider", "openrouter", "--analyze-text", "--text-model", "m", "--json",
+            "run",
+            "--input",
+            str(source),
+            "--output",
+            str(tmp_path / "out"),
+            "--provider",
+            "openrouter",
+            "--analyze-text",
+            "--text-model",
+            "m",
+            "--json",
         ]
     )
     assert code == 2

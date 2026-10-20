@@ -5,8 +5,17 @@ from collections.abc import Callable
 from pathlib import Path
 
 from app.application.cancellation import ProcessingCancelled, wait_for_cancellation
-from app.infrastructure.llm.transport import clean_thinking_tags, http_post_json, post_json_cancellable
-from app.infrastructure.process import CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, ProcessRunner, terminate_process_tree
+from app.infrastructure.llm.transport import (
+    clean_thinking_tags,
+    http_post_json,
+    post_json_cancellable,
+)
+from app.infrastructure.process import (
+    CREATE_NEW_PROCESS_GROUP,
+    CREATE_NO_WINDOW,
+    ProcessRunner,
+    terminate_process_tree,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -57,7 +66,11 @@ class OllamaClient:
             payload["images"] = encoded_images
         try:
             response = post_json_cancellable(
-                f"{self.base_url}/api/generate", payload, self.timeout, cancel_token, self.request_fn
+                f"{self.base_url}/api/generate",
+                payload,
+                self.timeout,
+                cancel_token,
+                self.request_fn,
             )
             if response.get("thinking"):
                 LOGGER.info("Discarded separate Ollama thinking field.")
@@ -88,5 +101,7 @@ class OllamaClient:
         finally:
             stdout_data, stderr_data = process.communicate()
         if process.returncode != 0:
-            raise OllamaError(f"Ollama CLI returned exit code {process.returncode}: {(stderr_data or '').strip()}")
+            raise OllamaError(
+                f"Ollama CLI returned exit code {process.returncode}: {(stderr_data or '').strip()}"
+            )
         return clean_thinking_tags(stdout_data)

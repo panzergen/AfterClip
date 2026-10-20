@@ -186,9 +186,7 @@ def transcribe_media(
     )
     result = run_request(request, text_provider, vision_provider, resolve_sanitizer())
     job_dir = (
-        result.output_dir.parent
-        if result.output_dir.name == "Transcripts"
-        else result.output_dir
+        result.output_dir.parent if result.output_dir.name == "Transcripts" else result.output_dir
     )
     return {
         "status": "succeeded",

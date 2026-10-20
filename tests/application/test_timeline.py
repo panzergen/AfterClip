@@ -71,7 +71,8 @@ def test_parse_speaker_vtt_accepts_cue_identifier_speakers(tmp_path: Path):
 def test_parse_srt_entries(tmp_path: Path):
     path = tmp_path / "sample.srt"
     path.write_text(
-        "1\n00:00:00,000 --> 00:00:02,000\nHello world\n\n2\n00:00:02,000 --> 00:00:04,500\nSecond line\n",
+        "1\n00:00:00,000 --> 00:00:02,000\nHello world\n\n"
+        "2\n00:00:02,000 --> 00:00:04,500\nSecond line\n",
         encoding="utf-8",
     )
     entries = parse_srt(path, "TRANSCRIPTION")
@@ -151,8 +152,12 @@ def test_full_report_includes_summary_and_highlights(tmp_path: Path):
         "1\n00:00:01,000 --> 00:00:03,000\nFILE: ghost.png\nDESCRIPTION: A dashboard screen\n",
         encoding="utf-8",
     )
-    analysis = "# AI Analysis\n\n- **Model:** `llava`\n\n## Summary\n\nMeeting covered infra fixes.\n\n## Key Highlights\n\n- 00:00:01 important point\n"
-    timeline_path, _ = write_master_timeline(
+    analysis = (
+        "# AI Analysis\n\n- **Model:** `llava`\n\n## Summary\n\n"
+        "Meeting covered infra fixes.\n\n## Key Highlights\n\n"
+        "- 00:00:01 important point\n"
+    )
+    _timeline_path, _ = write_master_timeline(
         tmp_path, None, vision, (), embed_frames=True, analysis_markdown=analysis
     )
     html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")

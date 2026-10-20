@@ -90,9 +90,7 @@ def test_migrate_settings_stamps_current_version():
 
 
 def test_migrate_settings_is_noop_when_current():
-    migrated, changed = migrate_settings(
-        {"version": SETTINGS_SCHEMA_VERSION, "language": "tr"}
-    )
+    migrated, changed = migrate_settings({"version": SETTINGS_SCHEMA_VERSION, "language": "tr"})
     assert changed is False
     assert migrated["version"] == SETTINGS_SCHEMA_VERSION
 

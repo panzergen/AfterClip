@@ -199,12 +199,15 @@ market-strategy-plan/
 app.log
 .cache/
 
+# The bundled completion chime is part of the application, not user media.
+!src/app/ui/assets/*.wav
+
 scene_*.png
 interval_*.png
 .highlight_*.png
 .coverage
 
 # Packaging: keep the hand-written spec, ignore generated build output
-!packaging/AfterClip.spec
+!packaging/*.spec
 release/
 

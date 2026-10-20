@@ -31,8 +31,14 @@ Only known template keys are read; unknown keys and empty values are ignored.
 | `highlights` | `{lang}`, `{srt_content}` | highlights extraction |
 | `vision_frame` | `{user_desc}`, `{audio_context}`, `{lang}` | vision frame description |
 | `media_type_classification` | `{signals}` | media-type classification (WS-D) |
-| `transcript_cleanup` | `{lang}`, `{transcript}` | optional AI cleanup (WS-C) |
-| `review_revision` | `{lang}`, `{instructions}`, `{content}` | review revision (WS-G) |
+| `topic_segmentation` | `{lang}`, `{transcript}` | topic segmentation (WS-I) |
+| `topic_title` | `{lang}`, `{content}` | per-topic title generation (WS-I) |
+| `transcript_cleanup` | `{lang}`, `{transcript}` | **not currently called** — template only |
+| `review_revision` | `{lang}`, `{instructions}`, `{content}` | **not currently called** — template only |
+
+The last two ship so the text can be inspected and edited in the prompt editor,
+but no code path invokes them yet. Editing them has no effect on the current
+release.
 
 ## Safety and validation
 

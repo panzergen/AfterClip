@@ -72,7 +72,10 @@ jobs:
             libxcb-xkb1 \
             libxrender1 \
             libsm6 \
-            libice6
+            libice6 \
+            libx11-xcb1 \
+            libpulse0 \
+            libasound2
       - name: Unit and regression tests
         run: python -m pytest -q
       - name: UI tests (offscreen)

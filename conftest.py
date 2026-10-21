@@ -15,6 +15,7 @@ Two things happen here:
   directory is skipped with a clear explanation instead of a traceback.
 """
 
+import importlib
 import re
 from pathlib import Path
 
@@ -22,6 +23,17 @@ UI_TESTS_DIR = Path(__file__).parent / "tests" / "ui"
 
 #: Matches the ``ui`` marker as a whole word in a marker expression.
 _UI_MARKER = re.compile(r"\bui\b")
+
+#: The Qt modules the UI tests need. Each links against a system library that
+#: is not present everywhere: QtGui/QtQml against libEGL, QtMultimedia against
+#: libpulse, QtWidgets against the rest of the XCB stack.
+_UI_QT_MODULES = (
+    "PySide6.QtGui",
+    "PySide6.QtWidgets",
+    "PySide6.QtQml",
+    "PySide6.QtQuickControls2",
+    "PySide6.QtMultimedia",
+)
 
 
 def _ui_marker_selected(config) -> bool:
@@ -47,13 +59,19 @@ def pytest_ignore_collect(collection_path, config):
         return None
     if not _ui_marker_selected(config):
         return True
-    try:
-        import PySide6.QtWidgets  # noqa: F401
-    except ImportError as error:
+    missing = []
+    for module in _UI_QT_MODULES:
+        try:
+            importlib.import_module(module)
+        except ImportError as error:
+            missing.append(f"{module} ({error})")
+    if missing:
         config.issue_config_time_warning(
-            "The UI tests were requested but PySide6 could not be imported "
-            f"({error}). Install the Qt system libraries -- on Debian/Ubuntu: "
-            "libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 libfontconfig1 -- "
+            "The UI tests were requested but PySide6 could not be imported fully:\n  "
+            + "\n  ".join(missing)
+            + "\nInstall the Qt system libraries -- on Debian/Ubuntu:\n"
+            "  libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 libfontconfig1 "
+            "libpulse0 libasound2\n"
             "or run without '-m ui'."
         )
         return True

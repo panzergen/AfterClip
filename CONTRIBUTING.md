@@ -62,7 +62,8 @@ On **Linux**, the UI tests additionally need Qt's system libraries, because
 `QtGui`/`QtQml` link against `libEGL`:
 
 ```bash
-sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 libfontconfig1
+sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 \
+    libfontconfig1 libpulse0 libasound2
 ```
 
 Without them, `pytest -m ui` reports a clear message and skips the UI tests

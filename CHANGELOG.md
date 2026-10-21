@@ -18,6 +18,12 @@ Work that has landed on `main` since the last tagged release.
 - Batch jobs now run voiceprints. The batch worker previously built its
   transcription service without the voiceprint store and embedder, so the
   per-job `voiceprint_enabled` flag was silently ignored.
+- The default test run no longer needs Qt's GUI libraries. `tests/ui` was
+  imported during collection even though the `ui` marker deselected it
+  afterwards, so on Linux — where `QtGui` links against `libEGL` — a plain
+  `pytest` run failed at collection with an `ImportError`. The directory is
+  now excluded from collection unless `-m ui` is given, and CI installs the
+  Qt system libraries for the UI job.
 
 ## [0.3.0] — 2026-10-20
 

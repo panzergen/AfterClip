@@ -54,6 +54,21 @@ python -m pytest --cov=app             # coverage report
 The `ui` marker is deselected by default so the fast suite does not need a
 display.
 
+The default run does **not** need Qt's GUI libraries: `tests/ui` is excluded
+from collection entirely unless you ask for it with `-m ui`. That keeps
+`pytest` working on a machine without a GPU stack.
+
+On **Linux**, the UI tests additionally need Qt's system libraries, because
+`QtGui`/`QtQml` link against `libEGL`:
+
+```bash
+sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 libfontconfig1
+```
+
+Without them, `pytest -m ui` reports a clear message and skips the UI tests
+rather than failing collection. The CI workflow installs the full set
+automatically.
+
 ## Linting and formatting
 
 The project uses [ruff](https://docs.astral.sh/ruff/):

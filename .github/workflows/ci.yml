@@ -46,11 +46,40 @@ jobs:
           cache: pip
       - name: Install the package and test dependencies
         run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+      - name: Install the Qt system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 \
+            libgl1 \
+            libglib2.0-0 \
+            libxkbcommon0 \
+            libxkbcommon-x11-0 \
+            libdbus-1-3 \
+            libfontconfig1 \
+            libfreetype6 \
+            libxcb1 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-util1 \
+            libxcb-xinerama0 \
+            libxcb-xkb1 \
+            libxrender1 \
+            libsm6 \
+            libice6
       - name: Unit and regression tests
         run: python -m pytest -q
       - name: UI tests (offscreen)
         env:
           QT_QPA_PLATFORM: offscreen
+          # Render QML in software: the runners have no GPU.
+          QT_QUICK_BACKEND: software
         run: python -m pytest -m ui -q
       - name: Coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'

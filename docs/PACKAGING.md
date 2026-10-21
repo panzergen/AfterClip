@@ -149,3 +149,9 @@ See `TEST_SCENARIOS.md` (T29, T30) for the release smoke expectations.
   `collect_data_files` includes.
 - **Voiceprint extra**: `onnxruntime` and `speakeronnx` are not wired into the
   frozen build, so voiceprints do not work in a packaged executable yet.
+- **Installer version resource**: the setup executable carries the right
+  `ProductVersion` (`0.3.0`) but its `FileVersion` field is empty, so
+  Explorer's Details tab shows a blank "File version". Fixing it means
+  setting Inno Setup's `VersionInfoVersion`, which requires a four-part
+  version — the build script would need to derive one from
+  `src/app/version.py`.

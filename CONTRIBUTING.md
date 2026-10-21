@@ -63,8 +63,11 @@ On **Linux**, the UI tests additionally need Qt's system libraries, because
 
 ```bash
 sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 \
-    libfontconfig1 libpulse0 libasound2
+    libfontconfig1 libpulse0 libasound2t64
 ```
+
+(`libasound2t64` is the Ubuntu 24.04+ name; on older releases it is
+`libasound2`.)
 
 Without them, `pytest -m ui` reports a clear message and skips the UI tests
 rather than failing collection. The CI workflow installs the full set

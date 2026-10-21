@@ -74,8 +74,11 @@ jobs:
             libsm6 \
             libice6 \
             libx11-xcb1 \
-            libpulse0 \
-            libasound2
+            libpulse0
+          # ALSA is a virtual package on Ubuntu 24.04+ (the real one is
+          # libasound2t64) and a real package on older releases.
+          sudo apt-get install -y --no-install-recommends libasound2t64 \
+            || sudo apt-get install -y --no-install-recommends libasound2
       - name: Unit and regression tests
         run: python -m pytest -q
       - name: UI tests (offscreen)

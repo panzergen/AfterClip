@@ -56,10 +56,26 @@ def test_afterclip_home_overrides_frozen_workspace(monkeypatch, tmp_path):
 
 
 def test_app_data_dir_honours_localappdata(monkeypatch, tmp_path):
+    # Pin the platform: LOCALAPPDATA is only consulted on Windows, and the
+    # test asserts the Windows layout.
+    monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     assert app_paths.app_data_dir() == tmp_path / "AfterClip"
     assert app_paths.log_file() == tmp_path / "AfterClip" / "logs" / "app.log"
     assert app_paths.crash_file() == tmp_path / "AfterClip" / "logs" / "crash.log"
+
+
+def test_app_data_dir_honours_xdg_data_home(monkeypatch, tmp_path):
+    """The POSIX layout, which the Windows test above does not cover."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    assert app_paths.app_data_dir() == tmp_path / "AfterClip"
+
+
+def test_app_data_dir_uses_application_support_on_macos(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    assert app_paths.app_data_dir() == tmp_path / "Library" / "Application Support" / "AfterClip"
 
 
 def test_packaging_assets_present():

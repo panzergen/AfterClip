@@ -213,6 +213,8 @@ def test_terminate_process_tree_uses_taskkill_on_windows(monkeypatch):
     monkeypatch.setattr(
         "app.infrastructure.process.subprocess.run", lambda command, **kwargs: calls.append(command)
     )
+    # Pin the platform so this exercises the Windows branch on any host.
+    monkeypatch.setattr("os.name", "nt")
 
     class FakeProcess:
         pid = 123

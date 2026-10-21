@@ -17,7 +17,7 @@ jobs:
     name: Build Windows release
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # On a tag push this is the tag itself; on a manual run it is the
           # selected branch. Checking out the tag directly would fail on a

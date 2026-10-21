@@ -19,7 +19,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          # On a tag push this is the tag itself; on a manual run it is the
+          # selected branch. Checking out the tag directly would fail on a
+          # manual run, because the tag usually does not exist yet.
+          ref: ${{ github.ref }}
 
       - uses: actions/setup-python@v5
         with:

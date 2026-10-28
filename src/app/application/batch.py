@@ -52,6 +52,7 @@ class BatchJob:
     voiceprint_enabled: bool = False
     status: str = "pending"
     error: str = ""
+    prompts: dict[str, str] | None = None
 
     @property
     def display_name(self) -> str:
@@ -62,6 +63,14 @@ class BatchJob:
 
     def vision_spec(self) -> tuple[str, str] | None:
         return (self.vision_provider_name, self.vision_model) if self.analyze_vision else None
+
+    def prompt_set(self):
+        """PromptSet captured at enqueue time, or None to use global defaults."""
+        if not self.prompts:
+            return None
+        from app.domain.prompts import prompt_set_from_snapshot
+
+        return prompt_set_from_snapshot(self.prompts)
 
     def to_request(self) -> TranscriptionRequest:
         return TranscriptionRequest(
@@ -107,7 +116,19 @@ class BatchStore:
         for record in data.get("jobs", []):
             record["frame_modes"] = tuple(record.get("frame_modes", ()))
             record["highlight_times"] = tuple(record.get("highlight_times", ()))
-            job = BatchJob(**record)
+            prompts = record.get("prompts")
+            if prompts is not None and not isinstance(prompts, dict):
+                record["prompts"] = None
+            elif isinstance(prompts, dict):
+                record["prompts"] = {
+                    key: value
+                    for key, value in prompts.items()
+                    if isinstance(key, str) and isinstance(value, str) and value
+                } or None
+            try:
+                job = BatchJob(**{k: v for k, v in record.items() if k in BatchJob.__dataclass_fields__})
+            except TypeError:
+                continue
             if job.status == "running":
                 job.status = "pending"
             jobs.append(job)

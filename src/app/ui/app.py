@@ -57,6 +57,11 @@ class AppControllers:
         self.voiceprint_enrollment.reprocessRequested.connect(self.session.reprocessVoiceprints)
         self.job_form.outputChanged.connect(self.record.set_output_dir)
         self.job_form.analysisEnabledChanged.connect(self.session.on_analysis_toggled)
+        try:
+            self.settings.promptTextChanged.connect(self.presets.refreshBadge)
+            self.settings.promptDirtyChanged.connect(self.presets.refreshBadge)
+        except (AttributeError, RuntimeError):
+            pass
         for signal in (
             self.job_form.whisperModelChanged,
             self.job_form.analysisEnabledChanged,
@@ -102,7 +107,7 @@ def build_controllers(
     session = SessionController(
         media, job_form, batch, history, environment, record, settings, prompt_store
     )
-    presets = PresetsController(job_form, prompt_store, preset_store)
+    presets = PresetsController(job_form, prompt_store, preset_store, settings)
     voiceprint_enrollment = VoiceprintEnrollmentController()
     controllers = AppControllers(
         environment=environment,

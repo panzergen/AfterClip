@@ -53,3 +53,10 @@ are designed but not scheduled, so the media type can be less specific than
 the design intends — for example an interview is reported from its container
 and duration rather than from a spoken-word probe. The tier-1 fallback always
 stands, so a job never blocks on this.
+
+## Planned direction: no automatic preset selection
+
+The next phases keep content-type selection manual: the user chooses the
+preset/content type. Automatic classification and auto-apply are deliberately
+deferred. The existing Tier-1 badge remains informational. See
+[PLAN_PROMPT_PACKS.md](PLAN_PROMPT_PACKS.md).

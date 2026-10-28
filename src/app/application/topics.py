@@ -13,6 +13,7 @@ import re
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
+from app.application.summary import looks_like_preamble
 from app.domain.models import TimelineEntry
 from app.domain.prompts import PromptSet
 
@@ -260,8 +261,20 @@ def _section_text(entries: tuple[TimelineEntry, ...], section: TopicSegment) -> 
 
 
 def _clean_title(text: str, max_words: int = 12) -> str:
-    first_line = text.strip().splitlines()[0].strip() if text.strip() else ""
-    first_line = first_line.strip("\"'` ").strip()
+    lines = [line.strip().strip("\"'` ").strip() for line in text.strip().splitlines()]
+    first_line = ""
+    for line in lines:
+        if not line:
+            continue
+        if looks_like_preamble(line):
+            continue
+        first_line = line
+        break
+    if not first_line:
+        for line in lines:
+            if line:
+                first_line = line
+                break
     words = first_line.split()
     return " ".join(words[:max_words]) if words else ""
 

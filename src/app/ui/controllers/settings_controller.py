@@ -102,6 +102,7 @@ class SettingsController(QObject):
         self._prompt_text = ""
         self._prompt_status_text = ""
         self._prompt_status_ok = True
+        self._session_prompt_overrides: dict[str, str] = {}
         self._voiceprint_store = JsonVoiceprintStore()
         self._voiceprint_embedder = SpeakerOnnxEmbedder() if voiceprints_available() else None
         self._voiceprint_identify_threshold = self._load_voiceprint_threshold(
@@ -213,6 +214,10 @@ class SettingsController(QObject):
     def _set_prompt_text(self, value: str) -> None:
         self._prompt_text = str(value)
         self.promptTextChanged.emit()
+        self.promptDirtyChanged.emit()
+
+    def _get_prompt_dirty(self) -> bool:
+        return self.has_unsaved_prompts()
 
     def _get_prompt_status_text(self) -> str:
         return self._prompt_status_text
@@ -231,6 +236,7 @@ class SettingsController(QObject):
     promptIndexChanged = Signal()
     promptTextChanged = Signal()
     promptStatusChanged = Signal()
+    promptDirtyChanged = Signal()
 
     segmentIndex = Property(int, _get_segment_index, _set_segment_index, notify=segmentIndexChanged)
     reportLanguage = Property(
@@ -254,6 +260,7 @@ class SettingsController(QObject):
     )
     promptIndex = Property(int, _get_prompt_index, _set_prompt_index, notify=promptIndexChanged)
     promptText = Property(str, _get_prompt_text, _set_prompt_text, notify=promptTextChanged)
+    promptDirty = Property(bool, _get_prompt_dirty, notify=promptDirtyChanged)
     promptStatusText = Property(str, _get_prompt_status_text, notify=promptStatusChanged)
     promptStatusOk = Property(bool, _get_prompt_status_ok, notify=promptStatusChanged)
 
@@ -413,19 +420,109 @@ class SettingsController(QObject):
         return SanitizerConfig.from_dict(self.store.get(SANITIZER_SETTINGS_KEY) or {})
 
     def prompt_set(self):
-        """Resolved prompt templates used for the next job (Phase 4 WS-B)."""
+        """Saved prompt templates from the global store (Phase 4 WS-B)."""
         return self.prompt_store.load()
 
     def save_prompt_set(self, prompt_set) -> None:
         self.prompt_store.save(prompt_set)
+        self._session_prompt_overrides = {}
+        self._load_prompt_editor()
+        try:
+            self.promptDirtyChanged.emit()
+        except RuntimeError:
+            pass
+
+    def has_unsaved_prompts(self) -> bool:
+        """True when the editor holds edits not yet saved to prompts.json."""
+        try:
+            base = self.prompt_store.load()
+        except Exception:
+            base = PromptSet()
+        if self._session_prompt_overrides:
+            # Any stored session edit that differs from the saved store counts.
+            for key, value in self._session_prompt_overrides.items():
+                try:
+                    if value != base.template(key):
+                        return True
+                except KeyError:
+                    continue
+        try:
+            return self._prompt_text != base.template(self._prompt_name())
+        except KeyError:
+            return False
+
+    def effective_prompt_set(self):
+        """PromptSet used for the next job: saved store + unsaved session edits."""
+        try:
+            base = self.prompt_store.load()
+        except Exception:
+            base = PromptSet()
+        overrides = dict(self._session_prompt_overrides)
+        name = self._prompt_name()
+        try:
+            saved_text = base.template(name)
+        except KeyError:
+            saved_text = ""
+        if self._prompt_text and self._prompt_text != saved_text:
+            overrides[name] = self._prompt_text
+        # Drop edits that match the saved store (e.g. user reverted manually).
+        cleaned = {}
+        for key, value in overrides.items():
+            try:
+                if value != base.template(key):
+                    cleaned[key] = value
+            except KeyError:
+                continue
+        return base.with_overrides(cleaned) if cleaned else base
+
+    def session_prompt_overrides(self) -> dict[str, str]:
+        """Unsaved edits as a dict (empty when the editor matches the store)."""
+        effective = self.effective_prompt_set()
+        try:
+            base = self.prompt_store.load()
+        except Exception:
+            base = PromptSet()
+        current = effective.to_dict()
+        saved = base.to_dict()
+        return {key: value for key, value in current.items() if value != saved.get(key)}
+
+    def clear_session_prompts(self) -> None:
+        self._session_prompt_overrides = {}
+        self._load_prompt_editor()
+        try:
+            self.promptDirtyChanged.emit()
+        except RuntimeError:
+            pass
 
     def _prompt_name(self) -> str:
         return TEMPLATE_NAMES[self._prompt_index]
 
     def _load_prompt_editor(self) -> None:
-        prompt_set = self.prompt_store.load()
-        self._prompt_text = prompt_set.template(self._prompt_name())
+        try:
+            prompt_set = self.prompt_store.load()
+        except Exception:
+            prompt_set = PromptSet()
+        name = self._prompt_name()
+        if name in self._session_prompt_overrides:
+            self._prompt_text = self._session_prompt_overrides[name]
+        else:
+            try:
+                self._prompt_text = prompt_set.template(name)
+            except KeyError:
+                self._prompt_text = ""
         self.promptTextChanged.emit()
+
+    def _stash_current_editor_text(self) -> None:
+        """Preserve the current editor text as a session edit before switching."""
+        name = self._prompt_name()
+        try:
+            saved = self.prompt_store.load().template(name)
+        except Exception:
+            saved = None
+        if self._prompt_text and self._prompt_text != saved:
+            self._session_prompt_overrides[name] = self._prompt_text
+        else:
+            self._session_prompt_overrides.pop(name, None)
 
     def _set_prompt_status(self, text: str, ok: bool) -> None:
         self._prompt_status_text = text
@@ -435,10 +532,15 @@ class SettingsController(QObject):
     @Slot(int)
     def selectPrompt(self, index: int) -> None:
         if 0 <= index < len(TEMPLATE_NAMES):
+            self._stash_current_editor_text()
             self._prompt_index = index
             self.promptIndexChanged.emit()
             self._load_prompt_editor()
             self._set_prompt_status("", True)
+            try:
+                self.promptDirtyChanged.emit()
+            except RuntimeError:
+                pass
 
     @Slot()
     def savePrompt(self) -> None:
@@ -449,18 +551,32 @@ class SettingsController(QObject):
             return
         current = self.prompt_store.load()
         self.prompt_store.save(current.with_overrides({name: self._prompt_text}))
+        self._session_prompt_overrides.pop(name, None)
         self._set_prompt_status(f"Saved '{name}'.", ok=True)
+        try:
+            self.promptDirtyChanged.emit()
+        except RuntimeError:
+            pass
 
     @Slot()
     def resetPrompt(self) -> None:
         self._prompt_text = PromptSet().template(self._prompt_name())
         self.promptTextChanged.emit()
+        try:
+            self.promptDirtyChanged.emit()
+        except RuntimeError:
+            pass
         self._set_prompt_status("Loaded the built-in default; press Save to apply.", ok=True)
 
     @Slot()
     def reloadPrompts(self) -> None:
+        self._session_prompt_overrides = {}
         self._load_prompt_editor()
         self._set_prompt_status("", True)
+        try:
+            self.promptDirtyChanged.emit()
+        except RuntimeError:
+            pass
 
     # -- voiceprints -----------------------------------------------------------
 

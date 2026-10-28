@@ -537,6 +537,89 @@ def test_prompt_editor_reset_loads_default(controllers):
     assert settings.promptText == PromptSet().summary
 
 
+def test_unsaved_prompt_edits_are_session_custom(controllers):
+    settings = controllers.settings
+    assert settings.has_unsaved_prompts() is False
+    settings.promptText = "UNFINISHED {lang} {transcript}"
+    assert settings.has_unsaved_prompts() is True
+    assert settings.promptDirty is True
+    effective = settings.effective_prompt_set()
+    assert effective.summary == "UNFINISHED {lang} {transcript}"
+    # Saved store is untouched until Save.
+    assert settings.prompt_set().summary == PromptSet().summary
+    # The next job uses the unsaved edit.
+    assert controllers.session._provider_prompts().summary == "UNFINISHED {lang} {transcript}"
+
+
+def test_preset_save_with_prompts_writes_full_snapshot(controllers):
+    presets = controllers.presets
+    settings = controllers.settings
+    settings.save_prompt_set(build_prompt_set({"summary": "FULL {lang} {transcript}"}))
+    presets.newName = "full"
+    presets.includePrompts = True
+    presets.saveCurrent()
+    saved = presets.preset_store.load()
+    assert len(saved) == 1
+    assert saved[0].prompt_mode == "replace"
+    assert saved[0].prompts is not None
+    assert len(saved[0].prompts) == 9
+    assert presets.promptBadge == "Applied"
+
+
+def test_preset_save_without_prompts_uses_inherit(controllers):
+    presets = controllers.presets
+    presets.newName = "plain"
+    presets.includePrompts = False
+    presets.saveCurrent()
+    saved = presets.preset_store.load()
+    assert saved[0].prompt_mode == "inherit"
+    assert saved[0].prompts is None
+    assert presets.promptBadge == "Inherited"
+
+
+def test_apply_replace_preset_keeps_unsaved_edits(controllers):
+    presets = controllers.presets
+    settings = controllers.settings
+    settings.save_prompt_set(build_prompt_set({"summary": "SNAP {lang} {transcript}"}))
+    presets.newName = "snap"
+    presets.includePrompts = True
+    presets.saveCurrent()
+    # Unsaved edit after saving.
+    settings.promptText = "CUSTOM {lang} {transcript}"
+    presets.applySelected()
+    assert presets.promptBadge == "Custom"
+    # Unsaved edit survives and is used for the next job.
+    assert settings.effective_prompt_set().summary == "CUSTOM {lang} {transcript}"
+    assert settings.prompt_set().summary == "SNAP {lang} {transcript}"
+    # Explicit action discards the edit and applies the snapshot.
+    presets.usePresetPrompts()
+    assert settings.prompt_set().summary == "SNAP {lang} {transcript}"
+    assert settings.has_unsaved_prompts() is False
+
+
+def test_update_selected_prompts_saves_per_preset(controllers):
+    presets = controllers.presets
+    settings = controllers.settings
+    presets.newName = "A"
+    presets.includePrompts = True
+    presets.saveCurrent()
+    presets.newName = "B"
+    presets.saveCurrent()
+    # Edit while B is selected, save into the preset (not just global).
+    presets.selectedIndex = [i for i, n in enumerate(presets.names) if n == "B"][0]
+    settings.promptText = "B-ONLY {lang} {transcript}"
+    presets.updateSelectedPrompts()
+    assert settings.prompt_set().summary == "B-ONLY {lang} {transcript}"
+    # Switch to A: its snapshot is untouched.
+    presets.selectedIndex = [i for i, n in enumerate(presets.names) if n == "A"][0]
+    presets.applySelected()
+    assert settings.prompt_set().summary != "B-ONLY {lang} {transcript}"
+    # Back to B restores the per-preset edit.
+    presets.selectedIndex = [i for i, n in enumerate(presets.names) if n == "B"][0]
+    presets.applySelected()
+    assert settings.prompt_set().summary == "B-ONLY {lang} {transcript}"
+
+
 def test_presets_save_apply_delete(controllers):
     presets = controllers.presets
     form = controllers.job_form
@@ -805,3 +888,51 @@ def test_forecast_uses_similar_history(controllers, tmp_path):
     session.refreshForecast()
     assert session.forecastText.startswith("Estimated")
     assert "similar job" in session.forecastText
+
+
+def test_load_selected_prompts_switches_editor(controllers):
+    presets = controllers.presets
+    settings = controllers.settings
+    settings.save_prompt_set(build_prompt_set({"summary": "AAA {lang} {transcript}"}))
+    presets.newName = "A"
+    presets.includePrompts = True
+    presets.saveCurrent()
+    settings.save_prompt_set(build_prompt_set({"summary": "BBB {lang} {transcript}"}))
+    presets.newName = "B"
+    presets.saveCurrent()
+    # Switch to A through the dialog path: editor shows A's prompts.
+    presets.selectedIndex = [i for i, n in enumerate(presets.names) if n == "A"][0]
+    presets.loadSelectedPrompts()
+    assert settings.prompt_set().summary == "AAA {lang} {transcript}"
+    assert settings.promptText == "AAA {lang} {transcript}"
+    assert presets.promptBadge == "Applied"
+    # Back to B.
+    presets.selectedIndex = [i for i, n in enumerate(presets.names) if n == "B"][0]
+    presets.loadSelectedPrompts()
+    assert settings.prompt_set().summary == "BBB {lang} {transcript}"
+
+
+def test_load_selected_prompts_discards_unsaved_with_notice(controllers):
+    presets = controllers.presets
+    settings = controllers.settings
+    presets.newName = "A"
+    presets.includePrompts = True
+    presets.saveCurrent()
+    settings.promptText = "UNFINISHED {lang} {transcript}"
+    assert settings.has_unsaved_prompts() is True
+    presets.loadSelectedPrompts()
+    assert settings.has_unsaved_prompts() is False
+    assert "discarded" in presets.statusText
+
+
+def test_load_selected_prompts_inherit_shows_global(controllers):
+    presets = controllers.presets
+    settings = controllers.settings
+    settings.save_prompt_set(build_prompt_set({"summary": "GLOBAL {lang} {transcript}"}))
+    presets.newName = "plain"
+    presets.includePrompts = False
+    presets.saveCurrent()
+    settings.promptText = "UNFINISHED {lang} {transcript}"
+    presets.loadSelectedPrompts()
+    assert settings.prompt_set().summary == "GLOBAL {lang} {transcript}"
+    assert presets.promptBadge == "Inherited"

@@ -3,6 +3,7 @@ from collections.abc import Callable
 
 from app.application.cancellation import CancelToken
 from app.application.highlights import aggregate_highlights, parse_candidates
+from app.application.summary import clean_summary_output
 from app.domain.prompts import PromptSet
 from app.infrastructure.llm.transport import chunk_text
 from app.infrastructure.ollama.client import OllamaClient, OllamaError
@@ -46,33 +47,39 @@ class OllamaTextProvider:
         if len(chunks) == 1:
             if on_progress:
                 on_progress("Ollama is summarizing the transcript")
-            return self.client.generate(
-                self.model,
-                self.prompts.render("summary", lang=language or "en", transcript=chunks[0]),
-                cancel_token,
-                on_progress,
+            return clean_summary_output(
+                self.client.generate(
+                    self.model,
+                    self.prompts.render("summary", lang=language or "en", transcript=chunks[0]),
+                    cancel_token,
+                    on_progress,
+                )
             )
         partials = []
         for index, chunk in enumerate(chunks, 1):
             if on_progress:
                 on_progress(f"Ollama is summarizing section {index}/{len(chunks)}")
             partials.append(
-                self.client.generate(
-                    self.model,
-                    self.prompts.render("summary", lang=language or "en", transcript=chunk),
-                    cancel_token,
-                    on_progress,
+                clean_summary_output(
+                    self.client.generate(
+                        self.model,
+                        self.prompts.render("summary", lang=language or "en", transcript=chunk),
+                        cancel_token,
+                        on_progress,
+                    )
                 )
             )
         if on_progress:
             on_progress("Ollama is combining section summaries")
-        return self.client.generate(
-            self.model,
-            self.prompts.render(
-                "summary_combine", lang=language or "en", summaries="\n\n".join(partials)
-            ),
-            cancel_token,
-            on_progress,
+        return clean_summary_output(
+            self.client.generate(
+                self.model,
+                self.prompts.render(
+                    "summary_combine", lang=language or "en", summaries="\n\n".join(partials)
+                ),
+                cancel_token,
+                on_progress,
+            )
         )
 
     def extract_highlights(

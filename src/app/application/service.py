@@ -23,6 +23,8 @@ from app.application.service_io import (
     next_available_job_dir,
     parse_clip_time,
     parse_vision_descriptions,
+    prompt_set_fingerprint,
+    resolve_report_language,
     srt_timestamp,
     srt_transcript_text,
     transcript_context,
@@ -93,6 +95,14 @@ def vision_analysis_label(vision_provider: object) -> str:
     provider = getattr(vision_provider, "provider_name", "") or "ollama"
     model = getattr(vision_provider, "model", "")
     return f"Vision analysis ({provider}: {model})" if model else f"Vision analysis ({provider})"
+
+
+def analysis_fingerprint(provider, request, transcript_dir, audio_stem: str) -> dict:
+    """Prompts + language identity for an analysis step (resume-staleness check)."""
+    return {
+        "prompts": prompt_set_fingerprint(getattr(provider, "prompts", None)),
+        "language": resolve_report_language(request, transcript_dir, audio_stem),
+    }
 
 
 class TranscriptionService:
@@ -289,11 +299,22 @@ class TranscriptionService:
                         )
                     )
             if request.analyze_text and self.text_provider is not None:
-                if self._text_analysis_cached(context):
+                expected_text = analysis_fingerprint(
+                    self.text_provider, request, transcript_dir, audio_path.stem
+                )
+                if self._text_analysis_cached(context, expected_text):
                     recorder.context.on_event(
                         ProgressEvent("AI text analysis resumed from cache", 96)
                     )
                 else:
+                    if context.steps.get("text_analysis", {}).get("status") == "completed":
+                        recorder.context.on_event(
+                            ProgressEvent(
+                                "Prompts or report language changed; "
+                                "AI text analysis will re-run",
+                                96,
+                            )
+                        )
                     self._run_text_analysis(recorder, transcript_dir, audio_path, cancel_token)
             if request.analyze_vision and self.vision_provider is not None:
                 vision_srt = job_dir / "Vision" / "vision_analysis.srt"
@@ -311,18 +332,34 @@ class TranscriptionService:
                 vision_completed = (
                     context.steps.get("vision_analysis", {}).get("status") == "completed"
                 )
+                expected_vision = analysis_fingerprint(
+                    self.vision_provider, request, transcript_dir, audio_path.stem
+                )
+                vision_prompts_match = self._prompts_state_match(
+                    context, "vision_analysis_prompts", expected_vision
+                )
                 # Resume only when the cache describes every extracted frame;
                 # a re-run that changed the frame set must be analysed again.
+                # A prompts/language change also invalidates the cache.
                 if (
                     vision_completed
                     and vision_srt.is_file()
                     and (not frames or frames <= described)
+                    and vision_prompts_match
                 ):
                     recorder.context.on_event(
                         ProgressEvent("Vision analysis resumed from cache", 97)
                     )
                 else:
-                    if vision_completed:
+                    if vision_completed and not vision_prompts_match:
+                        recorder.context.on_event(
+                            ProgressEvent(
+                                "Prompts or report language changed; "
+                                "vision analysis will re-run",
+                                97,
+                            )
+                        )
+                    elif vision_completed:
                         recorder.context.on_event(
                             ProgressEvent("Frame set changed; vision analysis will re-run", 97)
                         )
@@ -437,11 +474,26 @@ class TranscriptionService:
         return any(frames_dir.glob(pattern))
 
     @staticmethod
-    def _text_analysis_cached(context: JobContext) -> bool:
-        """True when text analysis completed earlier and its report remains."""
+    def _prompts_state_match(context: JobContext, key: str, expected: dict) -> bool:
+        """True when a previous run recorded the same prompts+language for `key`."""
+        stored = context.state.get(key)
+        return isinstance(stored, dict) and stored == expected
+
+    @staticmethod
+    def _text_analysis_cached(context: JobContext, expected: dict | None = None) -> bool:
+        """True when text analysis completed earlier and its report remains.
+
+        When `expected` (prompts fingerprint + language) is given, a mismatch
+        means the prompts changed since and the step must re-run instead of
+        reusing stale outputs.
+        """
         if context.steps.get("text_analysis", {}).get("status") != "completed":
             return False
-        return (context.job_dir / "AI_Analysis.md").is_file()
+        if not (context.job_dir / "AI_Analysis.md").is_file():
+            return False
+        return expected is None or TranscriptionService._prompts_state_match(
+            context, "text_analysis_prompts", expected
+        )
 
     def _topics_markdown_section(self) -> str:
         topics_summary = render_topics_summary(self._topics)
@@ -505,7 +557,7 @@ class TranscriptionService:
                     merged,
                     self.text_provider,
                     getattr(self.text_provider, "prompts", None),
-                    request.output_language or request.language or "en",
+                    resolve_report_language(request, transcript_dir, audio_path.stem),
                     cancel_token,
                 )
             write_topics(recorder.context.job_dir, topics)
@@ -540,7 +592,7 @@ class TranscriptionService:
                 if txt_path.is_file()
                 else srt_transcript_text(srt_path)
             )
-            language = request.output_language.strip() or request.language.strip() or "en"
+            language = resolve_report_language(request, transcript_dir, audio_path.stem)
 
             def progress(message: str) -> None:
                 recorder.context.on_event(ProgressEvent(message))
@@ -576,6 +628,9 @@ class TranscriptionService:
                 f"{self._topics_markdown_section()}",
                 encoding="utf-8",
             )
+            recorder.context.state["text_analysis_prompts"] = analysis_fingerprint(
+                self.text_provider, request, transcript_dir, audio_path.stem
+            )
 
         recorder.record(
             "text_analysis",
@@ -606,7 +661,7 @@ class TranscriptionService:
             )
             return
         vision_dir = recorder.context.job_dir / "Vision"
-        language = request.output_language.strip() or request.language.strip() or "en"
+        language = resolve_report_language(request, transcript_dir, audio_path.stem)
 
         def action() -> None:
             entries = []
@@ -658,6 +713,9 @@ class TranscriptionService:
                 json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
             )
             recorder.context.state["vision_filter"] = {"collapsed": len(changes)}
+            recorder.context.state["vision_analysis_prompts"] = analysis_fingerprint(
+                self.vision_provider, request, transcript_dir, audio_path.stem
+            )
 
         recorder.record(
             "vision_analysis",

@@ -40,7 +40,7 @@ status.
 
 - **Language** is the spoken language hint for Whisper (empty = auto-detect).
 - **Report language** controls summaries/highlights/vision text, independent of
-  the spoken language.
+  the spoken language (empty = Whisper-detected video language).
 - **Segment length** merges raw Whisper segments into readable paragraphs
   (Whisper default / 15s / 30s / 60s).
 
@@ -78,6 +78,9 @@ Each job writes a folder under the output directory:
 ```
 
 Interrupted jobs resume: re-running the same file reuses completed steps.
+Transcription and extracted frames are reused as-is; AI text/vision analysis
+re-runs automatically when the prompts or report language changed since, so
+edited prompts always take effect on a resumed job.
 
 ## Keyboard shortcuts
 

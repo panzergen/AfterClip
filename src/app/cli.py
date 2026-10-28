@@ -23,6 +23,7 @@ from app.application.headless import (
     run_request,
 )
 from app.application.history import scan_job_history
+from app.application.prompt_scope import resolve_cli_prompts
 from app.application.service import parse_clip_time
 from app.application.topics import TOPIC_METHODS
 from app.domain.models import TranscriptionRequest
@@ -232,9 +233,7 @@ def process_one(args, preset: Preset | None = None) -> int:
         _emit_error(args, str(error))
         return EXIT_VALIDATION
 
-    prompts = resolve_prompts()
-    if preset and preset.prompt_overrides:
-        prompts = prompts.with_overrides(preset.prompt_overrides)
+    prompts = resolve_cli_prompts(preset, resolve_prompts())
     sanitizer = resolve_sanitizer(enabled=False if args.no_filter else None)
     provider = args.provider or (
         "ollama" if (request.analyze_text or request.analyze_vision) else None

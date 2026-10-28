@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import json
 import logging
 import re
@@ -131,6 +132,61 @@ def srt_transcript_text(srt_path: Path | None) -> str:
     if not srt_path:
         return ""
     return "\n".join(entry.text for entry in parse_srt(srt_path, "TRANSCRIPTION"))
+
+
+def detect_transcript_language(transcript_dir: Path, audio_stem: str) -> str:
+    """Whisper-detected language code from ``<stem>.json`` ("" when unavailable).
+
+    Whisper's JSON output carries the detected (or forced) language, so this is
+    the video's actual spoken language even when the user left the language
+    hint on auto-detect.
+    """
+    candidate = transcript_dir / f"{audio_stem}.json"
+    try:
+        payload = json.loads(candidate.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    code = str(payload.get("language", "")).strip().lower().replace("_", "-").split("-")[0]
+    if len(code) in (2, 3) and code.isalpha():
+        return code
+    return ""
+
+
+def resolve_report_language(request, transcript_dir: Path | None = None, audio_stem: str = "") -> str:
+    """Language code for summaries/highlights/vision/topics.
+
+    Precedence: explicit report language, else Whisper-detected video language,
+    else the transcription hint, else English. This keeps unconfigured jobs in
+    the video's language instead of silently defaulting to English.
+    """
+    selected = (getattr(request, "output_language", "") or "").strip()
+    if selected:
+        return selected
+    if transcript_dir is not None:
+        detected = detect_transcript_language(transcript_dir, audio_stem)
+        if detected:
+            return detected
+    hint = (getattr(request, "language", "") or "").strip()
+    return hint or "en"
+
+
+def prompt_set_fingerprint(prompt_set) -> str:
+    """Stable hash of a PromptSet's templates ("" when unavailable).
+
+    Stored in ``job_state.json`` when an analysis step completes so a resumed
+    job can tell whether the prompts changed since and must re-run instead of
+    reusing stale outputs.
+    """
+    to_dict = getattr(prompt_set, "to_dict", None)
+    if not callable(to_dict):
+        return ""
+    try:
+        payload = json.dumps(to_dict(), ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        return ""
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
 def frame_window(frame: Path, frame_interval: int) -> float:

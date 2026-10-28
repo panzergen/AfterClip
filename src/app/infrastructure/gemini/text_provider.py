@@ -3,6 +3,7 @@ from collections.abc import Callable
 
 from app.application.cancellation import CancelToken
 from app.application.highlights import aggregate_highlights, parse_candidates
+from app.application.summary import clean_summary_output
 from app.domain.prompts import PromptSet
 from app.infrastructure.gemini.client import (
     DEFAULT_GEMINI_MODEL,
@@ -63,45 +64,51 @@ class GeminiTextProvider:
         if len(chunks) == 1:
             if on_progress:
                 on_progress("Gemini is summarizing the transcript")
-            return self.client.generate(
-                [
-                    {
-                        "text": self.prompts.render(
-                            "summary", lang=language or "en", transcript=chunks[0]
-                        )
-                    }
-                ],
-                cancel_token,
-            )
-        partials = []
-        for index, chunk in enumerate(chunks, 1):
-            if on_progress:
-                on_progress(f"Gemini is summarizing section {index}/{len(chunks)}")
-            partials.append(
+            return clean_summary_output(
                 self.client.generate(
                     [
                         {
                             "text": self.prompts.render(
-                                "summary", lang=language or "en", transcript=chunk
+                                "summary", lang=language or "en", transcript=chunks[0]
                             )
                         }
                     ],
                     cancel_token,
                 )
             )
+        partials = []
+        for index, chunk in enumerate(chunks, 1):
+            if on_progress:
+                on_progress(f"Gemini is summarizing section {index}/{len(chunks)}")
+            partials.append(
+                clean_summary_output(
+                    self.client.generate(
+                        [
+                            {
+                                "text": self.prompts.render(
+                                    "summary", lang=language or "en", transcript=chunk
+                                )
+                            }
+                        ],
+                        cancel_token,
+                    )
+                )
+            )
         if on_progress:
             on_progress("Gemini is combining section summaries")
-        return self.client.generate(
-            [
-                {
-                    "text": self.prompts.render(
-                        "summary_combine",
-                        lang=language or "en",
-                        summaries="\n\n".join(partials),
-                    )
-                }
-            ],
-            cancel_token,
+        return clean_summary_output(
+            self.client.generate(
+                [
+                    {
+                        "text": self.prompts.render(
+                            "summary_combine",
+                            lang=language or "en",
+                            summaries="\n\n".join(partials),
+                        )
+                    }
+                ],
+                cancel_token,
+            )
         )
 
     def extract_highlights(

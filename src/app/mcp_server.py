@@ -22,6 +22,7 @@ from app.application.headless import (
     run_request,
 )
 from app.application.history import scan_job_history
+from app.application.prompt_scope import resolve_cli_prompts
 from app.domain.presets import Preset
 from app.infrastructure.presets import JsonPresetStore
 
@@ -106,6 +107,9 @@ def list_presets() -> list[dict]:
             "report_language": preset.report_language,
             "analyze_text": preset.analysis_enabled,
             "analyze_vision": preset.vision_enabled,
+            "prompt_mode": preset.prompt_mode,
+            "has_prompts": bool(preset.prompts),
+            "is_legacy_prompts": preset.is_legacy_prompts,
         }
         for preset in JsonPresetStore().load()
     ]
@@ -170,9 +174,7 @@ def transcribe_media(
         quiet=True,
     )
     request = build_request(args, saved_preset)
-    prompts = resolve_prompts()
-    if saved_preset and saved_preset.prompt_overrides:
-        prompts = prompts.with_overrides(saved_preset.prompt_overrides)
+    prompts = resolve_cli_prompts(saved_preset, resolve_prompts())
     active_provider = provider or (
         "ollama" if (request.analyze_text or request.analyze_vision) else None
     )

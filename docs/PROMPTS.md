@@ -22,6 +22,15 @@ Example:
 
 Only known template keys are read; unknown keys and empty values are ignored.
 
+## Language resolution (`{lang}`)
+
+`{lang}` is filled per job as: explicit **report language** → Whisper-detected
+video language (from the transcript `.json`) → transcription language hint →
+English. So leaving report language empty keeps responses in the video's own
+language instead of silently defaulting to English. If the media mixes
+languages, the built-in templates require a single-language response in
+`{lang}`.
+
 ## Templates and placeholders
 
 | Template | Placeholders | Used by |
@@ -48,10 +57,32 @@ release.
 - `validate_template()` / `validate_prompt_set()` report **unknown** and
   **missing** placeholders for a template. The editor rejects a save that would
   drop a required placeholder.
-- Defaults reproduce the previous hard-coded prompts byte-for-byte, so leaving
-  prompts unset changes nothing.
+- Built-in defaults carry output-only, no-preamble and single-language
+  requirements; custom templates are used verbatim, so weakening them can bring
+  back chatter or mixed-language output.
+- Summary outputs pass through a preamble stripper
+  (`application/summary.py`): a leftover leading acknowledgement ("Anladım…",
+  "Here is…") is removed before the report is written; the rest of the text is
+  never touched.
 
 ## Resetting
 
 Delete `prompts.json`, or save an empty/partial file — any omitted template
 falls back to its built-in default.
+
+## Saved vs unsaved edits (Phase 1)
+
+`Save` in the prompt editor writes to `prompts.json` (global, used by the next
+job). Edits you have not saved yet are **session-custom**: they are still used
+for the next job, and the preset badge shows `Custom`, but they are lost on app
+restart and never overwrite `prompts.json`. The prompt dialog shows
+“Unsaved changes — used for the next job” while dirty.
+
+## Planned prompt packs
+
+The current templates are meeting-oriented. The next phases add editable starter
+prompts for slide presentations, software demos, physical product demos,
+narrative video and travel/documentary footage, plus vision synthesis for
+low-speech videos. See [PLAN_PROMPT_PACKS.md](PLAN_PROMPT_PACKS.md) and
+[PLAN_CONTENT_PACKS.md](PLAN_CONTENT_PACKS.md). These are plans, not current
+behaviour.

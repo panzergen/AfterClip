@@ -191,6 +191,11 @@ mapping, and [docs/PRIVACY.md](docs/PRIVACY.md) for what a cloud job sends.
 - [docs/MEDIA_TYPE.md](docs/MEDIA_TYPE.md) — media-type classification and suggestions
 - [docs/PLAN_TOPICS_HIGHLIGHTS.md](docs/PLAN_TOPICS_HIGHLIGHTS.md) — plan for topics/highlights refinements
 - [docs/PLAN_VOICEPRINTS.md](docs/PLAN_VOICEPRINTS.md) — plan for local voiceprints
+- [docs/PLAN_PROMPT_PACKS.md](docs/PLAN_PROMPT_PACKS.md) — plan index for content-type prompt packs, presets and vision-heavy video
+- [docs/PLAN_PRESET_PROMPT_SCOPE.md](docs/PLAN_PRESET_PROMPT_SCOPE.md) — full prompt snapshots, global vs custom prompts, batch propagation
+- [docs/PLAN_CONTENT_PACKS.md](docs/PLAN_CONTENT_PACKS.md) — prompt drafts for slides, software/product demos, narrative and travel
+- [docs/PLAN_VISION_SYNTHESIS.md](docs/PLAN_VISION_SYNTHESIS.md) — vision synthesis, structured output and frame sampling
+- [docs/PLAN_NARRATIVE_CONTINUITY.md](docs/PLAN_NARRATIVE_CONTINUITY.md) — character sheets and rolling context for narrative video
 - [docs/TEST_SCENARIOS.md](docs/TEST_SCENARIOS.md) — manual test scenarios for recent features
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — common problems and fixes
 - [docs/PACKAGING.md](docs/PACKAGING.md) — Windows release build

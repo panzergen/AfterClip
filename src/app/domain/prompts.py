@@ -9,8 +9,9 @@ import re
 from dataclasses import dataclass, replace
 
 # Placeholders each template may use. Validation rejects unknown placeholders
-# and templates missing a required one.
-TEMPLATE_PLACEHOLDERS: dict[str, frozenset[str]] = {
+# and templates missing a required one. Optional placeholders (Phase 1+) may be
+# present but are never required, so existing templates stay valid.
+TEMPLATE_REQUIRED_PLACEHOLDERS: dict[str, frozenset[str]] = {
     "summary": frozenset({"lang", "transcript"}),
     "summary_combine": frozenset({"lang", "summaries"}),
     "highlights": frozenset({"lang", "srt_content"}),
@@ -22,27 +23,44 @@ TEMPLATE_PLACEHOLDERS: dict[str, frozenset[str]] = {
     "topic_title": frozenset({"lang", "content"}),
 }
 
+TEMPLATE_OPTIONAL_PLACEHOLDERS: dict[str, frozenset[str]] = {
+    name: frozenset() for name in TEMPLATE_REQUIRED_PLACEHOLDERS
+}
+
+TEMPLATE_PLACEHOLDERS: dict[str, frozenset[str]] = {
+    name: TEMPLATE_REQUIRED_PLACEHOLDERS[name] | TEMPLATE_OPTIONAL_PLACEHOLDERS[name]
+    for name in TEMPLATE_REQUIRED_PLACEHOLDERS
+}
+
 TEMPLATE_NAMES: tuple[str, ...] = tuple(TEMPLATE_PLACEHOLDERS)
 
 DEFAULT_PROMPTS: dict[str, str] = {
     "summary": (
         "Below is an audio transcript section from a recording. "
-        "Please provide a concise, structured executive summary of what is discussed.\n"
+        "Provide a concise, structured executive summary of what is discussed.\n\n"
+        "Transcript:\n{transcript}\n\n"
         "CRITICAL REQUIREMENT: Do NOT output any thinking, reasoning steps, or internal "
-        "monologue. Output ONLY the final summary.\n"
+        "monologue. Output ONLY the final summary. Start directly with the "
+        "summary itself. Do NOT write any preamble, greeting, acknowledgement, or "
+        "meta-commentary about the task.\n"
         "CRITICAL REQUIREMENT: You MUST write your response entirely in the language "
-        "corresponding to language code '{lang}'.\n\n"
-        "Transcript:\n{transcript}"
+        "corresponding to language code '{lang}'. If the transcript contains other "
+        "languages, still write everything in that language; never mix languages within "
+        "one response.\n"
     ),
     "summary_combine": (
         "Below are partial summaries from consecutive sections of one recording. "
         "Combine them into one concise, structured executive summary covering all sections. "
-        "Preserve important decisions, action items, names, dates, and technical details.\n"
+        "Preserve important decisions, action items, names, dates, and technical details.\n\n"
+        "Partial summaries:\n{summaries}\n\n"
         "CRITICAL REQUIREMENT: Do NOT output any thinking, reasoning steps, or internal "
-        "monologue. Output ONLY the final summary.\n"
+        "monologue. Output ONLY the final summary. Start directly with the "
+        "summary itself. Do NOT write any preamble, greeting, acknowledgement, or "
+        "meta-commentary about the task.\n"
         "CRITICAL REQUIREMENT: You MUST write your response entirely in the language "
-        "corresponding to language code '{lang}'.\n\n"
-        "Partial summaries:\n{summaries}"
+        "corresponding to language code '{lang}'. If the partial summaries contain other "
+        "languages, still write everything in that language; never mix languages within "
+        "one response.\n"
     ),
     "highlights": (
         "Analyze the following SRT subtitles (which include exact timestamps) and "
@@ -56,6 +74,8 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "scheduled ('let's talk about this next meeting', 'we'll revisit this').\n"
         "Low score when: the item is optional, a 'nice to have', or for the distant "
         "future.\n"
+        "Highlight specific moments with timestamps, not section headers: do NOT simply "
+        "retitle each topic section. Every reason must explain why that moment matters.\n"
         "Return a compact JSON array of scored candidates only, no prose. Each candidate "
         'has "start" (HH:MM:SS), "end" (HH:MM:SS), "title", "score" (integer 0-10) '
         'and "reason".\n'
@@ -64,7 +84,9 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "CRITICAL REQUIREMENT: Do NOT output any thinking, reasoning steps, or internal "
         "monologue. Output ONLY the JSON array.\n"
         'CRITICAL REQUIREMENT: You MUST write "title" and "reason" entirely in the '
-        "language corresponding to language code '{lang}'.\n\n"
+        "language corresponding to language code '{lang}'. If the subtitles contain other "
+        "languages, still write everything in that language; never mix languages within "
+        "one response.\n\n"
         "SRT Subtitles:\n{srt_content}"
     ),
     "vision_frame": (
@@ -74,6 +96,8 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "Analyze this frame and extract active URLs, UI elements, and screen interactions "
         "relevant to what was spoken, and pinpoint where the mouse pointer / cursor is "
         "located on the screen if visible.\n"
+        "Even if the frame's text is in another language, respond ONLY in the language "
+        "corresponding to language code '{lang}'.\n"
         "CRITICAL REQUIREMENT: Do NOT output any thinking or reasoning steps. Output ONLY "
         "the final frame description.\n"
         "CRITICAL REQUIREMENT: You MUST write your response entirely in the language "
@@ -100,12 +124,14 @@ DEFAULT_PROMPTS: dict[str, str] = {
     "topic_segmentation": (
         "Split the transcript into topic sections. Return a compact JSON array of objects "
         "with 'start' (HH:MM:SS), 'end' (HH:MM:SS) and 'title'. Boundaries must be "
-        "monotonic and non-overlapping, and write titles in language '{lang}'.\n\n"
+        "monotonic and non-overlapping, and write titles in language '{lang}'. Titles are "
+        "neutral section labels, not highlights.\n\n"
         "Transcript:\n{transcript}"
     ),
     "topic_title": (
         "Write a short, descriptive title (3-8 words) in language '{lang}' that summarises "
-        "what the transcript section below is about. Output ONLY the title, no quotes or "
+        "what the transcript section below is about. If the section mixes languages, still "
+        "write the title entirely in '{lang}'. Output ONLY the title, no quotes or "
         "punctuation at the end.\n\n"
         "Section:\n{content}"
     ),
@@ -154,13 +180,15 @@ class PromptSet:
 
 def validate_template(name: str, template: str) -> list[str]:
     """Return problems with a template's placeholders (empty = valid)."""
-    allowed = TEMPLATE_PLACEHOLDERS.get(name)
-    if allowed is None:
+    required = TEMPLATE_REQUIRED_PLACEHOLDERS.get(name)
+    if required is None:
         return [f"unknown template '{name}'"]
+    optional = TEMPLATE_OPTIONAL_PLACEHOLDERS.get(name, frozenset())
+    allowed = required | optional
     found = set(_PLACEHOLDER_PATTERN.findall(template))
     problems: list[str] = []
     unknown = found - allowed
-    missing = allowed - found
+    missing = required - found
     if unknown:
         problems.append(f"unknown placeholders: {', '.join(sorted(unknown))}")
     if missing:
@@ -180,3 +208,19 @@ def validate_prompt_set(prompt_set: PromptSet) -> dict[str, list[str]]:
 
 def build_prompt_set(overrides: dict[str, str] | None = None) -> PromptSet:
     return PromptSet().with_overrides(overrides or {})
+
+
+def prompt_set_from_snapshot(snapshot: dict[str, str] | None) -> PromptSet:
+    """Build a PromptSet from a full preset snapshot (Phase 1 replace mode).
+
+    Unknown keys and empty values are ignored; missing templates fall back to
+    the built-in defaults, so a partial snapshot still yields a valid set.
+    """
+    if not isinstance(snapshot, dict):
+        return PromptSet()
+    cleaned = {
+        key: value
+        for key, value in snapshot.items()
+        if key in TEMPLATE_PLACEHOLDERS and isinstance(value, str) and value
+    }
+    return build_prompt_set(cleaned)

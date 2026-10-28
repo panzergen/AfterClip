@@ -41,23 +41,55 @@ ColumnLayout {
         }
     }
 
+    Text {
+        Layout.fillWidth: true
+        text: presets.hasPresets ? qsTr("Prompts: ") + presets.promptBadge : ""
+        visible: presets.hasPresets
+        font.pixelSize: Theme.fontSizeCaption
+        color: Theme.muted
+        wrapMode: Text.Wrap
+    }
+
+    Button {
+        Layout.fillWidth: false
+        text: qsTr("Use preset prompts")
+        font.pixelSize: Theme.fontSizeSmall
+        visible: presets.hasPresets && presets.promptBadge === "Custom"
+        onClicked: presets.usePresetPrompts()
+        ToolTip.visible: hovered
+        ToolTip.delay: 400
+        ToolTip.text: qsTr("Discard unsaved prompt edits and apply the selected preset's prompts.")
+    }
+
     FieldRow {
         Layout.fillWidth: true
         label: qsTr("Save preset")
-        Row {
-            spacing: 8
-            TextField {
-                width: 180
-                placeholderText: qsTr("Preset name")
-                text: presets.newName
-                font.pixelSize: Theme.fontSizeSmall
-                selectByMouse: true
-                onTextEdited: presets.newName = text
+        ColumnLayout {
+            spacing: 4
+            Row {
+                spacing: 8
+                TextField {
+                    width: 180
+                    placeholderText: qsTr("Preset name")
+                    text: presets.newName
+                    font.pixelSize: Theme.fontSizeSmall
+                    selectByMouse: true
+                    onTextEdited: presets.newName = text
+                }
+                Button {
+                    text: qsTr("Save")
+                    font.pixelSize: Theme.fontSizeSmall
+                    onClicked: presets.saveCurrent()
+                }
             }
-            Button {
-                text: qsTr("Save")
+            CheckBox {
+                text: qsTr("Include prompts (recommended)")
+                checked: presets.includePrompts
+                onToggled: presets.includePrompts = checked
                 font.pixelSize: Theme.fontSizeSmall
-                onClicked: presets.saveCurrent()
+                ToolTip.visible: hovered
+                ToolTip.delay: 400
+                ToolTip.text: qsTr("Store a full snapshot of all prompt templates in the preset. Unchecked stores job settings only and leaves prompts unchanged on apply.")
             }
         }
     }

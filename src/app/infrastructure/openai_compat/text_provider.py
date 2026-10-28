@@ -3,6 +3,7 @@ from collections.abc import Callable
 
 from app.application.cancellation import CancelToken
 from app.application.highlights import aggregate_highlights, parse_candidates
+from app.application.summary import clean_summary_output
 from app.domain.prompts import PromptSet
 from app.infrastructure.llm.transport import chunk_text
 from app.infrastructure.openai_compat.client import (
@@ -61,22 +62,26 @@ class OpenAICompatTextProvider:
             if on_progress:
                 on_progress(f"{self.provider_name} is summarizing the transcript")
             prompt = self.prompts.render("summary", lang=language or "en", transcript=chunks[0])
-            return self.client.generate(self._text(prompt), cancel_token)
+            return clean_summary_output(self.client.generate(self._text(prompt), cancel_token))
         partials = []
         for index, chunk in enumerate(chunks, 1):
             if on_progress:
                 on_progress(f"{self.provider_name} is summarizing section {index}/{len(chunks)}")
             prompt = self.prompts.render("summary", lang=language or "en", transcript=chunk)
-            partials.append(self.client.generate(self._text(prompt), cancel_token))
+            partials.append(
+                clean_summary_output(self.client.generate(self._text(prompt), cancel_token))
+            )
         if on_progress:
             on_progress(f"{self.provider_name} is combining section summaries")
-        return self.client.generate(
-            self._text(
-                self.prompts.render(
-                    "summary_combine", lang=language or "en", summaries="\n\n".join(partials)
-                )
-            ),
-            cancel_token,
+        return clean_summary_output(
+            self.client.generate(
+                self._text(
+                    self.prompts.render(
+                        "summary_combine", lang=language or "en", summaries="\n\n".join(partials)
+                    )
+                ),
+                cancel_token,
+            )
         )
 
     def extract_highlights(

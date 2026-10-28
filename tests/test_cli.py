@@ -194,3 +194,29 @@ def test_cli_status_lists_jobs(tmp_path, capsys):
 
 def test_cli_no_command_prints_help(capsys):
     assert main([]) == 2
+
+
+def test_resolve_cli_prompts_replace_overwrites_all():
+    from app.application.prompt_scope import resolve_cli_prompts
+    from app.domain.prompts import DEFAULT_PROMPTS, PromptSet
+
+    snapshot = dict(PromptSet().to_dict())
+    snapshot["summary"] = "REPLACE {lang} {transcript}"
+    preset = Preset(name="r", prompt_mode="replace", prompts=snapshot)
+    resolved = resolve_cli_prompts(preset, PromptSet())
+    assert resolved.summary == "REPLACE {lang} {transcript}"
+    assert resolved.highlights == DEFAULT_PROMPTS["highlights"]
+
+
+def test_resolve_cli_prompts_legacy_merges():
+    from app.application.prompt_scope import resolve_cli_prompts
+    from app.domain.prompts import DEFAULT_PROMPTS, PromptSet
+
+    preset = Preset(
+        name="l",
+        prompt_mode="legacy-partial",
+        prompt_overrides={"summary": "LEGACY {lang} {transcript}"},
+    )
+    resolved = resolve_cli_prompts(preset, PromptSet())
+    assert resolved.summary == "LEGACY {lang} {transcript}"
+    assert resolved.highlights == DEFAULT_PROMPTS["highlights"]

@@ -19,7 +19,9 @@ def test_defaults_cover_all_templates():
 def test_render_substitutes_named_placeholders():
     rendered = PromptSet().render("summary", lang="tr", transcript="merhaba")
     assert "language code 'tr'" in rendered
-    assert rendered.endswith("Transcript:\nmerhaba")
+    assert "Transcript:\nmerhaba" in rendered
+    # Hard constraints come after the content (recency wins with chatty models).
+    assert rendered.index("Transcript:\nmerhaba") < rendered.index("CRITICAL REQUIREMENT")
     assert "{lang}" not in rendered
 
 

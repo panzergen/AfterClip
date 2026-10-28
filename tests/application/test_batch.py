@@ -96,3 +96,24 @@ def test_run_batch_skips_non_pending_jobs(tmp_path: Path):
         CancellationToken(),
     )
     assert ran == ["todo.mp4"]
+
+
+def test_batch_job_prompts_roundtrip(tmp_path: Path):
+    from app.domain.prompts import PromptSet
+
+    snapshot = dict(PromptSet().to_dict())
+    snapshot["summary"] = "BATCH {lang} {transcript}"
+    store = BatchStore(tmp_path / "batch_queue.json")
+    job = make_job()
+    job.prompts = snapshot
+    store.save([job])
+    loaded = store.load()
+    assert loaded[0].prompts is not None
+    assert loaded[0].prompt_set() is not None
+    assert loaded[0].prompt_set().summary == "BATCH {lang} {transcript}"
+
+
+def test_batch_job_without_prompts_uses_defaults():
+    job = make_job()
+    assert job.prompts is None
+    assert job.prompt_set() is None

@@ -45,11 +45,12 @@ class BatchWorker(QObject):
         # A missing Gemini key surfaces as a per-job failure with a clear
         # error; the batch continues with the remaining jobs.
         config = SanitizerConfig()
+        prompts = job.prompt_set()
         service = TranscriptionService(
             WhisperCliProvider(condition_on_previous_text=not config.enabled),
             FfmpegMediaTool(),
-            build_text_provider(job.text_spec()),
-            build_vision_provider(job.vision_spec()),
+            build_text_provider(job.text_spec(), prompts),
+            build_vision_provider(job.vision_spec(), prompts),
             sanitizer_config=config,
             voiceprint_store=self.voiceprint_store,
             voiceprint_embedder=self.voiceprint_embedder,

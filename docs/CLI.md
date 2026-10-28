@@ -31,7 +31,9 @@ Common flags: `--model`, `--language`, `--report-language`, `--task`,
 `--quiet`.
 
 - **Presets**: `--preset NAME` applies the saved preset, then explicit flags
-  override it.
+  override it. A `replace` preset applies its full prompt snapshot; a
+  `legacy-partial` preset merges its overrides; `inherit` leaves the global
+  prompts untouched. Omitting `--preset` uses the global prompt store.
 - **JSON**: `--json` prints one machine-readable object with `status`,
   `job_dir`, `transcript_files`, `reports` and progress `events`.
 - **Exit codes**: `0` success, `2` validation error, `3` processing failure,

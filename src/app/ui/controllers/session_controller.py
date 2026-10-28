@@ -145,6 +145,14 @@ class SessionController(QObject):
         settings["output_dir"] = self.job_form.output_text()
         settings["highlight_times"] = tuple(self.media.highlight_times)
         settings["output_name"] = self.output_name
+        # Phase 1: capture the resolved prompts so batch jobs use the same
+        # templates as a single job, even if presets change mid-batch.
+        try:
+            prompts = self._provider_prompts()
+            if prompts is not None:
+                settings["prompts"] = dict(prompts.to_dict())
+        except Exception:
+            pass
         return settings
 
     titleChanged = Signal()
@@ -613,9 +621,16 @@ class SessionController(QObject):
         return input_path, output_dir, clip_start, clip_end
 
     def _provider_prompts(self):
-        """Resolved prompt set for this job, or None to use built-in defaults."""
+        """Resolved prompt set for this job, including unsaved session edits."""
         if self.prompt_store is None:
             return None
+        if self.settings is not None:
+            effective = getattr(self.settings, "effective_prompt_set", None)
+            if callable(effective):
+                try:
+                    return effective()
+                except Exception as error:
+                    LOGGER.warning("Could not resolve session prompts; using store: %s", error)
         try:
             return self.prompt_store.load()
         except Exception as error:  # a broken prompt file must not block a job

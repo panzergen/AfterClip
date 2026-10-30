@@ -2,6 +2,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
+from app.application.language import REPORT_LANGUAGE_CHOICES
 from app.application.provider_registry import is_cloud
 from app.infrastructure.gemini import DEFAULT_GEMINI_MODEL
 from app.infrastructure.settings import JsonSettingsStore
@@ -125,6 +126,22 @@ class JobFormController(QObject):
         self._report_language = str(value)
         self.reportLanguageChanged.emit()
 
+    def _get_report_language_labels(self) -> list:
+        return [label for _code, label in REPORT_LANGUAGE_CHOICES]
+
+    def _get_report_language_index(self) -> int:
+        codes = [code for code, _label in REPORT_LANGUAGE_CHOICES]
+        try:
+            return codes.index(self._report_language.strip())
+        except ValueError:
+            return 0
+
+    def _set_report_language_index(self, value: int) -> None:
+        index = int(value)
+        if 0 <= index < len(REPORT_LANGUAGE_CHOICES):
+            self._report_language = REPORT_LANGUAGE_CHOICES[index][0]
+            self.reportLanguageChanged.emit()
+
     def _get_task(self) -> str:
         return self._task
 
@@ -161,6 +178,15 @@ class JobFormController(QObject):
     language = Property(str, _get_language, _set_language, notify=languageChanged)
     reportLanguage = Property(
         str, _get_report_language, _set_report_language, notify=reportLanguageChanged
+    )
+    reportLanguageLabels = Property(
+        "QVariantList", _get_report_language_labels, constant=True
+    )
+    reportLanguageIndex = Property(
+        int,
+        _get_report_language_index,
+        _set_report_language_index,
+        notify=reportLanguageChanged,
     )
     task = Property(str, _get_task, _set_task, notify=taskChanged)
     supportFiles = Property("QVariantList", _get_support_files, notify=supportFilesChanged)

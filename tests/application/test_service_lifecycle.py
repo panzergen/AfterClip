@@ -213,7 +213,7 @@ def test_output_language_is_independent_of_transcription_language(tmp_path):
         lambda _: None,
         CancellationToken(),
     )
-    assert provider.languages and all(language == "tr" for language in provider.languages)
+    assert provider.languages and all(language == "en" for language in provider.languages)
 
 
 def test_multiple_frame_modes_run_sequentially(tmp_path):

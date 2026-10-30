@@ -29,17 +29,19 @@ class OllamaVisionProvider:
         language: str,
         on_progress: Callable[[str], None] | None = None,
         cancel_token: CancelToken | None = None,
+        prompt: str | None = None,
     ) -> str:
         if on_progress:
             on_progress(f"Ollama vision is analyzing {Path(image_path).name}")
+        template = prompt or self.prompts.render(
+            "vision_frame",
+            user_desc=user_task,
+            audio_context=audio_context,
+            lang=language or "en",
+        )
         return self.client.generate(
             self.model,
-            self.prompts.render(
-                "vision_frame",
-                user_desc=user_task,
-                audio_context=audio_context,
-                lang=language or "en",
-            ),
+            template,
             cancel_token,
             on_progress,
             images=(image_path,),

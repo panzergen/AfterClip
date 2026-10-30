@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Work that has landed on `main` since the last tagged release.
+## [0.4.0] — 2026-10-30
+
+Phase 1 preset/prompt semantics plus the report-quality and vision-repair work.
+Verified against eleven real jobs.
+
+### Changed
+
+- Report language is a separate per-job selection in the job settings, with a
+  matching default in Settings. When no language is selected the report is
+  **English**; the Whisper-detected and transcription languages no longer
+  affect summaries, highlights, vision text or topics. Every AI output follows
+  the selection, and summaries/highlights are rewritten once if the model
+  answers in another language.
+- The Ollama generation cap is raised from 1200 to 4096 tokens so long
+  slide-by-slide summaries are no longer cut mid-sentence.
+- The CLI can target one exact job with `--resume-dir` (alias `--job-dir`).
+  The MCP server gains `fix_job`, detached `start_fix_job` and
+  `get_fix_status`, so a long vision/text repair is not tied to one MCP tool
+  call; `read_report` also exposes `Topics.md` and `Topics.json`. The optional
+  MCP dependency is pinned to `mcp>=1.0,<2` because 2.x renamed `FastMCP`.
 
 ### Added
 
@@ -22,6 +41,37 @@ Work that has landed on `main` since the last tagged release.
 
 ### Fixed
 
+- Chatty AI replies no longer leak into the report. Summary cleaning now drops
+  a whole leading block that talks about the prompt/user (for example
+  "Harika bir sunum metni vermişsiniz…" followed by `---`), not just a single
+  acknowledgement paragraph. The HTML report also cleans a cached summary.
+- The HTML report no longer folds the `## Topics` list into **Key Highlights**.
+  Section extraction uses the report's own headings, so summary headings inside
+  the text survive, and highlights stop where `## Topics` begins.
+- Topic titles follow the report language even when the model copies each
+  section's language. A deterministic language guard detects a wrong-language
+  title, rewrites the affected titles in one batch, then retries them
+  individually. With no report language selected, reports default to English.
+- Vision analysis no longer keeps an all-`[none]` answer. When a custom
+  `vision_frame` template does not fit a frame (for example a slide-only prompt
+  on a browser screen), the frame is retried once with the built-in
+  content-agnostic prompt; frames the model explicitly marks `BLANK: true` are
+  stored as `(no visible screen content)` without a retry. The built-in
+  `vision_frame` prompt now describes slides, browser/app pages and meeting
+  windows, and records retry/blank counts in `vision_filter_report.json`.
+- One unreadable vision frame no longer discards the descriptions of every
+  other frame: the failed frame is stored as blank and the step continues. The
+  step still reports failure when every frame fails. Image requests never use
+  the text-only Ollama CLI fallback, and the HTTP transport now enforces a
+  wall-clock deadline because urllib's socket timeout can stop firing after a
+  stalled response.
+- Resumed jobs re-run text analysis once after this change (report writer
+  version is part of the cached analysis fingerprint) instead of reusing a
+  report that still carries the old preamble.
+- The CLI can now reuse a finished transcription: `--reuse-transcription`
+  (`--reuse`) resolves the latest completed job for the same input and skips
+  Whisper. Speaker labels are restored from `Voiceprints.json` without
+  re-reading the audio, so a resumed report keeps its speakers.
 - Concurrent writers no longer collide on report and state files. The atomic
   write helper now uses a unique temporary file name per call and retries a
   briefly-refused replace, which removes intermittent `PermissionError`

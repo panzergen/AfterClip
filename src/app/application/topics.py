@@ -9,13 +9,24 @@ baseline, and disabling the feature leaves existing outputs unchanged.
 """
 
 import json
+import logging
 import re
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
+from app.application.language import (
+    detect_language,
+    language_label,
+    language_name,
+    language_verdict,
+    normalize_code,
+)
 from app.application.summary import looks_like_preamble
 from app.domain.models import TimelineEntry
 from app.domain.prompts import PromptSet
+from app.infrastructure.llm.transport import clean_thinking_tags
+
+LOGGER = logging.getLogger(__name__)
 
 TOPIC_METHODS = ("off", "cohesion", "ai")
 DEFAULT_TOPIC_METHOD = "ai"
@@ -279,6 +290,124 @@ def _clean_title(text: str, max_words: int = 12) -> str:
     return " ".join(words[:max_words]) if words else ""
 
 
+def _wrong_language(title: str, language: str) -> bool:
+    """True only when the title is clearly written in another language."""
+    return language_verdict(title, language) is False
+
+
+_NUMBERED_LINE = re.compile(r"^\s*\d+[.)]\s+(.+?)\s*$", re.MULTILINE)
+
+
+def _parse_title_array(raw: str | None, count: int) -> list[str] | None:
+    """Parse a JSON array (or a numbered list) of titles; ``None`` if unusable."""
+    text = clean_thinking_tags(raw or "").strip()
+    start, end = text.find("["), text.rfind("]")
+    if start != -1 and end > start:
+        try:
+            values = json.loads(text[start : end + 1])
+        except (json.JSONDecodeError, ValueError):
+            values = None
+        if isinstance(values, list) and len(values) == count:
+            if all(isinstance(value, str) for value in values):
+                titles = [value.strip() for value in values]
+            elif all(isinstance(value, dict) for value in values):
+                titles = [
+                    str(value.get("title") or value.get("text") or "").strip()
+                    for value in values
+                ]
+            else:
+                titles = []
+            if titles and all(titles):
+                return titles
+    lines = _NUMBERED_LINE.findall(text)
+    if len(lines) == count and all(line.strip() for line in lines):
+        return [line.strip().strip("\"'`") for line in lines]
+    return None
+
+
+def _translation_prompt(titles: list[str], language: str) -> str:
+    label = language_label(language)
+    numbered = "\n".join(f"{number}. {title}" for number, title in enumerate(titles, 1))
+    return (
+        f"Rewrite every numbered title below in {label}. Keep the meaning, keep "
+        "product and brand names unchanged, and keep each title short (3-8 words). "
+        f"Return ONLY a JSON array of {len(titles)} strings in the same order, "
+        "no prose and no explanation.\n\n"
+        f"Titles:\n{numbered}"
+    )
+
+
+def _translate_one_prompt(title: str, language: str) -> str:
+    target = language_name(language)
+    source = detect_language(title)
+    if source and source != language:
+        opening = (
+            f"The title below is written in {language_name(source)}. "
+            f"Translate it into {target}."
+        )
+    else:
+        opening = f"The title below is not in {target}. Translate it into {target}."
+    return (
+        f"{opening} Do not repeat the input. Keep product and brand names "
+        "unchanged and return ONLY the translated title.\n\n"
+        f"Title: {title}"
+    )
+
+
+#: Titles per translation request: a long job can have a hundred sections, and
+#: a single oversized answer would hit the model's output limit.
+TRANSLATION_BATCH = 20
+
+
+def _normalise_titles(
+    titles: list[str],
+    language: str,
+    generate,
+    cancel_token=None,
+) -> list[str]:
+    """Rewrite titles that came back in another language than requested."""
+    if not language:
+        return titles
+    result = list(titles)
+    wrong = [index for index, title in enumerate(result) if _wrong_language(title, language)]
+    if not wrong:
+        return result
+    remaining: list[int] = []
+    for offset in range(0, len(wrong), TRANSLATION_BATCH):
+        group = wrong[offset : offset + TRANSLATION_BATCH]
+        try:
+            raw = generate(
+                _translation_prompt([result[index] for index in group], language), cancel_token
+            )
+        except Exception as error:  # a provider outage must not cost one call per title
+            LOGGER.debug("Topic title translation failed: %s", error)
+            return result
+        translated = _parse_title_array(raw, len(group))
+        if not translated:
+            remaining.extend(group)
+            continue
+        for index, candidate in zip(group, translated, strict=True):
+            cleaned = _clean_title(candidate)
+            if cleaned and not _wrong_language(cleaned, language):
+                result[index] = cleaned
+            else:
+                remaining.append(index)
+    for index in remaining:
+        try:
+            raw = generate(_translate_one_prompt(result[index], language), cancel_token)
+        except Exception as error:
+            LOGGER.debug("Topic title translation retry failed: %s", error)
+            break
+        cleaned = _clean_title(raw or "")
+        if cleaned and not _wrong_language(cleaned, language):
+            result[index] = cleaned
+        else:
+            LOGGER.warning(
+                "Topic title stayed in another language than '%s': %s", language, result[index]
+            )
+    return result
+
+
 def retitle_with_provider(
     topics: list[TopicSegment],
     entries: tuple[TimelineEntry, ...],
@@ -287,25 +416,40 @@ def retitle_with_provider(
     language: str = "en",
     cancel_token=None,
 ) -> list[TopicSegment]:
-    """Replace heuristic titles with short AI titles; keep the old title on failure."""
+    """Replace heuristic titles with short AI titles in the report language.
+
+    A title that comes back in another language (the model copied the section's
+    language instead of following ``{lang}``) is translated once as a batch and
+    then individually; the old title is only kept when every attempt fails.
+    """
     generate = getattr(provider, "generate", None)
     if not callable(generate):
         return list(topics)
     prompt_set = prompts if prompts is not None else getattr(provider, "prompts", None)
     if prompt_set is None:
         prompt_set = PromptSet()
+    language = normalize_code(language) or "en"
     titled: list[TopicSegment] = []
+    generated: list[int] = []
+    titles: list[str] = []
     for topic in topics:
         content = _section_text(entries, topic)
         if not content:
             titled.append(topic)
             continue
-        prompt = prompt_set.render("topic_title", lang=language or "en", content=content[:1500])
+        prompt = prompt_set.render("topic_title", lang=language, content=content[:1500])
         try:
             raw = generate(prompt, cancel_token)
         except Exception:  # a title failure must never drop the section
             titled.append(topic)
             continue
         title = _clean_title(raw or "")
+        if title:
+            generated.append(len(titled))
+            titles.append(title)
         titled.append(replace(topic, title=title) if title else topic)
+    if generated:
+        normalised = _normalise_titles(titles, language, generate, cancel_token)
+        for position, title in zip(generated, normalised, strict=True):
+            titled[position] = replace(titled[position], title=title)
     return titled

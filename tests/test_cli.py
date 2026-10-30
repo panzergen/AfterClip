@@ -129,6 +129,101 @@ def test_build_request_topic_flags(tmp_path):
     assert request.topic_max_sections == 5
 
 
+def _cached_job(tmp_path: Path, source: Path) -> Path:
+    job = tmp_path / "out" / "meeting"
+    transcripts = job / "Transcripts"
+    transcripts.mkdir(parents=True)
+    (transcripts / "converted_audio.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nhello\n", encoding="utf-8"
+    )
+    (job / "job_state.json").write_text(
+        json.dumps(
+            {
+                "status": "Succeeded",
+                "input_path": str(source.resolve()),
+                "steps": {"transcription": {"status": "completed"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return job
+
+
+def test_cli_reuse_transcription_skips_whisper(tmp_path, monkeypatch):
+    from app.domain.models import TranscriptionResult
+
+    source = _source(tmp_path)
+    job = _cached_job(tmp_path, source)
+    captured = {}
+
+    def fake_run(request, text_provider, vision_provider, sanitizer, on_event, token, **kwargs):
+        captured["resume_dir"] = kwargs.get("resume_dir")
+        transcript = job / "Transcripts" / "converted_audio.srt"
+        return TranscriptionResult(job / "Transcripts", (transcript,))
+
+    monkeypatch.setattr("app.cli.run_request", fake_run)
+    code = main(
+        [
+            "run",
+            "--input",
+            str(source),
+            "--output",
+            str(tmp_path / "out"),
+            "--reuse-transcription",
+            "--quiet",
+        ]
+    )
+    assert code == 0
+    assert captured["resume_dir"] == job
+
+
+def test_cli_resume_dir_targets_an_exact_job(tmp_path, monkeypatch):
+    from app.domain.models import TranscriptionResult
+
+    source = _source(tmp_path)
+    job = tmp_path / "out" / "Vistream Products"
+    job.mkdir(parents=True)
+    captured = {}
+
+    def fake_run(request, text_provider, vision_provider, sanitizer, on_event, token, **kwargs):
+        captured["resume_dir"] = kwargs.get("resume_dir")
+        return TranscriptionResult(job / "Transcripts", ())
+
+    monkeypatch.setattr("app.cli.run_request", fake_run)
+    code = main(
+        [
+            "run",
+            "--input",
+            str(source),
+            "--output",
+            str(tmp_path / "out"),
+            "--resume-dir",
+            str(job),
+            "--quiet",
+        ]
+    )
+    assert code == 0
+    assert captured["resume_dir"] == job
+
+
+def test_cli_reuse_without_cached_transcription_is_validation(tmp_path, capsys):
+    source = _source(tmp_path)
+    code = main(
+        [
+            "run",
+            "--input",
+            str(source),
+            "--output",
+            str(tmp_path / "out"),
+            "--reuse",
+            "--json",
+        ]
+    )
+    assert code == 2
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert "No completed transcription" in payload["error"]
+
+
 def test_cli_missing_input_returns_validation(tmp_path, capsys):
     code = main(
         [

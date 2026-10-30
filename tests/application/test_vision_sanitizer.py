@@ -1,6 +1,8 @@
 from app.application.service import vision_analysis_label
 from app.application.vision_sanitizer import (
     VisionSanitizerConfig,
+    has_vision_content,
+    is_blank_vision_response,
     sanitize_description,
 )
 
@@ -83,6 +85,30 @@ def test_disabled_config_only_normalizes_whitespace():
     )
     assert result.text == "hello world. hello world. hello world."
     assert result.changed is False
+
+
+def test_placeholder_only_vision_responses_have_no_content():
+    assert not has_vision_content(
+        "TITLE: [none] SLIDE TEXT: [none] VISUALS: [none] HIGHLIGHT: [none]"
+    )
+    assert not has_vision_content(
+        "Başlık: [none] İçerik: [none] Grafik: [none] Öne Çıkan: [none]"
+    )
+    assert not has_vision_content("TITLE: [none] SLIDE TEXT: [unreadable] VISUALS: [none]")
+    assert not has_vision_content("")
+    # HIGHLIGHT is often the transcript leaking in; it must not count as a
+    # description when every other field is empty.
+    assert not has_vision_content(
+        "TITLE: [none] SLIDE TEXT: [none] VISUALS: [none] HIGHLIGHT: 'so I need to go to rocket'"
+    )
+
+
+def test_real_vision_field_values_count_as_content():
+    assert has_vision_content("TITLE: Registration Management SCREEN TEXT: Email settings")
+    assert has_vision_content("URL: vistreamtemplate1.vistream.tv/vipanel/v2/login")
+    assert has_vision_content("The screen shows a dashboard with a user table.")
+    assert not is_blank_vision_response("TITLE: Dashboard")
+    assert is_blank_vision_response("BLANK: true")
 
 
 def test_config_round_trip_and_invalid_values_fall_back():

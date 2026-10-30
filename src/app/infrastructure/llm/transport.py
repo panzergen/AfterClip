@@ -1,6 +1,7 @@
 import json
 import re
 import threading
+import time
 import urllib.request
 
 from app.application.cancellation import ProcessingCancelled, wait_for_cancellation
@@ -85,7 +86,13 @@ def post_json_cancellable(
 
     worker = threading.Thread(target=execute, daemon=True)
     worker.start()
+    # urllib's timeout is not reliable once a server has accepted the
+    # connection and then stalls; enforce a wall-clock deadline as well. The
+    # daemon worker is abandoned, which is safe because the caller moves on.
+    deadline = time.monotonic() + timeout + 5.0
     while not done.wait(0.2):
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"HTTP request timed out after {timeout:.0f} seconds")
         if wait_for_cancellation(cancel_token, 0.1):
             raise ProcessingCancelled
     if error is not None:

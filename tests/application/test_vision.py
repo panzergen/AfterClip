@@ -189,6 +189,84 @@ def test_vision_loop_is_sanitized_before_writing(tmp_path):
     assert "the menu bar, the menu bar" not in markdown
 
 
+class EmptyThenDescribingVisionProvider:
+    """First pass returns placeholders; the generic retry describes the frame."""
+
+    provider_name = "ollama"
+    model = "llava"
+
+    def __init__(self):
+        self.prompts = []
+
+    def analyze_frame(
+        self,
+        image_path,
+        audio_context,
+        user_task,
+        language,
+        on_progress=None,
+        cancel_token=None,
+        prompt=None,
+    ):
+        self.prompts.append(prompt)
+        if prompt is None:
+            return "TITLE: [none] SLIDE TEXT: [none] VISUALS: [none] HIGHLIGHT: [none]"
+        return "TITLE: Dashboard SCREEN TEXT: User list"
+
+
+class BlankVisionProvider:
+    provider_name = "ollama"
+    model = "llava"
+
+    def __init__(self):
+        self.calls = 0
+
+    def analyze_frame(
+        self,
+        image_path,
+        audio_context,
+        user_task,
+        language,
+        on_progress=None,
+        cancel_token=None,
+        prompt=None,
+    ):
+        self.calls += 1
+        return "BLANK: true"
+
+
+def test_placeholder_vision_response_retries_with_generic_prompt(tmp_path):
+    provider = EmptyThenDescribingVisionProvider()
+    run_job(tmp_path, provider)
+    job_dir = tmp_path / "out" / "sample"
+    vision_srt = (job_dir / "Vision" / "vision_analysis.srt").read_text(encoding="utf-8")
+    assert "DESCRIPTION: TITLE: Dashboard" in vision_srt
+    assert "[none]" not in vision_srt
+    assert provider.prompts.count(None) == 3
+    retries = [prompt for prompt in provider.prompts if prompt is not None]
+    assert len(retries) == 3
+    assert retries[0].startswith("This frame is from a screen recording")
+    report = json.loads(
+        (job_dir / "Vision" / "vision_filter_report.json").read_text(encoding="utf-8")
+    )
+    assert report["retried_count"] == 3
+    assert {change["reason"] for change in report["changes"]} == {"empty_retry"}
+
+
+def test_blank_vision_response_is_marked_without_retry(tmp_path):
+    provider = BlankVisionProvider()
+    run_job(tmp_path, provider)
+    job_dir = tmp_path / "out" / "sample"
+    vision_srt = (job_dir / "Vision" / "vision_analysis.srt").read_text(encoding="utf-8")
+    assert "DESCRIPTION: (no visible screen content)" in vision_srt
+    assert provider.calls == 3
+    report = json.loads(
+        (job_dir / "Vision" / "vision_filter_report.json").read_text(encoding="utf-8")
+    )
+    assert report["blank_count"] == 3
+    assert report["retried_count"] == 0
+
+
 class PartialTextProvider:
     """Summary succeeds; highlights fail - the summary must still be written."""
 
@@ -232,6 +310,34 @@ def test_vision_frames_embedded_in_report_when_requested(tmp_path):
     assert "data:image" not in markdown
     html_text = (job_dir / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
     assert "data:image/png;base64," in html_text
+
+
+class PartialVisionFailureProvider:
+    def __init__(self):
+        self.calls = 0
+
+    def analyze_frame(
+        self, image_path, audio_context, user_task, language, on_progress=None, cancel_token=None
+    ):
+        self.calls += 1
+        if self.calls == 2:
+            raise RuntimeError("one frame failed")
+        return "TITLE: Dashboard SCREEN TEXT: User list"
+
+
+def test_one_failed_frame_does_not_discard_the_others(tmp_path):
+    run_job(tmp_path, PartialVisionFailureProvider())
+    job_dir = tmp_path / "out" / "sample"
+    state = json.loads((job_dir / "job_state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "Succeeded"
+    assert state["steps"]["vision_analysis"]["status"] == "completed"
+    vision_srt = (job_dir / "Vision" / "vision_analysis.srt").read_text(encoding="utf-8")
+    assert "DESCRIPTION: TITLE: Dashboard" in vision_srt
+    assert "DESCRIPTION: (no visible screen content)" in vision_srt
+    report = json.loads(
+        (job_dir / "Vision" / "vision_filter_report.json").read_text(encoding="utf-8")
+    )
+    assert report["blank_count"] == 1
 
 
 def test_vision_failure_keeps_other_results(tmp_path):

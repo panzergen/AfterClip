@@ -39,8 +39,9 @@ status.
 ## Transcription settings
 
 - **Language** is the spoken language hint for Whisper (empty = auto-detect).
-- **Report language** controls summaries/highlights/vision text, independent of
-  the spoken language (empty = Whisper-detected video language).
+- **Report language** is a separate selection for every AI output: summary,
+  highlights, vision descriptions and topics. It is independent of the spoken
+  language. **English (default)** is used when no other language is selected.
 - **Segment length** merges raw Whisper segments into readable paragraphs
   (Whisper default / 15s / 30s / 60s).
 

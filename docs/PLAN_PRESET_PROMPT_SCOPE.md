@@ -3,8 +3,11 @@
 Phase 1 of [PLAN_PROMPT_PACKS.md](PLAN_PROMPT_PACKS.md). Foundation only; no
 prompt text changes in this phase.
 
-Status: **implemented** (2026-10-26). The sections below describe the shipped
-behaviour; the unit-test list in §7 is the acceptance record.
+**Target release:** `0.4.0` (see [PLAN_ROADMAP.md](PLAN_ROADMAP.md)).
+
+Status: **implemented** (2026-10-26), awaiting the `0.4.0` release. The sections
+below describe the shipped behaviour; the unit-test list in §7 is the acceptance
+record.
 
 ## 1. Current behaviour (verified)
 

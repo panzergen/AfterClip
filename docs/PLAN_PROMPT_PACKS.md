@@ -1,9 +1,12 @@
 # Plan: Prompt packs, presets and vision-heavy videos
 
-Status: **planning only**. No application code or prompt text has changed yet.
+Status: **planning only**. Phase 1 is implemented and awaiting its first
+release; Phases 2-4 are still plans. No Phase 2 prompt text has shipped yet.
 
 This is the master index for the next phases. It records the decisions from the
 2026-10-26 planning chat and links the detailed planning documents.
+[PLAN_ROADMAP.md](PLAN_ROADMAP.md) maps each phase to a release version
+(`0.4.0` … `0.7.0`) and lists the exit criteria.
 
 ## Decisions locked in
 
@@ -37,6 +40,13 @@ documentary may instead use the `narrative` pack; the user chooses.
 
 ## Phase map
 
+| Phase | Target release | State |
+|---|---|---|
+| 1 — Prompt scope and preset semantics | `0.4.0` | implemented, unreleased |
+| 2 — Manual content-type presets and prompt packs | `0.5.0` | planned |
+| 3 — Vision synthesis, structured output and frame budget | `0.6.0` | planned |
+| 4 — Narrative character sheet and rolling context | `0.7.0` | planned |
+
 - [x] **Phase 1 — Prompt scope and preset semantics** (foundation; no prompt text changes)
   - Full prompt snapshots per preset, replace-on-apply, defaults restorable.
   - Global-saved vs session-custom prompt behaviour and the `Custom` badge.
@@ -44,7 +54,7 @@ documentary may instead use the `narrative` pack; the user chooses.
   - Optional-placeholder support in the validator.
   - See [PLAN_PRESET_PROMPT_SCOPE.md](PLAN_PRESET_PROMPT_SCOPE.md).
 
-- [ ] **Phase 2 — Manual content-type presets and prompt packs**
+- [ ] **Phase 2 — Manual content-type presets and prompt packs** (`0.5.0`)
   - Six starter prompt packs; no built-in active presets.
   - Manual preset/content-type selection only (no auto-detect).
   - Vision prompt rewritten per pack; summary/highlights/topic prompts rewritten.
@@ -52,7 +62,7 @@ documentary may instead use the `narrative` pack; the user chooses.
   - Structured JSON schema defined for every pack; Markdown remains the primary report.
   - See [PLAN_CONTENT_PACKS.md](PLAN_CONTENT_PACKS.md).
 
-- [ ] **Phase 3 — Vision synthesis, structured output and frame budget**
+- [ ] **Phase 3 — Vision synthesis, structured output and frame budget** (`0.6.0`)
   - Add `vision_synthesis`: turn per-frame descriptions into scene/section summaries.
   - Feed vision context into summary, highlights and topic segmentation.
   - Write `AI_Analysis.json` next to `AI_Analysis.md`.
@@ -61,7 +71,7 @@ documentary may instead use the `narrative` pack; the user chooses.
   - Add optional `{vision_context}` placeholder.
   - See [PLAN_VISION_SYNTHESIS.md](PLAN_VISION_SYNTHESIS.md).
 
-- [ ] **Phase 4 — Narrative character sheet and rolling context** (last)
+- [ ] **Phase 4 — Narrative character sheet and rolling context** (last, `0.7.0`)
   - Only for the `narrative` pack.
   - Stable character references, user-editable names, rolling scene context.
   - See [PLAN_NARRATIVE_CONTINUITY.md](PLAN_NARRATIVE_CONTINUITY.md).

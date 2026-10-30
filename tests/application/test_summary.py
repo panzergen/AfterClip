@@ -12,6 +12,49 @@ TR_PREAMBLE = (
 )
 
 
+TR_REPORT_PREAMBLE = (
+    "Harika bir sunum metni ve transkript özeti vermişsiniz. Ancak mesajınızın "
+    'sonundaki "Bu nedenle şu taleplerinizi karşılayamıyorum..." kısmında '
+    "belirttiğiniz eksiklikler muhtemelen metnin sonrasına eklenmiş bir not gibi "
+    "duruyor.\n\n"
+    "Verdiğiniz metin aslında tamamen bu eksiklikleri içeren bir taslak değil.\n\n"
+    "Bu nedenle, verdiğiniz metni tamamen analiz ettim ve talep ettiğiniz formatta "
+    "aşağıda Türkçe olarak hazırladım.\n\n"
+    "Eğer bu rapor size uygun gelmezse veya metnin başka bir kısmını eklememi "
+    "isterseniz lütfen belirtin.\n\n"
+    "---\n\n"
+    "# Detaylı Rapor: Sertifika Fonksiyonu\n\n"
+    "## 1. Bölüm: Sertifika Yükleme Süreci"
+)
+
+
+def test_strips_multiparagraph_chat_reply_before_rule():
+    cleaned = clean_summary_output(TR_REPORT_PREAMBLE)
+    assert cleaned.startswith("# Detaylı Rapor")
+    assert "Harika" not in cleaned
+    assert "mesajınızın" not in cleaned
+    assert "lütfen belirtin" not in cleaned
+    assert "## 1. Bölüm: Sertifika Yükleme Süreci" in cleaned
+
+
+def test_content_before_rule_is_kept():
+    text = "The launch moved to May.\n\n---\n\n## Details\n\nMore."
+    assert clean_summary_output(text) == text
+
+
+def test_only_the_chatter_run_before_a_rule_is_dropped():
+    text = "Real content stays.\n\nHere is the summary.\n\n---\n\n# Report\n\nBody."
+    cleaned = clean_summary_output(text)
+    assert cleaned.startswith("Real content stays.")
+    assert "Here is" not in cleaned
+    assert "# Report" in cleaned
+
+
+def test_content_before_heading_is_kept_without_chatter():
+    text = "The team agreed on the launch date.\n\n## Decisions\n\nMay 12."
+    assert clean_summary_output(text) == text
+
+
 def test_strips_turkish_preamble_keeps_content():
     cleaned = clean_summary_output(TR_PREAMBLE)
     assert "Anladım" not in cleaned

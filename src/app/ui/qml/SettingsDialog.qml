@@ -70,19 +70,21 @@ Dialog {
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.muted
                 }
-                TextField {
+                AppComboBox {
                     Layout.fillWidth: true
-                    placeholderText: qsTr("Optional, e.g. tr — default report language for new jobs")
-                    text: settings.reportLanguage
+                    model: settings.reportLanguageLabels
+                    currentIndex: settings.reportLanguageIndex
                     font.pixelSize: Theme.fontSizeSmall
-                    selectByMouse: true
-                    onEditingFinished: settings.reportLanguage = text
-                    background: Rectangle {
-                        color: Theme.field
-                        border.color: parent.activeFocus ? Theme.primary : Theme.fieldBorder
-                        radius: 3
-                    }
+                    onActivated: (index) => settings.reportLanguageIndex = index
                 }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Default is English. The selected language is used for every AI output: summary, highlights, vision descriptions and topics.")
+                font.pixelSize: Theme.fontSizeCaption
+                color: Theme.muted
+                wrapMode: Text.Wrap
             }
 
             RowLayout {

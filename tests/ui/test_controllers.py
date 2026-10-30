@@ -118,6 +118,16 @@ def test_job_form_report_language_empty_without_setting(monkeypatch, qapp):
     assert form.reportLanguage == ""
 
 
+def test_report_language_selection_maps_labels_to_codes(controllers):
+    form = controllers.job_form
+    assert form.reportLanguageLabels[form.reportLanguageIndex] == "English (default)"
+    form.reportLanguageIndex = form.reportLanguageLabels.index("Turkish")
+    assert form.reportLanguage == "tr"
+    assert form.reportLanguageIndex == form.reportLanguageLabels.index("Turkish")
+    form.reportLanguageIndex = 0
+    assert form.reportLanguage == ""
+
+
 def test_ollama_offline_keeps_checkbox_intent(controllers):
     form = controllers.job_form
     form.visionEnabled = True
@@ -606,16 +616,16 @@ def test_update_selected_prompts_saves_per_preset(controllers):
     presets.newName = "B"
     presets.saveCurrent()
     # Edit while B is selected, save into the preset (not just global).
-    presets.selectedIndex = [i for i, n in enumerate(presets.names) if n == "B"][0]
+    presets.selectedIndex = next(i for i, n in enumerate(presets.names) if n == "B")
     settings.promptText = "B-ONLY {lang} {transcript}"
     presets.updateSelectedPrompts()
     assert settings.prompt_set().summary == "B-ONLY {lang} {transcript}"
     # Switch to A: its snapshot is untouched.
-    presets.selectedIndex = [i for i, n in enumerate(presets.names) if n == "A"][0]
+    presets.selectedIndex = next(i for i, n in enumerate(presets.names) if n == "A")
     presets.applySelected()
     assert settings.prompt_set().summary != "B-ONLY {lang} {transcript}"
     # Back to B restores the per-preset edit.
-    presets.selectedIndex = [i for i, n in enumerate(presets.names) if n == "B"][0]
+    presets.selectedIndex = next(i for i, n in enumerate(presets.names) if n == "B")
     presets.applySelected()
     assert settings.prompt_set().summary == "B-ONLY {lang} {transcript}"
 
@@ -901,13 +911,13 @@ def test_load_selected_prompts_switches_editor(controllers):
     presets.newName = "B"
     presets.saveCurrent()
     # Switch to A through the dialog path: editor shows A's prompts.
-    presets.selectedIndex = [i for i, n in enumerate(presets.names) if n == "A"][0]
+    presets.selectedIndex = next(i for i, n in enumerate(presets.names) if n == "A")
     presets.loadSelectedPrompts()
     assert settings.prompt_set().summary == "AAA {lang} {transcript}"
     assert settings.promptText == "AAA {lang} {transcript}"
     assert presets.promptBadge == "Applied"
     # Back to B.
-    presets.selectedIndex = [i for i, n in enumerate(presets.names) if n == "B"][0]
+    presets.selectedIndex = next(i for i, n in enumerate(presets.names) if n == "B")
     presets.loadSelectedPrompts()
     assert settings.prompt_set().summary == "BBB {lang} {transcript}"
 

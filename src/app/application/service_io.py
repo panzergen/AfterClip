@@ -154,22 +154,17 @@ def detect_transcript_language(transcript_dir: Path, audio_stem: str) -> str:
     return ""
 
 
-def resolve_report_language(request, transcript_dir: Path | None = None, audio_stem: str = "") -> str:
-    """Language code for summaries/highlights/vision/topics.
+def resolve_report_language(
+    request, transcript_dir: Path | None = None, audio_stem: str = ""
+) -> str:
+    """Language code for every AI output (summary, highlights, vision, topics).
 
-    Precedence: explicit report language, else Whisper-detected video language,
-    else the transcription hint, else English. This keeps unconfigured jobs in
-    the video's language instead of silently defaulting to English.
+    Only the explicit report-language selection is used. With no selection the
+    report is English, regardless of the Whisper-detected or transcription
+    language; those remain transcription settings only.
     """
     selected = (getattr(request, "output_language", "") or "").strip()
-    if selected:
-        return selected
-    if transcript_dir is not None:
-        detected = detect_transcript_language(transcript_dir, audio_stem)
-        if detected:
-            return detected
-    hint = (getattr(request, "language", "") or "").strip()
-    return hint or "en"
+    return selected or "en"
 
 
 def prompt_set_fingerprint(prompt_set) -> str:

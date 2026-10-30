@@ -25,6 +25,7 @@ from app.application.headless import (
 from app.application.history import scan_job_history
 from app.application.prompt_scope import resolve_cli_prompts
 from app.application.service import parse_clip_time
+from app.application.service_io import find_reusable_job_dir
 from app.application.topics import TOPIC_METHODS
 from app.domain.models import TranscriptionRequest
 from app.domain.presets import Preset
@@ -46,7 +47,11 @@ class CliError(Exception):
 def _add_job_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", help="Whisper model (default: turbo)")
     parser.add_argument("--language", help="Transcription language hint")
-    parser.add_argument("--report-language", help="Language for summaries/highlights/vision")
+    parser.add_argument(
+        "--report-language",
+        help="Language for all AI outputs (summary, highlights, vision, topics); "
+        "omit for English",
+    )
     parser.add_argument("--task", default="", help="Extra instructions for AI analysis")
     parser.add_argument(
         "--provider", help="ollama | gemini | openrouter | opencode_go | opencode_zen"
@@ -72,6 +77,19 @@ def _add_job_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--topic-max-sections", type=int, help="Maximum topic sections")
     parser.add_argument("--preset", help="Apply a saved preset by name")
     parser.add_argument("--output-name", default="", help="Output job folder base name")
+    parser.add_argument(
+        "--reuse-transcription",
+        "--reuse",
+        dest="reuse_transcription",
+        action="store_true",
+        help="Reuse the latest completed transcription for this input (skip Whisper)",
+    )
+    parser.add_argument(
+        "--resume-dir",
+        "--job-dir",
+        dest="resume_dir",
+        help="Reuse this exact existing job folder (skip Whisper)",
+    )
     parser.add_argument("--json", action="store_true", help="Machine-readable output")
     parser.add_argument("--quiet", action="store_true", help="Suppress progress output")
 
@@ -233,6 +251,22 @@ def process_one(args, preset: Preset | None = None) -> int:
         _emit_error(args, str(error))
         return EXIT_VALIDATION
 
+    resume_dir = None
+    if getattr(args, "resume_dir", None):
+        resume_dir = Path(args.resume_dir).resolve()
+        if not resume_dir.is_dir():
+            _emit_error(args, f"Job folder not found: {resume_dir}")
+            return EXIT_VALIDATION
+    elif getattr(args, "reuse_transcription", False):
+        resume_dir = find_reusable_job_dir(request.output_dir, request.input_path)
+        if resume_dir is None:
+            _emit_error(
+                args,
+                "No completed transcription was found for this input in the output "
+                "directory. Run the job once without --reuse-transcription first.",
+            )
+            return EXIT_VALIDATION
+
     prompts = resolve_cli_prompts(preset, resolve_prompts())
     sanitizer = resolve_sanitizer(enabled=False if args.no_filter else None)
     provider = args.provider or (
@@ -265,7 +299,15 @@ def process_one(args, preset: Preset | None = None) -> int:
             print(f"[{percent}] {event.message}", file=sys.stderr)
 
     try:
-        result = run_request(request, text_provider, vision_provider, sanitizer, on_event, token)
+        result = run_request(
+            request,
+            text_provider,
+            vision_provider,
+            sanitizer,
+            on_event,
+            token,
+            resume_dir=resume_dir,
+        )
     except JobCancelled:
         _emit_error(args, "Cancelled", code=EXIT_CANCELLED)
         return EXIT_CANCELLED

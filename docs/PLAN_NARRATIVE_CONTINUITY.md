@@ -4,6 +4,8 @@ Phase 4, **last**, of [PLAN_PROMPT_PACKS.md](PLAN_PROMPT_PACKS.md). Only the
 `narrative` pack. Everything in Phases 2-3 must work without this feature; a job
 with no character sheet behaves exactly like the Phase 3 output.
 
+**Target release:** `0.7.0` (see [PLAN_ROADMAP.md](PLAN_ROADMAP.md)).
+
 ## 1. Goal
 
 Keep character references stable across a long movie/TV episode/cartoon without

@@ -78,6 +78,36 @@ Dialog {
         RowLayout {
             spacing: 8
             Text {
+                text: qsTr("Starter text")
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.muted
+            }
+            AppComboBox {
+                id: starterCombo
+                Layout.fillWidth: true
+                model: settings.starterPackNames
+                currentIndex: 0
+                font.pixelSize: Theme.fontSizeSmall
+            }
+            Button {
+                text: qsTr("Load starter...")
+                font.pixelSize: Theme.fontSizeSmall
+                enabled: settings.starterPackNames.length > 0
+                onClicked: settings.loadStarterPack(settings.starterPackNames[starterCombo.currentIndex])
+            }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("Starter text is not an active preset. Load it, review/edit it, then save it to a preset.")
+            font.pixelSize: Theme.fontSizeCaption
+            color: Theme.muted
+            wrapMode: Text.Wrap
+        }
+
+        RowLayout {
+            spacing: 8
+            Text {
                 text: qsTr("Template")
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.muted

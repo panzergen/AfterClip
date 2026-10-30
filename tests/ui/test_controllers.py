@@ -103,6 +103,23 @@ def test_settings_persists_segment_length(qapp):
     assert controller.report_language() == "tr"
 
 
+def test_settings_loads_slides_starter_as_session_prompts(qapp):
+    from app.infrastructure.prompts import InMemoryPromptStore
+
+    store = InMemorySettingsStore()
+    controller = SettingsController(
+        store=store, key_store=NoKeyStore(), prompt_store=InMemoryPromptStore()
+    )
+    assert "Slides / presentation" in controller.starterPackNames
+    controller.loadStarterPack("Slides / presentation")
+    assert controller.promptIndex == 0
+    assert "slide-by-slide" in controller.promptText
+    assert "slide-by-slide" in controller.effective_prompt_set().summary
+    assert controller.promptDirty is True
+    # The starter is not written to the global store until the user saves it.
+    assert "slide-by-slide" not in controller.prompt_store.load().summary
+
+
 def test_job_form_defaults_report_language_from_settings(monkeypatch, qapp):
     store = InMemorySettingsStore({"report_language": "tr"})
     monkeypatch.setattr("app.ui.controllers.job_form_controller.JsonSettingsStore", lambda: store)

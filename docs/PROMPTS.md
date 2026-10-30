@@ -79,6 +79,17 @@ release.
   `(no visible screen content)`. `vision_filter_report.json` records `retried`
   and `blank` counts, and a retry never drops the frame.
 
+## Starter packs
+
+The prompt editor has **Starter text → Load starter…** with a `Slides /
+presentation` starter. It loads slide-aware summary, highlights, vision and
+topic templates into the **session-custom** set; it is not an active preset and
+does not change `prompts.json` on its own. Review/edit the text, then use
+**Save to preset** (recommended) or **Save** to persist it.
+
+The meeting-oriented built-in defaults are unchanged, so existing jobs keep
+their current output until a starter is loaded.
+
 ## Resetting
 
 Delete `prompts.json`, or save an empty/partial file — any omitted template

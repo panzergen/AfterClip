@@ -13,6 +13,7 @@ from app.application.voiceprints import (
     DEFAULT_CLUSTER_THRESHOLD,
     DEFAULT_IDENTIFY_THRESHOLD,
 )
+from app.domain.content_packs import find_pack, pack_labels
 from app.domain.prompts import (
     TEMPLATE_NAMES,
     TEMPLATE_PLACEHOLDERS,
@@ -216,6 +217,9 @@ class SettingsController(QObject):
     def _get_prompt_names(self) -> list:
         return list(TEMPLATE_NAMES)
 
+    def _get_starter_pack_names(self) -> list:
+        return pack_labels()
+
     def _get_prompt_placeholders(self) -> list:
         return sorted(TEMPLATE_PLACEHOLDERS.get(self._prompt_name(), ()))
 
@@ -281,6 +285,7 @@ class SettingsController(QObject):
         int, _get_cloud_provider_index, _set_cloud_provider_index, notify=cloudProviderIndexChanged
     )
     promptNames = Property("QVariantList", _get_prompt_names, constant=True)
+    starterPackNames = Property("QVariantList", _get_starter_pack_names, constant=True)
     promptPlaceholders = Property(
         "QVariantList", _get_prompt_placeholders, notify=promptIndexChanged
     )
@@ -593,6 +598,32 @@ class SettingsController(QObject):
         except RuntimeError:
             pass
         self._set_prompt_status("Loaded the built-in default; press Save to apply.", ok=True)
+
+    @Slot(str)
+    def loadStarterPack(self, name: str) -> None:
+        """Load a content pack's starter text into the session prompt set.
+
+        This is not an active preset: the user reviews the text and saves it to
+        a preset (or to the global prompts) explicitly. It replaces existing
+        unsaved edits, which the status line says.
+        """
+        pack = find_pack(name)
+        if pack is None:
+            self._set_prompt_status(f"Unknown starter pack: {name}", ok=False)
+            return
+        self._session_prompt_overrides = dict(pack.prompts)
+        self._prompt_index = 0
+        self.promptIndexChanged.emit()
+        self._load_prompt_editor()
+        self._set_prompt_status(
+            f"Loaded '{pack.label}' starter. Review it, then save it to a preset "
+            "(this replaced any unsaved edits).",
+            ok=True,
+        )
+        try:
+            self.promptDirtyChanged.emit()
+        except RuntimeError:
+            pass
 
     @Slot()
     def reloadPrompts(self) -> None:

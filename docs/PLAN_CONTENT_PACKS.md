@@ -7,6 +7,10 @@ user creates a preset and loads a starter into it.
 
 **Target release:** `0.5.0` (see [PLAN_ROADMAP.md](PLAN_ROADMAP.md)).
 
+Status: **in progress**. The `slides` starter is available in the prompt editor
+(“Starter text → Load starter…”). The other five packs, optional placeholders
+and the JSON sidecar are still planned.
+
 ## 1. Common rules for every pack
 
 Every new prompt must follow these rules:

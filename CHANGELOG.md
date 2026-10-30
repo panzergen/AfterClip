@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The prompt editor can load a `Slides / presentation` starter pack: slide-aware
+  summary, highlights, vision and topic templates, loaded as session-custom
+  prompts for review and saving to a preset. It is not an active preset.
+
 ## [0.4.0] — 2026-10-30
 
 Phase 1 preset/prompt semantics plus the report-quality and vision-repair work.

@@ -90,6 +90,8 @@ _SLIDES_PROMPTS: dict[str, str] = {
         "TITLE: <slide title, or [none]>\n"
         "SLIDE TEXT: <all legible bullets in reading order, translated to "
         "'{lang}'; separate with ' | '; write [unreadable] for unclear text>\n"
+        "If a table, grid or dense slide is mostly unreadable, write [unreadable] "
+        "once for the whole region; do not repeat [unreadable] for every cell.\n"
         "VISUALS: <chart, table or diagram type; axes, series, labels and key "
         "numbers; [none]>\n"
         "HIGHLIGHT: <only what the presenter points at or highlights; [none]>\n\n"

@@ -111,6 +111,8 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "short texts intact; summarize plain long paragraphs in one or two sentences; "
         "translate into '{lang}'; keep proper nouns and brand names in original spelling; "
         "write [unreadable] for unclear text; [none] when there is no text>\n"
+        "If a table, grid or dense slide is mostly unreadable, write [unreadable] "
+        "once for the whole region; do not repeat [unreadable] for every cell.\n"
         "UI / VISUALS: <chart, table, diagram, dialog, menu, button, URL or image type; axes, "
         "series, labels and key numbers; [none]>\n"
         "HIGHLIGHT: <only a visible element the presenter points at or emphasizes; never a "

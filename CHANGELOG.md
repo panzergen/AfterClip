@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Dense tables and grids no longer produce a long `[unreadable] | [unreadable]`
+  tail in vision descriptions. Consecutive `[unreadable]`/`[none]` placeholders
+  collapse to a single marker, and the built-in/slides vision prompts ask for
+  one `[unreadable]` per unreadable region instead of one per cell.
+
 ### Added
 
 - The prompt editor can load six starter packs: meeting/webinar (default),

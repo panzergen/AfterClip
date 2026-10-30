@@ -5,8 +5,8 @@
 ;
 ; The version is always supplied by the build script, which reads it from
 ; src/app/version.py -- the single source of truth. Compiling this file by hand
-; requires passing it explicitly:
-;   ISCC.exe /DAppVersion=0.3.0 packaging\afterclip.iss
+; requires passing both defines explicitly:
+;   ISCC.exe /DAppVersion=0.3.0 /DAppVersionInfoVersion=0.3.0.0 packaging\afterclip.iss
 ;
 ; The source tree is the one-directory bundle produced by
 ; packaging\build_windows.ps1 (-Installer drives this automatically).
@@ -19,6 +19,12 @@
   #error AppVersion is not defined. Build via packaging\build_windows.ps1 -Installer, or pass /DAppVersion=<version>.
 #endif
 
+; Windows version resources need exactly four numeric components; a three-part
+; AppVersion alone leaves Explorer's Details tab showing a blank FileVersion.
+#ifndef AppVersionInfoVersion
+  #error AppVersionInfoVersion is not defined. Build via packaging\build_windows.ps1 -Installer, or pass /DAppVersionInfoVersion=<x.x.x.x>.
+#endif
+
 #define AppName "AfterClip"
 #define AppPublisher "AfterClip"
 #define AppExeName "AfterClip.exe"
@@ -29,6 +35,7 @@
 AppId={{8E4C1F2A-3B6D-4F1E-9A2C-7D5B0E1F2A3B}
 AppName={#AppName}
 AppVersion={#AppVersion}
+VersionInfoVersion={#AppVersionInfoVersion}
 AppPublisher={#AppPublisher}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}

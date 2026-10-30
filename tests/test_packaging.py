@@ -4,7 +4,7 @@ import tomllib
 from pathlib import Path
 
 import app.app_paths as app_paths
-from app.version import __version__, version_string
+from app.version import __version__, version_info_version, version_string
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -15,6 +15,15 @@ def test_version_is_semver_like():
 
 def test_version_string_matches_module_version():
     assert version_string() == __version__
+
+
+def test_version_info_version_is_a_numeric_quad():
+    """The version used for Windows resources: exactly four numeric parts."""
+    info_version = version_info_version()
+    parts = info_version.split(".")
+    assert len(parts) == 4
+    assert info_version.startswith(__version__)
+    assert all(part.isdigit() for part in parts)
 
 
 def test_pyproject_reads_version_from_code():
@@ -84,6 +93,12 @@ def test_packaging_assets_present():
     spec = (ROOT / "packaging" / "AfterClip.spec").read_text(encoding="utf-8")
     assert "app/ui/qml" in spec
     assert "app.version" in spec
+    assert "speakeronnx" in spec
+    assert "onnxruntime" in spec
     installer = (ROOT / "packaging" / "afterclip.iss").read_text(encoding="utf-8")
     assert "OutputBaseFilename=AfterClip-{#AppVersion}-setup" in installer
     assert 'SourceDir "..\\release\\AfterClip"' in installer
+    assert "VersionInfoVersion={#AppVersionInfoVersion}" in installer
+    build_script = (ROOT / "packaging" / "build_windows.ps1").read_text(encoding="utf-8")
+    assert '"/DAppVersionInfoVersion=$versionInfoVersion"' in build_script
+    assert '".[build,voiceprint]"' in build_script

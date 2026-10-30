@@ -15,6 +15,16 @@ tools the application discovers on `PATH` (see `Where things are stored` in the
 main README). Distribution of those binaries is tracked separately because of
 licensing, CUDA/PyTorch size and antivirus considerations.
 
+The voiceprint stack (`speakeronnx` + `onnxruntime`) **is** bundled: the spec
+wires it in whenever the `voiceprint` extra is installed (the build script
+installs it), so packaged builds get local speaker identification. PyTorch
+stays out of the bundle — `huggingface_hub` lazily references it, but the
+voiceprint path only uses `hf_hub_download`, so the spec excludes torch and
+its heavy dependencies. Only the embedding model weights stay out of the
+bundle — they download from Hugging Face into the user's local cache on first
+use. Building without the extra still works; the bundle then reports
+`Voiceprint: MISSING` at runtime.
+
 ## Build
 
 From the repository root:
@@ -25,7 +35,8 @@ powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1 -Clean -Zip
 
 The script:
 
-1. installs the project with the `build` extra (`pip install ".[build]"`),
+1. installs the project with the `build` and `voiceprint` extras
+   (`pip install ".[build,voiceprint]"`), so the voiceprint stack is bundled,
 2. runs `python -m PyInstaller packaging/AfterClip.spec`,
 3. writes the executable to `release\AfterClip\AfterClip.exe`,
 4. with `-Zip`, also emits `release\AfterClip-<version>-win64.zip`,
@@ -34,7 +45,7 @@ The script:
 Manual equivalent:
 
 ```powershell
-python -m pip install ".[build]"
+python -m pip install ".[build,voiceprint]"
 python -m PyInstaller packaging\AfterClip.spec --noconfirm --clean `
     --distpath release --workpath build\pyinstaller
 ```
@@ -87,7 +98,9 @@ edit `__version__` in `src/app/version.py` only; a test
 (`tests/test_packaging.py`) guards the wiring.
 
 The installer takes the version from the build script, which reads the same
-file. Nothing else hard-codes a version number.
+file, padded to a four-part `AppVersionInfoVersion` (`0.3.0` → `0.3.0.0`) so
+the setup executable carries a real `FileVersion` in Windows' Details tab.
+Nothing else hard-codes a version number.
 
 ## Automated releases
 
@@ -147,11 +160,6 @@ See `TEST_SCENARIOS.md` (T29, T30) for the release smoke expectations.
 - **Qt QML modules**: if the frozen app fails to load a QML module, add
   `collect_all("PySide6")` in the spec (larger bundle) or extend the
   `collect_data_files` includes.
-- **Voiceprint extra**: `onnxruntime` and `speakeronnx` are not wired into the
-  frozen build, so voiceprints do not work in a packaged executable yet.
-- **Installer version resource**: the setup executable carries the right
-  `ProductVersion` (`0.3.0`) but its `FileVersion` field is empty, so
-  Explorer's Details tab shows a blank "File version". Fixing it means
-  setting Inno Setup's `VersionInfoVersion`, which requires a four-part
-  version — the build script would need to derive one from
-  `src/app/version.py`.
+- **Voiceprint model weights**: `huggingface_hub` is bundled for the first-use
+  download, but a machine with no network access gets no embedding models
+  until the weights are provisioned into its Hugging Face cache.

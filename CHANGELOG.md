@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Work that has landed on `main` since the last tagged release.
 
+### Added
+
+- The Windows bundle now ships the local voiceprint stack. The spec wires the
+  optional `speakeronnx` + `onnxruntime` extra into the executable (with
+  `huggingface_hub` for the first-use model-weight download) so packaged
+  builds get speaker identification instead of reporting
+  `Voiceprint: MISSING`. PyTorch is explicitly excluded — `huggingface_hub`
+  only touches it lazily and the voiceprint path never uses it, so the bundle
+  stays lean. Without the extra installed the bundle still builds with the
+  feature absent, like a source run.
+
 ### Fixed
 
 - Concurrent writers no longer collide on report and state files. The atomic
@@ -18,6 +29,9 @@ Work that has landed on `main` since the last tagged release.
 - Batch jobs now run voiceprints. The batch worker previously built its
   transcription service without the voiceprint store and embedder, so the
   per-job `voiceprint_enabled` flag was silently ignored.
+- The installer's Details tab no longer shows a blank "File version". Inno
+  Setup now requires a `VersionInfoVersion` and the build script derives it
+  from `src/app/version.py` (padded to four parts, `0.3.0` → `0.3.0.0`).
 - The default test run no longer needs Qt's GUI libraries. `tests/ui` was
   imported during collection even though the `ui` marker deselected it
   afterwards, so on Linux — where `QtGui` links against `libEGL` — a plain

@@ -15,6 +15,7 @@ The version resource is generated from ``app.version.__version__`` at build
 time, so the executable metadata can never drift from the package version.
 """
 
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -44,6 +45,40 @@ hiddenimports = [
     "keyring.backends.macOS",
     "keyring.backends.fail",
 ]
+
+
+def _voiceprint_hiddenimports() -> list[str]:
+    """Wire in the optional voiceprint stack when the extra is installed.
+
+    The application imports ``speakeronnx`` lazily at runtime (see
+    ``app/infrastructure/voiceprint_embedder.py``), so PyInstaller's static
+    analysis can never see it; probe it at spec time instead. The community
+    hook collects onnxruntime's ONNX provider libraries once onnxruntime is
+    analysed, and ``huggingface_hub`` drives the first-use download of the
+    embedding model into the user's Hugging Face cache — the weights
+    themselves are never bundled. Only when the ``voiceprint`` extra is
+    missing does the bundle ship without the feature, exactly like a source
+    run reports ``Voiceprint: MISSING``.
+    """
+    if importlib.util.find_spec("speakeronnx") is None:
+        print(
+            'WARNING: speakeronnx is not installed; building WITHOUT voiceprints '
+            '(the app will report "Voiceprint: MISSING"). '
+            'Install the extra: pip install ".[build,voiceprint]".'
+        )
+        return []
+    print("Bundling the voiceprint stack (speakeronnx + onnxruntime).")
+    return [
+        "speakeronnx",
+        "onnxruntime",
+        "huggingface_hub",
+        "requests",
+        "tqdm",
+        "yaml",
+    ]
+
+
+hiddenimports += _voiceprint_hiddenimports()
 
 
 def _version_resource(version: str) -> str:
@@ -95,7 +130,24 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib", "pytest", "_pytest"],
+    excludes=[
+        "tkinter",
+        "matplotlib",
+        "pytest",
+        "_pytest",
+        # PyTorch is deliberately kept out: huggingface_hub's serialization
+        # submodule references torch lazily (importlib.import_module) even
+        # though the voiceprint path only uses hf_hub_download, and bundling
+        # it would add gigabytes of DLLs on top of onnxruntime. The
+        # voiceprint stack itself is pure onnxruntime + numpy (no PyTorch).
+        "torch",
+        "torchaudio",
+        "torchvision",
+        "sympy",
+        "networkx",
+        "numba",
+        "llvmlite",
+    ],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

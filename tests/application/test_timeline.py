@@ -166,6 +166,51 @@ def test_full_report_includes_summary_and_highlights(tmp_path: Path):
     assert "<h2>Timeline</h2>" in html_text
 
 
+def test_split_analysis_keeps_internal_headings_and_stops_at_topics():
+    from app.application.timeline import split_ai_analysis
+
+    analysis = (
+        "## Summary\n\n# Report\n\n## Part 1\n\nContent\n\n"
+        "## Key Highlights\n\n- 00:00:01 important\n\n"
+        "## Topics\n\n- `[00:00:00,000 --> 00:01:00,000]` Opening\n"
+    )
+    summary, highlights = split_ai_analysis(analysis)
+    assert "## Part 1" in summary and "Content" in summary
+    assert "## Topics" not in summary
+    assert highlights == "- 00:00:01 important"
+
+
+def test_full_report_keeps_topics_out_of_key_highlights(tmp_path: Path):
+    vision = tmp_path / "vision_analysis.srt"
+    vision.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nFILE: ghost.png\nDESCRIPTION: A screen\n",
+        encoding="utf-8",
+    )
+    analysis = (
+        "# AI Analysis\n\n## Summary\n\nMeeting covered infra fixes.\n\n"
+        "## Key Highlights\n\n- 00:00:01 important point\n\n"
+        "## Topics\n\n- `[00:00:00,000 --> 00:01:00,000]` Opening topic\n"
+    )
+    from app.application.topics import TopicSegment
+
+    topics = (TopicSegment(0, 60_000, "00:00:00,000", "00:01:00,000", "Opening topic"),)
+    write_master_timeline(
+        tmp_path,
+        None,
+        vision,
+        (),
+        embed_frames=True,
+        analysis_markdown=analysis,
+        topics=topics,
+    )
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    highlights = html_text.split("<h2>Key Highlights</h2>", 1)[1].split("<h2>", 1)[0]
+    assert "important point" in highlights
+    assert "Opening topic" not in highlights
+    # Listed once under Topics and once as the timeline section heading.
+    assert html_text.count("Opening topic") == 2
+
+
 def test_write_master_timeline_merges_transcript_segments(tmp_path: Path):
     transcript = tmp_path / "sample.srt"
     transcript.write_text(

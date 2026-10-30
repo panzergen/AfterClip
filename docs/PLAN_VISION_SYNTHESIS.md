@@ -3,6 +3,8 @@
 Phase 3 of [PLAN_PROMPT_PACKS.md](PLAN_PROMPT_PACKS.md). This is the phase that
 makes vision-heavy videos actually summarizable.
 
+**Target release:** `0.6.0` (see [PLAN_ROADMAP.md](PLAN_ROADMAP.md)).
+
 ## 1. The current gap
 
 Today the pipeline is effectively:

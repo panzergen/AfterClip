@@ -26,6 +26,13 @@ minute, bounded 4–120); `topic_max_sections` can override it (0 = auto) and
 AI titles need a text provider (they use the same one as AI text analysis, and
 respect the prompt templates). With no provider, `ai` degrades to `cohesion`.
 
+Titles always follow the report language: the explicit selection, or **English**
+when none is selected. The Whisper-detected and transcription languages are not
+used for the report. Models sometimes copy the language of the section instead;
+a small deterministic guard (`application/language.py`) then rewrites the
+affected titles in one batch in the target language and retries any stragglers
+individually. Product names and brand names are kept.
+
 ## Outputs
 
 For each job:

@@ -11,7 +11,7 @@ This module is Qt-free so the CLI, MCP server and GUI share it.
 from dataclasses import dataclass
 
 from app.domain.presets import Preset
-from app.domain.prompts import PromptSet, build_prompt_set, prompt_set_from_snapshot
+from app.domain.prompts import PromptSet, prompt_set_from_snapshot
 
 
 @dataclass(frozen=True)

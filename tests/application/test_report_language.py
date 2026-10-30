@@ -1,7 +1,7 @@
 import json
 
 from app.application.cancellation import CancellationToken
-from app.application.service import TranscriptionService, analysis_fingerprint
+from app.application.service import TranscriptionService
 from app.application.service_io import (
     detect_transcript_language,
     prompt_set_fingerprint,
@@ -50,15 +50,15 @@ def test_resolve_report_language_prefers_explicit_selection(tmp_path):
     assert resolve_report_language(request, tmp_path, "sample") == "de"
 
 
-def test_resolve_report_language_falls_back_to_detected_video_language(tmp_path):
+def test_resolve_report_language_defaults_to_english_not_the_video_language(tmp_path):
     (tmp_path / "sample.json").write_text(json.dumps({"language": "tr"}), encoding="utf-8")
     request = _request(output_language="", language="")
-    assert resolve_report_language(request, tmp_path, "sample") == "tr"
+    assert resolve_report_language(request, tmp_path, "sample") == "en"
 
 
-def test_resolve_report_language_hint_then_english(tmp_path):
+def test_resolve_report_language_ignores_the_transcription_hint(tmp_path):
     request = _request(output_language="", language="fr")
-    assert resolve_report_language(request, tmp_path, "sample") == "fr"
+    assert resolve_report_language(request, tmp_path, "sample") == "en"
     assert resolve_report_language(_request(), tmp_path, "sample") == "en"
 
 
@@ -104,7 +104,7 @@ class PassthroughMedia:
         return ()
 
 
-def test_service_uses_detected_video_language_when_nothing_selected(tmp_path):
+def test_service_defaults_reports_to_english_when_nothing_selected(tmp_path):
     source = tmp_path / "sample.wav"
     source.write_bytes(b"fixture")
     provider = LanguageRecordingTextProvider()
@@ -115,7 +115,7 @@ def test_service_uses_detected_video_language_when_nothing_selected(tmp_path):
         lambda _: None,
         CancellationToken(),
     )
-    assert provider.languages and all(language == "tr" for language in provider.languages)
+    assert provider.languages and all(language == "en" for language in provider.languages)
 
 
 def test_resumed_job_reruns_analysis_when_prompts_changed(tmp_path):
@@ -144,7 +144,7 @@ def test_resumed_job_reruns_analysis_when_prompts_changed(tmp_path):
     assert len(job_dirs) == 1
     state_path = job_dirs[0] / "job_state.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state["text_analysis_prompts"]["language"] == "tr"
+    assert state["text_analysis_prompts"]["language"] == "en"
 
     # Simulate a failed job resumed with different prompts: analysis must re-run.
     state["status"] = "failed"
@@ -158,6 +158,47 @@ def test_resumed_job_reruns_analysis_when_prompts_changed(tmp_path):
     state_path.write_text(json.dumps(state), encoding="utf-8")
     third = run_with("BBB {lang} {transcript}")
     assert third.calls == 0
+
+
+class WrongLanguageTextProvider:
+    provider_name = "test"
+    model = "test-model"
+    chunk_size = 3500
+
+    def __init__(self):
+        self.generated = 0
+
+    def summarize(self, transcript, language, on_progress=None, cancel_token=None):
+        return "The meeting covered three topics."
+
+    def extract_highlights(self, srt_content, language, on_progress=None, cancel_token=None):
+        return ""
+
+    def generate(self, prompt, cancel_token=None):
+        self.generated += 1
+        return "Toplantı üç konuyu ele aldı."
+
+
+def test_summary_is_rewritten_when_the_model_ignores_the_report_language(tmp_path):
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"fixture")
+    provider = WrongLanguageTextProvider()
+    TranscriptionService(DetectedLanguageProvider(), PassthroughMedia(), provider).run(
+        TranscriptionRequest(
+            source,
+            tmp_path / "out",
+            output_language="tr",
+            analyze_text=True,
+            analysis_model="test-model",
+        ),
+        lambda _: None,
+        CancellationToken(),
+    )
+    job_dir = tmp_path / "out" / "sample"
+    analysis = (job_dir / "AI_Analysis.md").read_text(encoding="utf-8")
+    assert "Toplantı üç konuyu ele aldı." in analysis
+    assert "The meeting covered three topics." not in analysis
+    assert provider.generated == 1
 
 
 def test_prompt_set_fingerprint_is_stable_and_sensitive(tmp_path):
@@ -180,13 +221,37 @@ def test_text_analysis_cached_rejects_changed_prompts(tmp_path):
         job_dir=job_dir,
         state={"text_analysis_prompts": {"prompts": "aaa", "language": "tr"}},
     )
-    assert TranscriptionService._text_analysis_cached(ctx, {"prompts": "aaa", "language": "tr"}) is True
-    assert TranscriptionService._text_analysis_cached(ctx, {"prompts": "bbb", "language": "tr"}) is False
-    assert TranscriptionService._text_analysis_cached(ctx, {"prompts": "aaa", "language": "en"}) is False
+    assert (
+        TranscriptionService._text_analysis_cached(ctx, {"prompts": "aaa", "language": "tr"})
+        is True
+    )
+    assert (
+        TranscriptionService._text_analysis_cached(ctx, {"prompts": "bbb", "language": "tr"})
+        is False
+    )
+    assert (
+        TranscriptionService._text_analysis_cached(ctx, {"prompts": "aaa", "language": "en"})
+        is False
+    )
     # Old job states without a fingerprint never count as cached.
     ctx.state = {}
-    assert TranscriptionService._text_analysis_cached(ctx, {"prompts": "aaa", "language": "tr"}) is False
+    assert (
+        TranscriptionService._text_analysis_cached(ctx, {"prompts": "aaa", "language": "tr"})
+        is False
+    )
+    # A report-writer version change invalidates a report written by older code.
+    ctx.state = {"text_analysis_prompts": {"prompts": "aaa", "language": "tr"}}
+    (job_dir / "AI_Analysis.md").write_text("# AI Analysis\n", encoding="utf-8")
+    assert (
+        TranscriptionService._text_analysis_cached(
+            ctx, {"prompts": "aaa", "language": "tr", "version": 2}
+        )
+        is False
+    )
     # Missing report is never cached.
     (job_dir / "AI_Analysis.md").unlink()
     ctx.state = {"text_analysis_prompts": {"prompts": "aaa", "language": "tr"}}
-    assert TranscriptionService._text_analysis_cached(ctx, {"prompts": "aaa", "language": "tr"}) is False
+    assert (
+        TranscriptionService._text_analysis_cached(ctx, {"prompts": "aaa", "language": "tr"})
+        is False
+    )

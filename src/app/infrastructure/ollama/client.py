@@ -1,6 +1,7 @@
 import base64
 import logging
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -20,6 +21,8 @@ from app.infrastructure.process import (
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
+#: The CLI fallback is a last resort; never let a stuck `ollama run` hang a job.
+CLI_TIMEOUT_SECONDS = 600
 
 
 class OllamaError(RuntimeError):
@@ -54,7 +57,10 @@ class OllamaClient:
             "prompt": prompt,
             "stream": False,
             "think": False,
-            "options": {"temperature": 0.2, "num_predict": 1200},
+            # Long slide-by-slide reports need more than the old 1200-token cap;
+            # this is an upper bound, not a target, so short answers still stop
+            # at their natural end.
+            "options": {"temperature": 0.2, "num_predict": 4096},
         }
         encoded_images = []
         for image in images:
@@ -64,22 +70,39 @@ class OllamaClient:
                 LOGGER.error("Failed to read image %s: %s", image, error)
         if encoded_images:
             payload["images"] = encoded_images
-        try:
-            response = post_json_cancellable(
+        def post() -> dict:
+            return post_json_cancellable(
                 f"{self.base_url}/api/generate",
                 payload,
                 self.timeout,
                 cancel_token,
                 self.request_fn,
             )
-            if response.get("thinking"):
-                LOGGER.info("Discarded separate Ollama thinking field.")
-            return clean_thinking_tags(response.get("response", "").strip())
+
+        try:
+            response = post()
         except ProcessingCancelled:
             raise
         except Exception as error:
-            LOGGER.warning("Ollama API call failed, falling back to CLI: %s", error)
-            return self._run_cli(model, prompt, cancel_token)
+            if images:
+                # The CLI fallback cannot carry an image, so it would answer
+                # without looking at the frame. Retry the HTTP call once and
+                # fail clearly instead of spending a 600-second CLI timeout.
+                LOGGER.warning("Ollama vision request failed; retrying once: %s", error)
+                try:
+                    response = post()
+                except ProcessingCancelled:
+                    raise
+                except Exception as retry_error:
+                    raise OllamaError(
+                        f"Ollama vision request failed: {retry_error}"
+                    ) from retry_error
+            else:
+                LOGGER.warning("Ollama API call failed, falling back to CLI: %s", error)
+                return self._run_cli(model, prompt, cancel_token)
+        if response.get("thinking"):
+            LOGGER.info("Discarded separate Ollama thinking field.")
+        return clean_thinking_tags(response.get("response", "").strip())
 
     def _run_cli(self, model: str, prompt: str, cancel_token) -> str:
         command = ["ollama", "run", model, "--think=false", prompt]
@@ -92,12 +115,19 @@ class OllamaClient:
             errors="replace",
             creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
         )
+        deadline = time.monotonic() + CLI_TIMEOUT_SECONDS
         try:
             while process.poll() is None:
                 if wait_for_cancellation(cancel_token, 0.1):
                     terminate_process_tree(process)
                     process.wait()
                     raise ProcessingCancelled
+                if time.monotonic() >= deadline:
+                    terminate_process_tree(process)
+                    process.wait()
+                    raise OllamaError(
+                        f"Ollama CLI timed out after {CLI_TIMEOUT_SECONDS} seconds"
+                    )
         finally:
             stdout_data, stderr_data = process.communicate()
         if process.returncode != 0:

@@ -6,7 +6,7 @@ shown at runtime can never drift apart.
 """
 
 APP_NAME = "AfterClip"
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 
 def version_string() -> str:

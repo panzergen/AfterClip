@@ -24,6 +24,7 @@ from app.infrastructure.process import FfmpegMediaTool, WhisperCliProvider
 from app.infrastructure.prompts import JsonPromptStore
 from app.infrastructure.secrets import KeyringSecretStore
 from app.infrastructure.settings import JsonSettingsStore
+from app.infrastructure.voiceprints import JsonVoiceprintStore
 
 SANITIZER_SETTINGS_KEY = "transcript_filter"
 SEGMENT_SETTINGS_KEY = "transcript_segment_seconds"
@@ -127,6 +128,9 @@ def run_request(
         text_provider,
         vision_provider,
         sanitizer_config=sanitizer_config,
+        # The store is enough to restore names on a resumed job; embedding new
+        # audio still needs the optional extra and a request that enables it.
+        voiceprint_store=JsonVoiceprintStore(),
     )
     return service.run(
         request,

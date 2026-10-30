@@ -24,12 +24,16 @@ Only known template keys are read; unknown keys and empty values are ignored.
 
 ## Language resolution (`{lang}`)
 
-`{lang}` is filled per job as: explicit **report language** → Whisper-detected
-video language (from the transcript `.json`) → transcription language hint →
-English. So leaving report language empty keeps responses in the video's own
-language instead of silently defaulting to English. If the media mixes
-languages, the built-in templates require a single-language response in
-`{lang}`.
+`{lang}` is filled from the explicit **report language** selection. When no
+language is selected it is **English**, regardless of the Whisper-detected or
+transcription language — those are transcription settings only. The selected
+language applies to every AI output: summary, highlights, vision descriptions
+and topics.
+
+If the model answers in the wrong language, summaries and highlights are
+rewritten once through the text provider, and topic titles are guarded and
+re-asked (see [TOPICS.md](TOPICS.md)). If the media mixes languages, the
+built-in templates still require a single-language response in `{lang}`.
 
 ## Templates and placeholders
 
@@ -63,7 +67,17 @@ release.
 - Summary outputs pass through a preamble stripper
   (`application/summary.py`): a leftover leading acknowledgement ("Anladım…",
   "Here is…") is removed before the report is written; the rest of the text is
-  never touched.
+  never touched. When a whole leading block discusses the prompt or the user's
+  message and is followed by a rule (`---`) or heading, the entire block is
+  dropped, so multi-paragraph chat replies cannot reach `AI_Analysis.md` or the
+  HTML report.
+- Vision outputs are checked before they are stored. The built-in
+  `vision_frame` template describes the shared screen whether it is a slide, a
+  browser/app page or a meeting window. If a custom template returns only
+  placeholders (`[none]`/`[unreadable]`), the frame is retried once with the
+  built-in prompt; an explicit `BLANK: true` frame is stored as
+  `(no visible screen content)`. `vision_filter_report.json` records `retried`
+  and `blank` counts, and a retry never drops the frame.
 
 ## Resetting
 

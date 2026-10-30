@@ -126,7 +126,12 @@ class BatchStore:
                     if isinstance(key, str) and isinstance(value, str) and value
                 } or None
             try:
-                job = BatchJob(**{k: v for k, v in record.items() if k in BatchJob.__dataclass_fields__})
+                fields = {
+                    key: value
+                    for key, value in record.items()
+                    if key in BatchJob.__dataclass_fields__
+                }
+                job = BatchJob(**fields)
             except TypeError:
                 continue
             if job.status == "running":

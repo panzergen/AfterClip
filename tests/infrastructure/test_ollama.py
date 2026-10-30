@@ -52,6 +52,7 @@ def test_generate_uses_http_response_and_cleans_output():
     assert calls[0][0] == "http://localhost:11434/api/generate"
     assert calls[0][1]["model"] == "llama3"
     assert calls[0][1]["stream"] is False
+    assert calls[0][1]["options"]["num_predict"] == 4096
 
 
 def test_generate_falls_back_to_cli_on_http_error(monkeypatch):

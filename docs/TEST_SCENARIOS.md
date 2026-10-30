@@ -29,7 +29,12 @@ follow-up, and at least one "nice to have".
   leading timestamp (e.g. `- 00:03:10 Launch date moved to May`).
 - Highlights are decisions/actions/commitments, not optional or "nice to have"
   items.
-- `FullReportAndTimeline.htm` → `Key Highlights` shows the same short list.
+- `FullReportAndTimeline.htm` → `Key Highlights` shows the same short list and
+  does **not** contain the `Topics` list (that section appears once, below).
+- With a report language selected (e.g. `tr`), every topic title in `Topics.md`,
+  `AI_Analysis.md`, the HTML report and the timeline headings is written in that
+  language; with no report language selected, titles follow the transcript
+  language.
 - `Summary_Report.md` still contains the summary even when no highlight passes
   the score cut-off.
 

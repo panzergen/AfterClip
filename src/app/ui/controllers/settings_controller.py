@@ -6,6 +6,7 @@ from PySide6.QtCore import Property, QObject, Signal, Slot
 
 import app.app_paths as app_paths
 from app.application.cloud_consent import grant_consent, has_consent, revoke_consent
+from app.application.language import REPORT_LANGUAGE_CHOICES
 from app.application.provider_registry import KIND_GEMINI, cloud_provider_ids, get_provider
 from app.application.transcript_sanitizer import SanitizerConfig
 from app.application.voiceprints import (
@@ -142,6 +143,22 @@ class SettingsController(QObject):
         self._report_language = str(value)
         self.reportLanguageChanged.emit()
 
+    def _get_report_language_labels(self) -> list:
+        return [label for _code, label in REPORT_LANGUAGE_CHOICES]
+
+    def _get_report_language_index(self) -> int:
+        codes = [code for code, _label in REPORT_LANGUAGE_CHOICES]
+        try:
+            return codes.index(self._report_language.strip())
+        except ValueError:
+            return 0
+
+    def _set_report_language_index(self, value: int) -> None:
+        index = int(value)
+        if 0 <= index < len(REPORT_LANGUAGE_CHOICES):
+            self._report_language = REPORT_LANGUAGE_CHOICES[index][0]
+            self.reportLanguageChanged.emit()
+
     def _get_gemini_model(self) -> str:
         return self._gemini_model
 
@@ -241,6 +258,15 @@ class SettingsController(QObject):
     segmentIndex = Property(int, _get_segment_index, _set_segment_index, notify=segmentIndexChanged)
     reportLanguage = Property(
         str, _get_report_language, _set_report_language, notify=reportLanguageChanged
+    )
+    reportLanguageLabels = Property(
+        "QVariantList", _get_report_language_labels, constant=True
+    )
+    reportLanguageIndex = Property(
+        int,
+        _get_report_language_index,
+        _set_report_language_index,
+        notify=reportLanguageChanged,
     )
     geminiModel = Property(str, _get_gemini_model, _set_gemini_model, notify=geminiModelChanged)
     geminiModels = Property("QVariantList", _get_gemini_models, constant=True)

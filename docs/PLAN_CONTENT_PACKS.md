@@ -5,6 +5,8 @@ the six content packs, the prompt text to ship as **starter text**, and the
 structured output contract. It does **not** add built-in active presets: the
 user creates a preset and loads a starter into it.
 
+**Target release:** `0.5.0` (see [PLAN_ROADMAP.md](PLAN_ROADMAP.md)).
+
 ## 1. Common rules for every pack
 
 Every new prompt must follow these rules:

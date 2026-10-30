@@ -16,6 +16,26 @@ _WHITESPACE = re.compile(r"\s+")
 _CLAUSE_SPLIT = re.compile(r"(?<=[,;.!?])\s+")
 _TRAILING_PUNCT = re.compile(r"[\s,;.!?:]+$")
 _ELLIPSIS = " \u2026"
+_FIELD = re.compile(r"([^\W\d_][\wÇĞİÖŞÜçğıöşü /-]{1,39})\s*:\s*")
+_PLACEHOLDER_TOKEN = re.compile(r"\[(?:none|unreadable)\]", re.IGNORECASE)
+_NONE_WORD = re.compile(r"\b(?:none|unreadable)\b", re.IGNORECASE)
+_BLANK_MARKER = re.compile(r"\bBLANK\s*:\s*true\b", re.IGNORECASE)
+_WORD = re.compile(r"[^\W\d_]{2,}", re.UNICODE)
+_HIGHLIGHT_LABEL = re.compile(
+    r"(?:highlight|öne çıkan|öne çikan|yükseltilmiş|önemli|altı çizim)", re.IGNORECASE
+)
+#: Labels the built-in and common custom prompts use. Splitting on these first
+#: keeps a value such as ``SCREEN TEXT: Dashboard UI / VISUALS: dialog`` from
+#: being swallowed by the generic greedy field pattern.
+_KNOWN_LABEL = re.compile(
+    r"\b(UI\s*/\s*VISUALS|SLIDEN ÇEKİLDİĞİ METİN|SLİDE METNİ|SLİD METNİ|"
+    r"SCREEN TEXT|SLIDE TEXT|GÖRSEL METNİ|GÖRSEL METİN|GÖRSEL TİPİ|"
+    r"GÖRÜNTÜLER|GÖRÜŞÜMLER|BİLGİLENDİRME|ÖNE ÇIKANLAR|ÖNE ÇIKAN|"
+    r"YÜKSELTİLMİŞ|YÜKSEKLİKTEN|ALTı ÇIZIM|HIGHLIGHT|VISUALS|TITLE|"
+    r"BAŞLIK|GÖRSEL|İÇERİK|GRAFİK|ÖZET|YÜKLEME|ÖNEMLİ|GÖRÜNTÜ|İZGARA|"
+    r"BASIL|URL)\s*:",
+    re.IGNORECASE,
+)
 #: Only cycles this short are considered loops (a drift loop is always short).
 _MAX_PERIOD = 8
 #: Isolated mismatches (model drift) are tolerated up to this many in a row.
@@ -141,6 +161,46 @@ def _truncate(text: str, limit: int) -> str:
     if space > 0:
         head = head[:space]
     return head.rstrip() + _ELLIPSIS
+
+
+def is_blank_vision_response(text: object) -> bool:
+    """True when the model explicitly marked the frame as blank."""
+    return bool(_BLANK_MARKER.search(str(text or "")))
+
+
+def _value_has_content(value: str) -> bool:
+    cleaned = _PLACEHOLDER_TOKEN.sub(" ", value)
+    cleaned = _NONE_WORD.sub(" ", cleaned)
+    return bool(_WORD.search(cleaned))
+
+
+def has_vision_content(text: object, include_highlight: bool = False) -> bool:
+    """True when a vision response contains at least one real field value.
+
+    Placeholder-only answers (``TITLE: [none] ...``) are treated as empty so
+    the caller can retry with the generic prompt. Unless ``include_highlight``
+    is set, a response whose only real value is a ``HIGHLIGHT`` line is also
+    treated as empty: on a first pass that field is often the transcript
+    leaking in, not a description of the frame.
+    """
+    raw = str(text or "")
+    if is_blank_vision_response(raw):
+        return False
+    parts = _KNOWN_LABEL.split(raw)
+    if len(parts) == 1:
+        parts = _FIELD.split(raw)
+    if len(parts) == 1:
+        return _value_has_content(raw)
+    if parts[0].strip() and _value_has_content(parts[0]):
+        return True
+    for index in range(1, len(parts), 2):
+        label = parts[index]
+        value = parts[index + 1] if index + 1 < len(parts) else ""
+        if not include_highlight and _HIGHLIGHT_LABEL.search(label):
+            continue
+        if _value_has_content(value):
+            return True
+    return False
 
 
 def sanitize_description(

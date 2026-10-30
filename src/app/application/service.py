@@ -8,6 +8,7 @@ from app.application.cancellation import CancelToken, JobCancelled, ProcessingCa
 from app.application.cloud_usage import COST_NOTE, estimate_cost_usd
 from app.application.forecast import forecast, load_history
 from app.application.job_context import JobContext, StepRecorder
+from app.application.language import language_name, language_verdict
 from app.application.media_type import classify_tier1, signals_from_metadata
 from app.application.ports import (
     MediaTool,
@@ -32,6 +33,7 @@ from app.application.service_io import (
     write_fallback_vision_srt,
     write_vision_timeline_srt,
 )
+from app.application.summary import clean_summary_output
 from app.application.timeline import (
     find_transcript_srt,
     find_vision_srt,
@@ -58,6 +60,9 @@ from app.application.transcript_sanitizer import (
 )
 from app.application.vision_sanitizer import (
     VisionSanitizerConfig,
+    VisionSanitizeResult,
+    has_vision_content,
+    is_blank_vision_response,
     sanitize_description,
 )
 from app.application.voiceprints import (
@@ -65,12 +70,19 @@ from app.application.voiceprints import (
     DEFAULT_IDENTIFY_THRESHOLD,
     SpeakerSegment,
     analyse_speakers,
+    identify_speaker,
     load_voiceprint_sidecar,
     write_voiceprint_sidecar,
 )
-from app.domain.models import ProgressEvent, TranscriptionRequest, TranscriptionResult
+from app.domain.models import (
+    ProgressEvent,
+    SpeakerInterval,
+    TranscriptionRequest,
+    TranscriptionResult,
+)
+from app.domain.prompts import PromptSet
 from app.infrastructure.audio import TARGET_RATE, read_wav_samples, slice_samples, to_16k_mono
-from app.infrastructure.llm.transport import chunk_text
+from app.infrastructure.llm.transport import chunk_text, clean_thinking_tags
 from app.infrastructure.process import get_media_metadata
 
 LOGGER = logging.getLogger(__name__)
@@ -78,6 +90,14 @@ LOGGER = logging.getLogger(__name__)
 # Voiceprint embeddings are computed over merged transcript blocks (not raw
 # Whisper cues) so each embedding averages ~20s of speech and clusters cleanly.
 VOICEPRINT_BLOCK_SECONDS = 20.0
+
+#: Stored when a frame has no visible screen content (blank, loading or only
+#: the meeting participant gallery).
+BLANK_VISION_DESCRIPTION = "(no visible screen content)"
+
+#: Bumped when vision post-processing changes so a resumed job re-runs the
+#: vision step instead of reusing descriptions produced by older logic.
+VISION_ANALYSIS_VERSION = 2
 
 __all__ = ["JobCancelled", "TranscriptionService", "next_available_job_dir", "parse_clip_time"]
 
@@ -97,12 +117,27 @@ def vision_analysis_label(vision_provider: object) -> str:
     return f"Vision analysis ({provider}: {model})" if model else f"Vision analysis ({provider})"
 
 
-def analysis_fingerprint(provider, request, transcript_dir, audio_stem: str) -> dict:
+#: Bumped when the report writer changes how model output is post-processed, so
+#: a resumed job re-runs text analysis instead of reusing a stale report that
+#: still carries a preamble or an outdated section layout.
+TEXT_ANALYSIS_VERSION = 3
+
+
+def analysis_fingerprint(
+    provider,
+    request,
+    transcript_dir,
+    audio_stem: str,
+    version: int | None = None,
+) -> dict:
     """Prompts + language identity for an analysis step (resume-staleness check)."""
-    return {
+    payload = {
         "prompts": prompt_set_fingerprint(getattr(provider, "prompts", None)),
         "language": resolve_report_language(request, transcript_dir, audio_stem),
     }
+    if version is not None:
+        payload["version"] = version
+    return payload
 
 
 class TranscriptionService:
@@ -300,7 +335,11 @@ class TranscriptionService:
                     )
             if request.analyze_text and self.text_provider is not None:
                 expected_text = analysis_fingerprint(
-                    self.text_provider, request, transcript_dir, audio_path.stem
+                    self.text_provider,
+                    request,
+                    transcript_dir,
+                    audio_path.stem,
+                    TEXT_ANALYSIS_VERSION,
                 )
                 if self._text_analysis_cached(context, expected_text):
                     recorder.context.on_event(
@@ -333,7 +372,11 @@ class TranscriptionService:
                     context.steps.get("vision_analysis", {}).get("status") == "completed"
                 )
                 expected_vision = analysis_fingerprint(
-                    self.vision_provider, request, transcript_dir, audio_path.stem
+                    self.vision_provider,
+                    request,
+                    transcript_dir,
+                    audio_path.stem,
+                    VISION_ANALYSIS_VERSION,
                 )
                 vision_prompts_match = self._prompts_state_match(
                     context, "vision_analysis_prompts", expected_vision
@@ -573,6 +616,41 @@ class TranscriptionService:
             tolerated_failure_event=("Topic segmentation failed; timeline stays flat", 95),
         )
 
+    def _ensure_report_language(
+        self,
+        text: str,
+        language: str,
+        cancel_token: CancelToken,
+    ) -> str:
+        """Rewrite a report block when the model answered in another language.
+
+        Topics are handled by their own guard; summaries and highlights are
+        long-lived prose and use the same verdict check here. When no text
+        provider is available (vision-only jobs) the original text is kept.
+        """
+        if not text or not language:
+            return text
+        if language_verdict(text, language) is not False:
+            return text
+        generate = getattr(self.text_provider, "generate", None)
+        if not callable(generate):
+            return text
+        prompt = (
+            f"Rewrite the text below entirely in {language_name(language)}. "
+            "Keep every fact, name, number, timestamp and bullet point; do not add "
+            "or remove content. Output only the rewritten text.\n\n"
+            f"{text}"
+        )
+        try:
+            rewritten = generate(prompt, cancel_token)
+        except Exception as error:  # a translation must not discard the report
+            LOGGER.warning("Report language rewrite failed: %s", error)
+            return text
+        rewritten = clean_thinking_tags(rewritten or "").strip()
+        if rewritten and language_verdict(rewritten, language) is not False:
+            return rewritten
+        return text
+
     def _run_text_analysis(
         self,
         recorder: StepRecorder,
@@ -601,9 +679,12 @@ class TranscriptionService:
             recorder.context.on_event(
                 ProgressEvent(f"AI analysis: transcript split into {len(chunks)} section(s)", 96)
             )
-            summary = self.text_provider.summarize(
-                transcript_text, language, progress, cancel_token
+            summary = clean_summary_output(
+                self.text_provider.summarize(
+                    transcript_text, language, progress, cancel_token
+                )
             )
+            summary = self._ensure_report_language(summary, language, cancel_token)
             try:
                 highlights = (
                     self.text_provider.extract_highlights(
@@ -617,6 +698,7 @@ class TranscriptionService:
                 # discard it (T16 policy granularity).
                 LOGGER.warning("Highlights failed; keeping the summary: %s", error)
                 highlights = ""
+            highlights = self._ensure_report_language(highlights, language, cancel_token)
             (recorder.context.job_dir / "AI_Analysis.md").write_text(
                 "# AI Analysis\n\n"
                 f"- **Provider:** `{getattr(self.text_provider, 'provider_name', 'local')}`\n"
@@ -629,7 +711,11 @@ class TranscriptionService:
                 encoding="utf-8",
             )
             recorder.context.state["text_analysis_prompts"] = analysis_fingerprint(
-                self.text_provider, request, transcript_dir, audio_path.stem
+                self.text_provider,
+                request,
+                transcript_dir,
+                audio_path.stem,
+                TEXT_ANALYSIS_VERSION,
             )
 
         recorder.record(
@@ -666,6 +752,9 @@ class TranscriptionService:
         def action() -> None:
             entries = []
             changes: list[dict] = []
+            retried = 0
+            blank = 0
+            frame_errors: list[Exception] = []
             for index, frame in enumerate(frames, 1):
                 recorder.context.on_event(
                     ProgressEvent(f"Vision analysis frame {index}/{len(frames)}", 97)
@@ -674,26 +763,92 @@ class TranscriptionService:
                     frame, request.frame_interval, request.clip_start, request.highlight_times
                 )
                 audio_context = transcript_context(transcript_dir, audio_path.stem, timestamp)
-                description = self.vision_provider.analyze_frame(
-                    frame,
-                    audio_context,
-                    request.user_task,
-                    language,
-                    None,
-                    cancel_token,
-                )
-                cleaned = sanitize_description(description, self.vision_sanitizer_config)
-                if cleaned.changed:
-                    changes.append(
-                        {
-                            "frame": frame.name,
-                            "reason": cleaned.reason,
-                            "original": description,
-                            "cleaned": cleaned.text,
-                        }
+                frame_failed = False
+                try:
+                    description = self.vision_provider.analyze_frame(
+                        frame,
+                        audio_context,
+                        request.user_task,
+                        language,
+                        None,
+                        cancel_token,
                     )
+                except Exception as error:
+                    # One unreadable frame must not discard the other 100+
+                    # descriptions. The step still fails when every frame
+                    # fails, so a genuinely unavailable provider is reported.
+                    LOGGER.warning("Vision failed for %s: %s", frame.name, error)
+                    frame_errors.append(error)
+                    frame_failed = True
+                    description = ""
+                cleaned = sanitize_description(description, self.vision_sanitizer_config)
+                reason = cleaned.reason
+                retry_description = None
+                if frame_failed:
+                    cleaned = VisionSanitizeResult(
+                        BLANK_VISION_DESCRIPTION, True, "blank", 0
+                    )
+                    reason = "blank"
+                    blank += 1
+                # A custom pack may not fit this frame (for example a slide-only
+                # prompt on a browser screen). Retry once with the built-in
+                # content-agnostic prompt instead of storing an all-[none] answer.
+                elif not has_vision_content(description):
+                    if is_blank_vision_response(description):
+                        cleaned = VisionSanitizeResult(
+                            BLANK_VISION_DESCRIPTION, True, "blank", len(description)
+                        )
+                        reason = "blank"
+                        blank += 1
+                    else:
+                        fallback_prompt = PromptSet().render(
+                            "vision_frame",
+                            user_desc=request.user_task,
+                            audio_context=audio_context,
+                            lang=language or "en",
+                        )
+                        try:
+                            retry_description = self.vision_provider.analyze_frame(
+                                frame,
+                                audio_context,
+                                request.user_task,
+                                language,
+                                None,
+                                cancel_token,
+                                prompt=fallback_prompt,
+                            )
+                        except Exception as error:  # a retry must not drop the frame
+                            LOGGER.warning(
+                                "Vision retry failed for %s: %s", frame.name, error
+                            )
+                            retry_description = ""
+                        retried += 1
+                        retry_cleaned = sanitize_description(
+                            retry_description, self.vision_sanitizer_config
+                        )
+                        if has_vision_content(retry_description, include_highlight=True):
+                            cleaned = retry_cleaned
+                            reason = "empty_retry"
+                        else:
+                            cleaned = VisionSanitizeResult(
+                                BLANK_VISION_DESCRIPTION, True, "blank", len(description)
+                            )
+                            reason = "blank"
+                            blank += 1
+                if cleaned.changed or reason in {"empty_retry", "blank"}:
+                    change = {
+                        "frame": frame.name,
+                        "reason": reason,
+                        "original": description,
+                        "cleaned": cleaned.text,
+                    }
+                    if retry_description is not None:
+                        change["retry"] = retry_description
+                    changes.append(change)
                 window = frame_window(frame, request.frame_interval)
                 entries.append((timestamp, window, frame.name, cleaned.text))
+            if frame_errors and len(frame_errors) == len(frames):
+                raise frame_errors[0]
             vision_dir.mkdir(parents=True, exist_ok=True)
             with (vision_dir / "vision_analysis.srt").open("w", encoding="utf-8") as vision_srt:
                 for number, (timestamp, window, frame_name, description) in enumerate(entries, 1):
@@ -705,6 +860,8 @@ class TranscriptionService:
                     )
             report = {
                 "collapsed_count": len(changes),
+                "retried_count": retried,
+                "blank_count": blank,
                 "frame_count": len(entries),
                 "config": self.vision_sanitizer_config.to_dict(),
                 "changes": changes,
@@ -712,9 +869,17 @@ class TranscriptionService:
             (vision_dir / "vision_filter_report.json").write_text(
                 json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
             )
-            recorder.context.state["vision_filter"] = {"collapsed": len(changes)}
+            recorder.context.state["vision_filter"] = {
+                "collapsed": len(changes),
+                "retried": retried,
+                "blank": blank,
+            }
             recorder.context.state["vision_analysis_prompts"] = analysis_fingerprint(
-                self.vision_provider, request, transcript_dir, audio_path.stem
+                self.vision_provider,
+                request,
+                transcript_dir,
+                audio_path.stem,
+                VISION_ANALYSIS_VERSION,
             )
 
         recorder.record(
@@ -724,6 +889,42 @@ class TranscriptionService:
             action,
             tolerated_failure_event=("Vision analysis failed; other results are kept", 97),
         )
+
+    def _cached_voiceprint_intervals(
+        self,
+        job_dir: Path,
+        vtt_intervals: tuple[SpeakerInterval, ...],
+    ) -> tuple[SpeakerInterval, ...]:
+        """Restore speaker labels from the job sidecar without reading audio.
+
+        Only the segments that had no speaker-VTT label are in the sidecar.
+        Stored cluster labels are kept, and enrolled names are refreshed from
+        the current voiceprint store when one is available.
+        """
+        segments, clusters = load_voiceprint_sidecar(job_dir / "Voiceprints.json")
+        if not segments:
+            return vtt_intervals
+        stored_labels = {
+            (start_ms, end_ms): cluster.label
+            for cluster in clusters
+            for start_ms, end_ms in cluster.segments
+        }
+        voiceprints = self.voiceprint_store.load() if self.voiceprint_store is not None else {}
+        restored: list[SpeakerInterval] = []
+        for segment in segments:
+            name = (
+                identify_speaker(
+                    segment.embedding,
+                    voiceprints,
+                    self.voiceprint_identify_threshold,
+                )
+                if voiceprints
+                else None
+            )
+            label = name or stored_labels.get((segment.start_ms, segment.end_ms))
+            if label:
+                restored.append(SpeakerInterval(segment.start_ms, segment.end_ms, label))
+        return vtt_intervals + tuple(restored)
 
     def _run_voiceprint_labelling(
         self,
@@ -740,7 +941,11 @@ class TranscriptionService:
         """
         request = recorder.context.request
         vtt_intervals = parse_speaker_vtt(resolve_speaker_vtt_path(request))
-        self._speaker_intervals = vtt_intervals
+        # A resumed job keeps the labels its completed voiceprint step already
+        # produced; re-reading the audio is only needed for a fresh run.
+        self._speaker_intervals = self._cached_voiceprint_intervals(
+            recorder.context.job_dir, vtt_intervals
+        )
         if not request.voiceprint_enabled:
             return
         if self.voiceprint_embedder is None or self.voiceprint_store is None:

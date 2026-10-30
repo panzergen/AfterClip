@@ -5,6 +5,7 @@ import logging
 import re
 from pathlib import Path
 
+from app.application.summary import clean_summary_output
 from app.domain.models import SpeakerInterval, TimelineEntry
 
 LOGGER = logging.getLogger(__name__)
@@ -364,15 +365,46 @@ def _render_entry(
     return payload, html_row, lines
 
 
+_TRAILING_RULE = re.compile(r"\n\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
+_LEADING_RULE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*\n+")
+
+
+def _known_heading(name: str) -> re.Pattern[str]:
+    return re.compile(rf"^##\s+{re.escape(name)}\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def _analysis_section(markdown: str, name: str, stops: tuple[str, ...]) -> str | None:
+    """Body of a known ``## name`` report section, up to the next known one.
+
+    Only the report's own section names end the body; headings that belong to
+    the summary content (``## 1. Bölüm``, ``## Decisions``) are kept.
+    """
+    match = _known_heading(name).search(markdown)
+    if not match:
+        return None
+    end = len(markdown)
+    for stop in stops:
+        stop_match = _known_heading(stop).search(markdown, match.end())
+        if stop_match:
+            end = min(end, stop_match.start())
+    body = markdown[match.end() : end].strip()
+    body = _LEADING_RULE.sub("", body)
+    return _TRAILING_RULE.sub("", body).strip()
+
+
 def split_ai_analysis(markdown: str | None) -> tuple[str, str]:
-    """Extract the Summary and Key Highlights sections from AI_Analysis.md."""
+    """Extract the Summary and Key Highlights sections from AI_Analysis.md.
+
+    A following ``## Topics`` list must never be folded into Key Highlights
+    (it is rendered on its own).
+    """
     if not markdown:
         return "", ""
-    _, _, after_summary = markdown.partition("## Summary")
-    summary, marker, after_highlights = after_summary.partition("## Key Highlights")
-    if not marker:
-        return after_summary.strip(), ""
-    return summary.strip(), after_highlights.strip()
+    summary = _analysis_section(markdown, "Summary", ("Key Highlights", "Topics"))
+    if summary is None:
+        return clean_summary_output(markdown.strip()), ""
+    highlights = _analysis_section(markdown, "Key Highlights", ("Topics", "Summary")) or ""
+    return clean_summary_output(summary), highlights
 
 
 def _html_head() -> str:

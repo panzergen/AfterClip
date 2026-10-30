@@ -72,6 +72,21 @@ GroupBox {
 
         FieldRow {
             Layout.fillWidth: true
+            label: qsTr("Report language")
+            AppComboBox {
+                width: Math.min(260, parent.width)
+                model: jobForm.reportLanguageLabels
+                currentIndex: jobForm.reportLanguageIndex
+                font.pixelSize: Theme.fontSizeSmall
+                onActivated: (index) => jobForm.reportLanguageIndex = index
+                ToolTip.visible: hovered
+                ToolTip.delay: 400
+                ToolTip.text: qsTr("Language for summaries, highlights, vision text and topics. Default is English.")
+            }
+        }
+
+        FieldRow {
+            Layout.fillWidth: true
             label: qsTr("Target task")
             TextField {
                 width: parent.width

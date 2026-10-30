@@ -91,12 +91,26 @@ def test_vision_payload_contains_only_png_inline_data(tmp_path):
     assert result == "frame described"
     _url, payload, _timeout = request.calls[0]
     parts = payload["contents"][0]["parts"]
-    assert parts[0]["text"].startswith("This frame belongs to a video recording")
+    assert parts[0]["text"].startswith("This frame is from a screen recording")
     inline = parts[1]["inline_data"]
     assert inline["mime_type"] == "image/png"
     assert base64.b64decode(inline["data"]) == b"\x89PNG-fake-bytes"
     # No video MIME type or binary ever enters the payload (T18b/T18c)
     assert "video/" not in json.dumps(payload).lower()
+
+
+def test_vision_prompt_override_is_used_verbatim(tmp_path):
+    request = RecordingRequest([ok_response("frame described")])
+    provider = GeminiVisionProvider(
+        client=GeminiClient(key_getter=lambda: "sk-gemini-test-key", request_fn=request)
+    )
+    frame = tmp_path / "scene_00h00m02s.png"
+    frame.write_bytes(b"\x89PNG-fake-bytes")
+    provider.analyze_frame(
+        frame, "spoken words", "task", "tr", prompt="FALLBACK SCREEN PROMPT"
+    )
+    parts = request.calls[0][1]["contents"][0]["parts"]
+    assert parts[0]["text"] == "FALLBACK SCREEN PROMPT"
 
 
 def test_retry_on_rate_limit_then_success():

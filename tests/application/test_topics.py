@@ -98,3 +98,47 @@ def test_retitle_without_generate_keeps_titles():
 
     topics = [TopicSegment(0, 1000, "a", "b", "keep me")]
     assert retitle_with_provider(topics, (), NoGenerate())[0].title == "keep me"
+
+
+class _ForeignTitleProvider:
+    """First pass ignores the language; the batch rewrite follows it."""
+
+    def __init__(self):
+        self.prompts = PromptSet()
+        self.calls = 0
+
+    def generate(self, prompt, cancel_token=None):
+        self.calls += 1
+        if prompt.startswith("Rewrite every numbered title"):
+            return '["VPanel Kurulumu", "Rapor Ayarları"]'
+        return "VPanel setup"
+
+
+def test_retitle_translates_titles_that_ignore_the_report_language():
+    entries = (entry(0, 60_000, "setup discussion"), entry(60_000, 120_000, "report settings"))
+    topics = [
+        TopicSegment(0, 60_000, "00:00:00,000", "00:01:00,000", "setup discussion"),
+        TopicSegment(60_000, 120_000, "00:01:00,000", "00:02:00,000", "report settings"),
+    ]
+    provider = _ForeignTitleProvider()
+    titled = retitle_with_provider(topics, entries, provider, language="tr")
+    assert [topic.title for topic in titled] == ["VPanel Kurulumu", "Rapor Ayarları"]
+
+
+class _AlwaysEnglishProvider:
+    def __init__(self):
+        self.prompts = PromptSet()
+        self.calls = 0
+
+    def generate(self, prompt, cancel_token=None):
+        self.calls += 1
+        return "Dashboard access"
+
+
+def test_retitle_does_not_translate_titles_already_in_language():
+    entries = (entry(0, 60_000, "dashboard access"),)
+    topics = [TopicSegment(0, 60_000, "00:00:00,000", "00:01:00,000", "dashboard access")]
+    provider = _AlwaysEnglishProvider()
+    titled = retitle_with_provider(topics, entries, provider, language="en")
+    assert titled[0].title == "Dashboard access"
+    assert provider.calls == 1

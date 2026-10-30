@@ -16,6 +16,15 @@ Expected: all pass. UI tests need `QT_QPA_PLATFORM=offscreen`. The two ruff
 commands are the same ones CI runs, so a green local run means a green CI run.
 `ruff` is part of the `dev` extra (`pip install -e ".[dev]"`).
 
+## Version
+
+1. Confirm the phase's exit criteria in [PLAN_ROADMAP.md](PLAN_ROADMAP.md) pass
+   on a real job, not only in the automated suite.
+2. Bump `src/app/version.py` to the release version (`0.4.0`, `0.5.0`, …).
+3. Move the `[Unreleased]` section of `CHANGELOG.md` to
+   `[X.Y.Z] — YYYY-MM-DD`; add a fresh empty `[Unreleased]`.
+4. Tag the release commit `vX.Y.Z` and push the tag with the build.
+
 ## Build
 
 ```powershell

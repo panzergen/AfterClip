@@ -39,14 +39,15 @@ class OpenAICompatVisionProvider:
         language: str,
         on_progress: Callable[[str], None] | None = None,
         cancel_token: CancelToken | None = None,
+        prompt: str | None = None,
     ) -> str:
         if on_progress:
             on_progress(f"{self.provider_name} vision is analyzing {Path(image_path).name}")
-        prompt = self.prompts.render(
+        template = prompt or self.prompts.render(
             "vision_frame",
             user_desc=user_task,
             audio_context=audio_context,
             lang=language or "en",
         )
-        content = [{"type": "text", "text": prompt}, self.client.image_part(image_path)]
+        content = [{"type": "text", "text": template}, self.client.image_part(image_path)]
         return self.client.generate(content, cancel_token)

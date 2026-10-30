@@ -112,6 +112,42 @@ def test_voiceprint_labelling_skips_when_disabled(tmp_path):
     assert {interval.speaker for interval in service._speaker_intervals} == {"Alice"}
 
 
+def test_cached_voiceprint_labels_survive_resume_without_audio(tmp_path):
+    job_dir = tmp_path / "out" / "a"
+    job_dir.mkdir(parents=True)
+    write_voiceprint_sidecar(
+        job_dir / "Voiceprints.json",
+        [SpeakerSegment(30_000, 50_000, [1.0, 0.0, 0.0])],
+        [SpeakerCluster("Speaker 1", [1.0, 0.0, 0.0], [(30_000, 50_000)])],
+    )
+    request = TranscriptionRequest(
+        tmp_path / "a.mp4", tmp_path / "out", voiceprint_enabled=False
+    )
+    context = JobContext(
+        job_dir=job_dir,
+        state_path=job_dir / "job_state.json",
+        report_path=job_dir / "Summary_Report.md",
+        request=request,
+        metadata={},
+        state={"steps": {}},
+        steps={},
+        on_event=lambda _event: None,
+    )
+    # No audio file exists: the labels must come from the sidecar, not a re-read.
+    service = _make_service()
+    service._run_voiceprint_labelling(
+        StepRecorder(context), job_dir / "Transcripts", job_dir / "temp" / "a.wav", Token()
+    )
+    assert {interval.speaker for interval in service._speaker_intervals} == {"Bob"}
+
+    # Without a voiceprint store the stored cluster label is still restored.
+    plain = TranscriptionService(None, None)
+    plain._run_voiceprint_labelling(
+        StepRecorder(context), job_dir / "Transcripts", job_dir / "temp" / "a.wav", Token()
+    )
+    assert {interval.speaker for interval in plain._speaker_intervals} == {"Speaker 1"}
+
+
 def test_reprocess_voiceprints_relabels_from_sidecar(tmp_path):
     job_dir = tmp_path / "job"
     transcript_dir = job_dir / "Transcripts"

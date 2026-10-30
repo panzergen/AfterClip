@@ -9,9 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The prompt editor can load a `Slides / presentation` starter pack: slide-aware
-  summary, highlights, vision and topic templates, loaded as session-custom
-  prompts for review and saving to a preset. It is not an active preset.
+- The prompt editor can load six starter packs: meeting/webinar (default),
+  slides, software demo, physical product demo, narrative video and
+  travel/documentary. They load summary, highlights, vision and topic templates
+  as session-custom prompts for review and saving to a preset; no active preset
+  is shipped. `{task}`, `{timestamp}` and `{vision_context}` are accepted as
+  optional placeholders (an unsupplied one renders empty).
 
 ## [0.4.0] — 2026-10-30
 

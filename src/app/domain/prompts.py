@@ -24,7 +24,15 @@ TEMPLATE_REQUIRED_PLACEHOLDERS: dict[str, frozenset[str]] = {
 }
 
 TEMPLATE_OPTIONAL_PLACEHOLDERS: dict[str, frozenset[str]] = {
-    name: frozenset() for name in TEMPLATE_REQUIRED_PLACEHOLDERS
+    "summary": frozenset({"task", "vision_context"}),
+    "summary_combine": frozenset({"task", "vision_context"}),
+    "highlights": frozenset({"task", "vision_context"}),
+    "vision_frame": frozenset({"timestamp"}),
+    "media_type_classification": frozenset(),
+    "transcript_cleanup": frozenset(),
+    "review_revision": frozenset(),
+    "topic_segmentation": frozenset({"task", "vision_context"}),
+    "topic_title": frozenset(),
 }
 
 TEMPLATE_PLACEHOLDERS: dict[str, frozenset[str]] = {
@@ -173,8 +181,16 @@ class PromptSet:
         return getattr(self, name)
 
     def render(self, name: str, **values: object) -> str:
-        """Fill ``{placeholder}`` tokens via explicit replacement (safe)."""
+        """Fill ``{placeholder}`` tokens via explicit replacement (safe).
+
+        Optional placeholders that the caller does not supply are replaced with
+        an empty string, so a starter template can mention ``{task}`` or
+        ``{vision_context}`` before that phase wires a value in.
+        """
         text = self.template(name)
+        known = TEMPLATE_PLACEHOLDERS.get(name, frozenset())
+        for key in known:
+            text = text.replace("{" + key + "}", str(values.get(key, "")))
         for key, value in values.items():
             text = text.replace("{" + key + "}", str(value))
         return text

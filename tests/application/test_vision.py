@@ -58,7 +58,14 @@ class FakeVisionProvider:
         self.calls = []
 
     def analyze_frame(
-        self, image_path, audio_context, user_task, language, on_progress=None, cancel_token=None
+        self,
+        image_path,
+        audio_context,
+        user_task,
+        language,
+        on_progress=None,
+        cancel_token=None,
+        timestamp=None,
     ):
         self.calls.append((Path(image_path).name, audio_context))
         return f"vision sees {Path(image_path).name} while hearing '{audio_context}'"
@@ -66,7 +73,14 @@ class FakeVisionProvider:
 
 class BrokenVisionProvider:
     def analyze_frame(
-        self, image_path, audio_context, user_task, language, on_progress=None, cancel_token=None
+        self,
+        image_path,
+        audio_context,
+        user_task,
+        language,
+        on_progress=None,
+        cancel_token=None,
+        timestamp=None,
     ):
         raise RuntimeError("vision model is not installed")
 
@@ -76,7 +90,14 @@ class LoopingVisionProvider:
     model = "llava:7b"
 
     def analyze_frame(
-        self, image_path, audio_context, user_task, language, on_progress=None, cancel_token=None
+        self,
+        image_path,
+        audio_context,
+        user_task,
+        language,
+        on_progress=None,
+        cancel_token=None,
+        timestamp=None,
     ):
         return "the menu bar, the menu bar, the menu bar, the menu bar"
 
@@ -207,6 +228,7 @@ class EmptyThenDescribingVisionProvider:
         on_progress=None,
         cancel_token=None,
         prompt=None,
+        timestamp=None,
     ):
         self.prompts.append(prompt)
         if prompt is None:
@@ -230,6 +252,7 @@ class BlankVisionProvider:
         on_progress=None,
         cancel_token=None,
         prompt=None,
+        timestamp=None,
     ):
         self.calls += 1
         return "BLANK: true"
@@ -317,7 +340,14 @@ class PartialVisionFailureProvider:
         self.calls = 0
 
     def analyze_frame(
-        self, image_path, audio_context, user_task, language, on_progress=None, cancel_token=None
+        self,
+        image_path,
+        audio_context,
+        user_task,
+        language,
+        on_progress=None,
+        cancel_token=None,
+        timestamp=None,
     ):
         self.calls += 1
         if self.calls == 2:
@@ -490,3 +520,5 @@ def test_vision_analysis_resumes_from_checkpoint(tmp_path):
     )
     assert vision.calls == []
     assert "DESCRIPTION: cached" in (vision_dir / "vision_analysis.srt").read_text(encoding="utf-8")
+
+

@@ -25,6 +25,24 @@ def test_render_substitutes_named_placeholders():
     assert "{lang}" not in rendered
 
 
+def test_optional_placeholders_are_accepted_and_default_to_empty():
+    template = "{lang} {transcript} {task} {vision_context}"
+    assert validate_template("summary", template) == []
+    prompts = PromptSet().with_overrides({"summary": template})
+    rendered = prompts.render("summary", lang="en", transcript="hello")
+    assert "{task}" not in rendered
+    assert "{vision_context}" not in rendered
+    rendered = prompts.render(
+        "summary", lang="en", transcript="hello", task="summarize", vision_context="slides"
+    )
+    assert "summarize" in rendered and "slides" in rendered
+    vision = PromptSet().render(
+        "vision_frame", user_desc="", audio_context="", lang="en"
+    )
+    assert "{timestamp}" not in vision
+    assert validate_template("topic_title", "{lang} {content} {timestamp}") != []
+
+
 def test_render_is_safe_with_stray_braces_in_values():
     rendered = PromptSet().render("summary", lang="en", transcript="{not_a_field} {a.b}")
     assert "{not_a_field}" in rendered

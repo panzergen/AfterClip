@@ -30,6 +30,7 @@ class OllamaVisionProvider:
         on_progress: Callable[[str], None] | None = None,
         cancel_token: CancelToken | None = None,
         prompt: str | None = None,
+        timestamp: str = "",
     ) -> str:
         if on_progress:
             on_progress(f"Ollama vision is analyzing {Path(image_path).name}")
@@ -38,6 +39,7 @@ class OllamaVisionProvider:
             user_desc=user_task,
             audio_context=audio_context,
             lang=language or "en",
+            timestamp=timestamp,
         )
         return self.client.generate(
             self.model,

@@ -57,6 +57,8 @@ class GeminiTextProvider:
         language: str,
         on_progress: Callable[[str], None] | None = None,
         cancel_token: CancelToken | None = None,
+        task: str = "",
+        vision_context: str = "",
     ) -> str:
         chunks = chunk_text(transcript, self.chunk_size)
         if not chunks:
@@ -69,7 +71,11 @@ class GeminiTextProvider:
                     [
                         {
                             "text": self.prompts.render(
-                                "summary", lang=language or "en", transcript=chunks[0]
+                                "summary",
+                                lang=language or "en",
+                                transcript=chunks[0],
+                                task=task,
+                                vision_context=vision_context,
                             )
                         }
                     ],
@@ -86,7 +92,11 @@ class GeminiTextProvider:
                         [
                             {
                                 "text": self.prompts.render(
-                                    "summary", lang=language or "en", transcript=chunk
+                                    "summary",
+                                    lang=language or "en",
+                                    transcript=chunk,
+                                    task=task,
+                                    vision_context=vision_context,
                                 )
                             }
                         ],
@@ -104,6 +114,8 @@ class GeminiTextProvider:
                             "summary_combine",
                             lang=language or "en",
                             summaries="\n\n".join(partials),
+                            task=task,
+                            vision_context=vision_context,
                         )
                     }
                 ],
@@ -117,6 +129,8 @@ class GeminiTextProvider:
         language: str,
         on_progress: Callable[[str], None] | None = None,
         cancel_token: CancelToken | None = None,
+        task: str = "",
+        vision_context: str = "",
     ) -> str:
         chunks = chunk_text(srt_content, self.chunk_size)
         if not chunks:
@@ -131,7 +145,11 @@ class GeminiTextProvider:
                         [
                             {
                                 "text": self.prompts.render(
-                                    "highlights", lang=language or "en", srt_content=chunk
+                                    "highlights",
+                                    lang=language or "en",
+                                    srt_content=chunk,
+                                    task=task,
+                                    vision_context=vision_context,
                                 )
                             }
                         ],

@@ -2,12 +2,21 @@ from app.domain.content_packs import CONTENT_PACKS, find_pack, pack_labels
 from app.domain.prompts import TEMPLATE_NAMES, PromptSet, validate_template
 
 
-def test_slides_starter_is_available():
-    pack = find_pack("slides")
-    assert pack is not None
-    assert pack.label == "Slides / presentation"
-    assert find_pack(pack.label) is pack
-    assert "Slides / presentation" in pack_labels()
+def test_all_six_starters_are_available():
+    assert len(CONTENT_PACKS) == 6
+    names = [pack.name for pack in CONTENT_PACKS]
+    assert names == [
+        "meeting",
+        "slides",
+        "software_demo",
+        "product_demo",
+        "narrative",
+        "travel_documentary",
+    ]
+    for pack in CONTENT_PACKS:
+        assert find_pack(pack.name) is pack
+        assert find_pack(pack.label) is pack
+        assert pack.label in pack_labels()
 
 
 def test_pack_prompts_are_valid_templates():
@@ -27,12 +36,14 @@ def test_slides_starter_renders_with_existing_placeholders():
     )
     assert "slide-by-slide" in summary
     assert "{lang}" not in summary and "{transcript}" not in summary
+    assert "{task}" not in summary and "{vision_context}" not in summary
 
     highlights = prompts.render(
         "highlights", lang="tr", srt_content="1\n00:00:00,000 --> 00:00:01,000\nHi"
     )
     assert "'{lang}'" not in highlights
     assert "JSON array" in highlights
+    assert "{task}" not in highlights and "{vision_context}" not in highlights
 
     vision = prompts.render(
         "vision_frame",
@@ -42,3 +53,4 @@ def test_slides_starter_renders_with_existing_placeholders():
     )
     assert "SLIDE TEXT" in vision
     assert "{lang}" not in vision and "{audio_context}" not in vision
+    assert "{timestamp}" not in vision

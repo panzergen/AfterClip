@@ -679,16 +679,17 @@ class TranscriptionService:
             recorder.context.on_event(
                 ProgressEvent(f"AI analysis: transcript split into {len(chunks)} section(s)", 96)
             )
+            task_kwargs = {"task": request.user_task} if request.user_task else {}
             summary = clean_summary_output(
                 self.text_provider.summarize(
-                    transcript_text, language, progress, cancel_token
+                    transcript_text, language, progress, cancel_token, **task_kwargs
                 )
             )
             summary = self._ensure_report_language(summary, language, cancel_token)
             try:
                 highlights = (
                     self.text_provider.extract_highlights(
-                        srt_content, language, progress, cancel_token
+                        srt_content, language, progress, cancel_token, **task_kwargs
                     )
                     if srt_content
                     else ""
@@ -772,6 +773,7 @@ class TranscriptionService:
                         language,
                         None,
                         cancel_token,
+                        timestamp=srt_timestamp(timestamp),
                     )
                 except Exception as error:
                     # One unreadable frame must not discard the other 100+
@@ -806,6 +808,7 @@ class TranscriptionService:
                             user_desc=request.user_task,
                             audio_context=audio_context,
                             lang=language or "en",
+                            timestamp=srt_timestamp(timestamp),
                         )
                         try:
                             retry_description = self.vision_provider.analyze_frame(
@@ -816,6 +819,7 @@ class TranscriptionService:
                                 None,
                                 cancel_token,
                                 prompt=fallback_prompt,
+                                timestamp=srt_timestamp(timestamp),
                             )
                         except Exception as error:  # a retry must not drop the frame
                             LOGGER.warning(

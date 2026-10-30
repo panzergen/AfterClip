@@ -17,4 +17,5 @@ class VisionProvider(Protocol):
         on_progress: Callable[[str], None],
         cancel_token: CancelToken,
         prompt: str | None = None,
+        timestamp: str = "",
     ) -> str: ...

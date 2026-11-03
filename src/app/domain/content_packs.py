@@ -16,12 +16,15 @@ from app.domain.prompts import DEFAULT_PROMPTS
 
 @dataclass(frozen=True)
 class ContentPack:
-    """One content type's starter prompt texts."""
+    """One content type's starter prompt texts and recommended frame settings."""
 
     name: str
     label: str
     description: str
     prompts: dict[str, str]
+    frame_modes: tuple[str, ...] = ("interval",)
+    frame_interval: int = 10
+    frame_resolution: str = "full"
 
 
 _SLIDES_PROMPTS: dict[str, str] = {
@@ -370,6 +373,9 @@ CONTENT_PACKS: tuple[ContentPack, ...] = (
             "screens and questions. Use this to restore the defaults."
         ),
         prompts=dict(DEFAULT_PROMPTS),
+        frame_modes=("interval",),
+        frame_interval=10,
+        frame_resolution="full",
     ),
     ContentPack(
         name="slides",
@@ -379,6 +385,9 @@ CONTENT_PACKS: tuple[ContentPack, ...] = (
             "slide changes for topics and reads the slide rather than the room."
         ),
         prompts=_SLIDES_PROMPTS,
+        frame_modes=("scene",),
+        frame_interval=30,
+        frame_resolution="full",
     ),
     ContentPack(
         name="software_demo",
@@ -388,6 +397,9 @@ CONTENT_PACKS: tuple[ContentPack, ...] = (
             "features, errors and the final result."
         ),
         prompts=_SOFTWARE_DEMO_PROMPTS,
+        frame_modes=("interval",),
+        frame_interval=12,
+        frame_resolution="mid",
     ),
     ContentPack(
         name="product_demo",
@@ -397,6 +409,9 @@ CONTENT_PACKS: tuple[ContentPack, ...] = (
             "results and caveats; no invented specifications or prices."
         ),
         prompts=_PRODUCT_DEMO_PROMPTS,
+        frame_modes=("scene", "interval"),
+        frame_interval=20,
+        frame_resolution="mid",
     ),
     ContentPack(
         name="narrative",
@@ -406,6 +421,9 @@ CONTENT_PACKS: tuple[ContentPack, ...] = (
             "character descriptions and turning points; no invented names."
         ),
         prompts=_NARRATIVE_PROMPTS,
+        frame_modes=("scene",),
+        frame_interval=25,
+        frame_resolution="low",
     ),
     ContentPack(
         name="travel_documentary",
@@ -415,6 +433,9 @@ CONTENT_PACKS: tuple[ContentPack, ...] = (
             "evidence, activities and key facts; no prices, routes or bookings."
         ),
         prompts=_TRAVEL_PROMPTS,
+        frame_modes=("scene",),
+        frame_interval=25,
+        frame_resolution="low",
     ),
 )
 
@@ -431,3 +452,7 @@ def find_pack(value: str | None) -> ContentPack | None:
 
 def pack_labels() -> list[str]:
     return [pack.label for pack in CONTENT_PACKS]
+
+
+def pack_descriptions() -> list[str]:
+    return [pack.description for pack in CONTENT_PACKS]

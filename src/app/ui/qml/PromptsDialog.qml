@@ -93,8 +93,28 @@ Dialog {
                 text: qsTr("Load starter...")
                 font.pixelSize: Theme.fontSizeSmall
                 enabled: settings.starterPackNames.length > 0
-                onClicked: settings.loadStarterPack(settings.starterPackNames[starterCombo.currentIndex])
+                onClicked: {
+                    var name = settings.starterPackNames[starterCombo.currentIndex]
+                    settings.loadStarterPack(name)
+                    if (applyStarterSettings.checked)
+                        presets.applyStarterPackSettings(name)
+                }
             }
+        }
+
+        CheckBox {
+            id: applyStarterSettings
+            text: qsTr("Also apply the starter's frame defaults")
+            checked: true
+            font.pixelSize: Theme.fontSizeSmall
+        }
+
+        Text {
+            Layout.fillWidth: true
+            text: settings.starterPackDescriptions[starterCombo.currentIndex] || ""
+            font.pixelSize: Theme.fontSizeCaption
+            color: Theme.muted
+            wrapMode: Text.Wrap
         }
 
         Text {

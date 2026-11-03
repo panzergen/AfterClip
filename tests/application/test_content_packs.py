@@ -19,6 +19,18 @@ def test_all_six_starters_are_available():
         assert pack.label in pack_labels()
 
 
+def test_pack_frame_defaults_are_sane():
+    for pack in CONTENT_PACKS:
+        assert pack.frame_modes
+        assert pack.frame_interval > 0
+        assert pack.frame_resolution in {"full", "mid", "low"}
+    slides = find_pack("slides")
+    assert slides is not None
+    assert slides.frame_modes == ("scene",)
+    assert slides.frame_interval == 30
+    assert slides.frame_resolution == "full"
+
+
 def test_pack_prompts_are_valid_templates():
     for pack in CONTENT_PACKS:
         for name, text in pack.prompts.items():

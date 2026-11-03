@@ -13,7 +13,7 @@ from app.application.voiceprints import (
     DEFAULT_CLUSTER_THRESHOLD,
     DEFAULT_IDENTIFY_THRESHOLD,
 )
-from app.domain.content_packs import find_pack, pack_labels
+from app.domain.content_packs import find_pack, pack_descriptions, pack_labels
 from app.domain.prompts import (
     TEMPLATE_NAMES,
     TEMPLATE_PLACEHOLDERS,
@@ -220,6 +220,9 @@ class SettingsController(QObject):
     def _get_starter_pack_names(self) -> list:
         return pack_labels()
 
+    def _get_starter_pack_descriptions(self) -> list:
+        return pack_descriptions()
+
     def _get_prompt_placeholders(self) -> list:
         return sorted(TEMPLATE_PLACEHOLDERS.get(self._prompt_name(), ()))
 
@@ -286,6 +289,9 @@ class SettingsController(QObject):
     )
     promptNames = Property("QVariantList", _get_prompt_names, constant=True)
     starterPackNames = Property("QVariantList", _get_starter_pack_names, constant=True)
+    starterPackDescriptions = Property(
+        "QVariantList", _get_starter_pack_descriptions, constant=True
+    )
     promptPlaceholders = Property(
         "QVariantList", _get_prompt_placeholders, notify=promptIndexChanged
     )

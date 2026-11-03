@@ -92,8 +92,10 @@ The prompt editor has **Starter text → Load starter…** with six choices:
 
 A starter loads summary, highlights, vision and topic templates into the
 **session-custom** set; it is not an active preset and does not change
-`prompts.json` on its own. Review/edit the text, then use **Save to preset**
-(recommended) or **Save** to persist it.
+`prompts.json` on its own. The **Also apply the starter's frame defaults**
+checkbox applies the pack's recommended extraction mode, interval and
+resolution to the job form. Review/edit the text and settings, then use
+**Save to preset** (recommended) or **Save** to persist them.
 
 The meeting-oriented built-in defaults are unchanged, so existing jobs keep
 their current output until a starter is loaded.

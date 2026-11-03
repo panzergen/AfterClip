@@ -120,6 +120,19 @@ def test_settings_loads_slides_starter_as_session_prompts(qapp):
     assert "slide-by-slide" not in controller.prompt_store.load().summary
 
 
+def test_presets_apply_starter_frame_defaults(controllers):
+    form = controllers.job_form
+    controllers.presets.applyStarterPackSettings("Slides / presentation")
+    assert form.sceneMode is True and form.intervalMode is False
+    assert form.frameInterval == 30
+    assert form.frameResolutionIndex == 0
+
+    controllers.presets.applyStarterPackSettings("Software / app demo")
+    assert form.intervalMode is True and form.sceneMode is False
+    assert form.frameInterval == 12
+    assert form.frameResolutionIndex == 1
+
+
 def test_job_form_defaults_report_language_from_settings(monkeypatch, qapp):
     store = InMemorySettingsStore({"report_language": "tr"})
     monkeypatch.setattr("app.ui.controllers.job_form_controller.JsonSettingsStore", lambda: store)

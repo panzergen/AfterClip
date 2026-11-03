@@ -3,6 +3,7 @@ import logging
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from app.application.prompt_scope import apply_preset_to_prompts, preset_badge
+from app.domain.content_packs import find_pack
 from app.domain.presets import Preset
 
 LOGGER = logging.getLogger(__name__)
@@ -184,6 +185,24 @@ class PresetsController(QObject):
             self._set_status(f"Saved preset '{name}' with prompts (Applied).")
         else:
             self._set_status(f"Saved preset '{name}' without prompts (Inherited).")
+
+    @Slot(str)
+    def applyStarterPackSettings(self, name: str) -> None:
+        """Apply a starter's recommended frame settings to the job form."""
+        pack = find_pack(name)
+        if pack is None:
+            self._set_status(f"Unknown starter pack: {name}")
+            return
+        form = self.job_form
+        form.intervalMode = "interval" in pack.frame_modes
+        form.sceneMode = "scene" in pack.frame_modes
+        form.frameInterval = pack.frame_interval
+        form.frameResolutionIndex = {"full": 0, "mid": 1, "low": 2}.get(
+            pack.frame_resolution, 0
+        )
+        self._set_status(
+            f"Applied '{pack.label}' frame defaults. Save a preset to keep them."
+        )
 
     @Slot()
     def applySelected(self) -> None:

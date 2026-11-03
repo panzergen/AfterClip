@@ -21,7 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   travel/documentary. They load summary, highlights, vision and topic templates
   as session-custom prompts for review and saving to a preset; no active preset
   is shipped. `{task}`, `{timestamp}` and `{vision_context}` are accepted as
-  optional placeholders (an unsupplied one renders empty).
+  optional placeholders (an unsupplied one renders empty). Loading a starter can
+  also apply its recommended frame mode, interval and resolution to the job
+  form.
 
 ## [0.4.0] — 2026-10-30
 

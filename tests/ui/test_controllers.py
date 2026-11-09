@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from app.application.media_integrity import MediaDurationReport, compare_durations
 from app.domain.prompts import PromptSet, build_prompt_set
 from app.infrastructure.model_catalog import ModelEntry, ModelSection
 from app.infrastructure.presets import InMemoryPresetStore
@@ -516,6 +517,7 @@ def test_start_gates_cloud_job_behind_consent(controllers, monkeypatch, tmp_path
         "_validate_start_conditions",
         lambda: (tmp_path / "in.mp4", tmp_path / "out", None, None),
     )
+    session._duration_check_passed = True  # this test covers consent, not the duration probe
 
     session.startJob()
     assert requests and requests[0][0] == "gemini"
@@ -525,6 +527,50 @@ def test_start_gates_cloud_job_behind_consent(controllers, monkeypatch, tmp_path
     session.grantCloudConsentAndStart()
     assert session._pending_consent_provider is None
     assert controllers.settings.has_cloud_consent("gemini") is True
+
+
+def test_duration_mismatch_warning_lists_truncated_audio(controllers):
+    session = controllers.session
+    warnings = []
+    session.durationWarningRequested.connect(
+        lambda title, text: warnings.append((title, text))
+    )
+    report = MediaDurationReport(
+        video_seconds=4322.0,
+        audio_seconds=1921.0,
+        vtt_seconds=4320.0,
+        issues=compare_durations(4322.0, 1921.0, 4320.0),
+    )
+    session._pending_conditions = (Path("in.mp4"), Path("out"), None, None)
+
+    session._on_duration_check_finished(report)
+
+    assert warnings
+    assert warnings[0][0] == "Media duration mismatch"
+    assert "corrupt" in warnings[0][1]
+    assert "01:12:02" in warnings[0][1]
+    assert "00:32:01" in warnings[0][1]
+    assert session.worker is None
+    assert session._pending_duration_report is report
+
+
+def test_duration_warning_proceed_allows_the_start(controllers, monkeypatch):
+    session = controllers.session
+    report = MediaDurationReport(
+        video_seconds=4322.0,
+        audio_seconds=1921.0,
+        vtt_seconds=4320.0,
+        issues=compare_durations(4322.0, 1921.0, 4320.0),
+    )
+    session._pending_duration_report = report
+    started = []
+    monkeypatch.setattr(session, "startJob", lambda: started.append(True))
+
+    session.proceedAfterDurationWarning()
+
+    assert session._duration_check_passed is True
+    assert session._pending_duration_report is None
+    assert started == [True]
 
 
 def test_settings_prompt_set_roundtrip(controllers):

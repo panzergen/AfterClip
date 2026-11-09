@@ -301,6 +301,11 @@ ApplicationWindow {
                     + "\n\nCloud API usage may incur charges. You can revoke consent in Settings."
             cloudConsentDialog.open()
         }
+        function onDurationWarningRequested(title, text) {
+            durationWarningDialog.title = title
+            durationWarningDialog.detailText = text
+            durationWarningDialog.open()
+        }
     }
 
     Dialog {
@@ -336,6 +341,45 @@ ApplicationWindow {
                     onClicked: {
                         cloudConsentDialog.close()
                         session.grantCloudConsentAndStart()
+                    }
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: durationWarningDialog
+        modal: true
+        title: qsTr("Media duration mismatch")
+        anchors.centerIn: parent
+        property string detailText: ""
+        standardButtons: Dialog.NoButton
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Text {
+                text: durationWarningDialog.detailText
+                wrapMode: Text.Wrap
+                width: 420
+                font.pixelSize: Theme.fontSizeSmall
+            }
+
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: 8
+
+                Button {
+                    text: qsTr("Cancel - check the file")
+                    font.pixelSize: Theme.fontSizeSmall
+                    onClicked: durationWarningDialog.close()
+                }
+                Button {
+                    text: qsTr("Proceed anyway")
+                    font.pixelSize: Theme.fontSizeSmall
+                    onClicked: {
+                        durationWarningDialog.close()
+                        session.proceedAfterDurationWarning()
                     }
                 }
             }

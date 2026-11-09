@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Before a single job starts, AfterClip compares the container duration, the
+  duration of the audio it actually extracts, and an optional VTT. When any
+  pair differs by more than 5%, a dialog warns that the file may be corrupt or
+  truncated and offers **Cancel - check the file** or **Proceed anyway**.
 - The prompt editor can load six starter packs: meeting/webinar (default),
   slides, software demo, physical product demo, narrative video and
   travel/documentary. They load summary, highlights, vision and topic templates

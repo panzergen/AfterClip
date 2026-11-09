@@ -5,6 +5,7 @@ from app.application.timeline import (
     parse_speaker_vtt,
     parse_srt,
     resolve_speaker,
+    vtt_duration_seconds,
     write_master_timeline,
 )
 from app.domain.models import SpeakerInterval, TimelineEntry
@@ -27,6 +28,14 @@ def test_parse_speaker_vtt_extracts_speaker_intervals(tmp_path: Path):
     assert intervals[0] == SpeakerInterval(500, 4000, "Metin ONARCAN")
     assert intervals[1].start_ms == 4000 and intervals[1].end_ms == 8000
     assert intervals[1].speaker == "Ayse DEMIR"
+
+
+def test_vtt_duration_seconds_uses_last_cue_end(tmp_path: Path):
+    path = tmp_path / "speakers.vtt"
+    path.write_text(SPEAKER_VTT, encoding="utf-8")
+    assert vtt_duration_seconds(path) == 8.0
+    assert vtt_duration_seconds(None) is None
+    assert vtt_duration_seconds(tmp_path / "missing.vtt") is None
 
 
 def test_parse_speaker_vtt_malformed_does_not_crash(tmp_path: Path):

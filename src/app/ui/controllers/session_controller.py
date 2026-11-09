@@ -10,6 +10,7 @@ import app.app_paths as app_paths
 from app.application.cloud_consent import payload_summary
 from app.application.forecast import forecast, load_history
 from app.application.headless import resolve_topics
+from app.application.media_integrity import MediaDurationReport
 from app.application.media_type import classify_tier1, signals_from_metadata
 from app.application.provider_registry import (
     KIND_GEMINI,
@@ -32,7 +33,8 @@ from app.infrastructure.openai_compat import (
 )
 from app.infrastructure.process import FfmpegMediaTool, WhisperCliProvider
 from app.infrastructure.secrets import KeyringSecretStore
-from app.ui.controllers.formatting import local_path
+from app.ui.controllers.formatting import format_duration, local_path
+from app.workers.media_integrity_worker import MediaIntegrityWorker
 from app.workers.transcription_worker import TranscriptionWorker
 
 LOGGER = logging.getLogger(__name__)
@@ -43,6 +45,7 @@ class SessionController(QObject):
 
     alert = Signal(str, str)
     cloudConsentRequested = Signal(str, str, str)
+    durationWarningRequested = Signal(str, str)
     voiceprintEnrollmentRequested = Signal(str, str, float)
 
     def __init__(
@@ -68,6 +71,12 @@ class SessionController(QObject):
         self.prompt_store = prompt_store
         self.thread = None
         self.worker = None
+        self._duration_check_thread = None
+        self._duration_check_worker = None
+        self._pending_conditions = None
+        self._pending_duration_report: MediaDurationReport | None = None
+        self._duration_check_passed = False
+        self._start_after_duration_check = False
         self.output_name = ""
         self._input_basename = None
         self.input_dir = app_paths.default_input_dir()
@@ -102,6 +111,7 @@ class SessionController(QObject):
     def _get_start_enabled(self) -> bool:
         return (
             self.worker is None
+            and self._duration_check_thread is None
             and not self._batch_running
             and self._start_ready
             and self._clip_valid
@@ -207,6 +217,8 @@ class SessionController(QObject):
             # Support files (speaker VTT, references) belong to the previous
             # media; start clean for the newly selected file.
             self.job_form.clear_support_files()
+            self._duration_check_passed = False
+            self._pending_duration_report = None
         self.media.name = path.stem
         self.output_name = ""
         self._input_basename = path.name
@@ -371,9 +383,152 @@ class SessionController(QObject):
 
     @Slot()
     def startJob(self) -> None:
+        if self._duration_check_thread is not None:
+            return
         conditions = self._validate_start_conditions()
         if conditions is None:
             return
+        if self._duration_check_passed:
+            self._begin_start(conditions)
+            return
+        self._start_duration_check(conditions)
+
+    def _start_duration_check(self, conditions) -> None:
+        """Measure source/audio/VTT lengths before spending time on a job."""
+        input_path, _output_dir, clip_start, clip_end = conditions
+        self._pending_conditions = conditions
+        self._pending_duration_report = None
+        thread = QThread(self)
+        worker = MediaIntegrityWorker(
+            input_path=input_path,
+            video_seconds=float(getattr(self.media, "duration_seconds", 0.0) or 0.0),
+            clip_start=clip_start,
+            clip_end=clip_end,
+            vtt_path=self.job_form.speaker_vtt_from_support(),
+        )
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_duration_check_finished)
+        worker.failed.connect(self._on_duration_check_failed)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        thread.finished.connect(self._on_duration_check_thread_finished)
+        self._duration_check_thread = thread
+        self._duration_check_worker = worker
+        self._set_status("Checking media duration...")
+        self.startEnabledChanged.emit()
+        thread.start()
+
+    @Slot(object)
+    def _on_duration_check_finished(self, report) -> None:
+        if not isinstance(report, MediaDurationReport):
+            self._on_duration_check_failed("The media duration check returned no result.")
+            return
+        self._pending_duration_report = report
+        if report.has_warning:
+            self._duration_check_passed = False
+            self._set_status("Media duration mismatch detected.")
+            self.durationWarningRequested.emit(
+                "Media duration mismatch", self._duration_warning_text(report)
+            )
+            return
+        self._duration_check_passed = True
+
+    @Slot(str)
+    def _on_duration_check_failed(self, message: str) -> None:
+        LOGGER.warning("Media duration check skipped: %s", message)
+        self._pending_duration_report = None
+        self._duration_check_passed = True  # never block a job on a probe failure
+
+    @Slot()
+    def _on_duration_check_thread_finished(self) -> None:
+        if self._duration_check_worker is not None:
+            self._duration_check_worker.deleteLater()
+            self._duration_check_worker = None
+        if self._duration_check_thread is not None:
+            self._duration_check_thread.deleteLater()
+            self._duration_check_thread = None
+        self.startEnabledChanged.emit()
+        if not self._conditions_are_current(self._pending_conditions):
+            # The user selected another file while the probe was running; its
+            # result belongs to the previous selection and must not start a job.
+            self._duration_check_passed = False
+            self._pending_conditions = None
+            self._pending_duration_report = None
+            self._set_status("Ready")
+            return
+        if self._start_after_duration_check:
+            self._start_after_duration_check = False
+            QTimer.singleShot(0, self.startJob)
+        elif self._duration_check_passed:
+            QTimer.singleShot(0, self._begin_pending_start)
+
+    def _conditions_are_current(self, conditions) -> bool:
+        if conditions is None:
+            return False
+        current = self.current_input_path()
+        if current is None:
+            return False
+        try:
+            if Path(conditions[0]).resolve() != current.resolve():
+                return False
+        except OSError:
+            return False
+        return (conditions[2], conditions[3]) == self.media.clip_seconds()
+
+    def _begin_pending_start(self) -> None:
+        if self._duration_check_passed and self._pending_conditions is not None:
+            self._begin_start(self._pending_conditions)
+
+    @Slot()
+    def proceedAfterDurationWarning(self) -> None:
+        """QML warning dialog accepted: run the job with the available media."""
+        if (
+            self._pending_duration_report is None
+            or not self._pending_duration_report.has_warning
+        ):
+            return
+        self._duration_check_passed = True
+        self._pending_duration_report = None
+        if self._duration_check_thread is not None:
+            self._start_after_duration_check = True
+            return
+        self.startJob()
+
+    def _duration_warning_text(self, report: MediaDurationReport) -> str:
+        lines = [
+            "The media file may be corrupt or incomplete.",
+            "",
+        ]
+        if report.video_seconds:
+            lines.append(f"{report.video_label}: {format_duration(report.video_seconds)}")
+        if report.audio_seconds:
+            lines.append(f"Processed audio: {format_duration(report.audio_seconds)}")
+        if report.vtt_seconds:
+            lines.append(f"VTT: {format_duration(report.vtt_seconds)}")
+        lines.append("")
+        for issue in report.issues:
+            lines.append(
+                f"{issue.left_label} and {issue.right_label} differ by "
+                f"{issue.difference_ratio * 100:.1f}%."
+            )
+        if (
+            report.audio_seconds
+            and report.video_seconds
+            and report.audio_seconds < report.video_seconds * (1.0 - report.tolerance)
+        ):
+            lines.append("")
+            lines.append(
+                f"The processed audio ends at {format_duration(report.audio_seconds)}; "
+                "Whisper can only transcribe the available audio."
+            )
+            lines.append(
+                f"Check that the file plays past {format_duration(report.audio_seconds)}. "
+                "If not, re-export the source or use the VTT as the transcript source."
+            )
+        return "\n".join(lines)
+
+    def _begin_start(self, conditions) -> None:
         cloud_provider = self._cloud_provider_in_use()
         if cloud_provider and not self._has_cloud_consent(cloud_provider):
             self._pending_consent_provider = cloud_provider
@@ -401,6 +556,9 @@ class SessionController(QObject):
             request.clip_start,
             request.clip_end,
         )
+        self._duration_check_passed = False
+        self._pending_conditions = None
+        self._pending_duration_report = None
         self.thread = QThread(self)
         resume_dir = self._resolve_resume_dir(conditions[0])
         self.worker = self._make_worker(text_provider, vision_provider, request, resume_dir)

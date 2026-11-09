@@ -37,6 +37,30 @@ def timestamp_to_ms(timestamp: str, millisecond_separator: str) -> int:
     return int(hours) * 3600000 + int(minutes) * 60000 + int(seconds) * 1000 + int(millis)
 
 
+def vtt_duration_seconds(vtt_path: Path | str | None) -> float | None:
+    """End timestamp of the last WebVTT cue, or None when it cannot be read.
+
+    Unlike ``parse_speaker_vtt`` this does not require speaker tags: it is used
+    to check whether a supplied transcript file covers the whole media file.
+    """
+    if not vtt_path:
+        return None
+    path = Path(vtt_path)
+    if not path.is_file():
+        return None
+    try:
+        content = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    ends: list[int] = []
+    for timestamp_match in VTT_TIMESTAMP_PATTERN.finditer(content):
+        try:
+            ends.append(timestamp_to_ms(timestamp_match.group(2), "."))
+        except (ValueError, IndexError):
+            continue
+    return max(ends) / 1000.0 if ends else None
+
+
 def parse_speaker_vtt(vtt_path: Path | str | None) -> tuple[SpeakerInterval, ...]:
     """Parse a WebVTT file carrying ``<v Speaker>`` tags.
 

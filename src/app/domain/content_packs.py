@@ -59,7 +59,7 @@ _SLIDES_PROMPTS: dict[str, str] = {
         "Visual context:\n{vision_context}"
     ),
     "highlights": (
-        "Analyze the following SRT subtitles (which include exact timestamps) "
+        "Analyze the following timestamped transcript "
         "and identify the key highlights of this slide-based presentation: "
         "central claims, exact data points, definitions, recommendations, "
         "conclusions and answered questions.\n"
@@ -72,16 +72,15 @@ _SLIDES_PROMPTS: dict[str, str] = {
         "overview, or optional detail.\n"
         "Highlight specific moments with timestamps, not section headers.\n"
         "Return a compact JSON array of scored candidates only, no prose. Each "
-        "candidate has 'start' (HH:MM:SS), 'end' (HH:MM:SS), 'title', 'score' "
-        "(integer 0-10) and 'reason'.\n"
-        "Example: [{\"start\":\"00:03:10\",\"end\":\"00:03:45\",\"title\":\"Q3 "
-        "revenue up 12 percent\",\"score\":8,\"reason\":\"Exact number shown on "
-        "slide and emphasized\"}]\n"
+        "candidate has 'start' (HH:MM:SS; use the block timestamp), 'title', "
+        "'score' (integer 0-10) and 'reason'.\n"
+        "Example: [{\"start\":\"00:03:10\",\"title\":\"Q3 revenue up 12 percent\","
+        "\"score\":8,\"reason\":\"Exact number shown on slide and emphasized\"}]\n"
         "Do NOT output any thinking, reasoning or internal monologue. Output "
         "ONLY the JSON array.\n"
         "You MUST write 'title' and 'reason' entirely in language '{lang}'.\n"
         "Task: '{task}'\n\n"
-        "SRT Subtitles:\n{srt_content}\n\n"
+        "Timestamped transcript:\n{srt_content}\n\n"
         "Visual context:\n{vision_context}"
     ),
     "vision_frame": (
@@ -144,7 +143,7 @@ def _combine(subject: str) -> str:
 
 def _highlights(focus: str) -> str:
     return (
-        "Analyze the following SRT subtitles (which include exact timestamps) "
+        "Analyze the following timestamped transcript "
         "and identify the key highlights: "
         + focus
         + ".\n"
@@ -152,14 +151,14 @@ def _highlights(focus: str) -> str:
         "exact number, decision, recommendation, result or answered question; "
         "low score for repetition, logistics or optional detail.\n"
         "Return a compact JSON array of scored candidates only, no prose. Each "
-        "candidate has 'start' (HH:MM:SS), 'end' (HH:MM:SS), 'title', 'score' "
-        "(integer 0-10) and 'reason'. Highlight specific moments, not section "
-        "headers.\n"
+        "candidate has 'start' (HH:MM:SS; use the block timestamp), 'title', "
+        "'score' (integer 0-10) and 'reason'. Highlight specific moments, not "
+        "section headers.\n"
         "Do NOT output any thinking, reasoning or internal monologue. Output "
         "ONLY the JSON array.\n"
         "You MUST write 'title' and 'reason' entirely in language '{lang}'.\n"
         "Task: '{task}'\n\n"
-        "SRT Subtitles:\n{srt_content}\n\n"
+        "Timestamped transcript:\n{srt_content}\n\n"
         "Visual context:\n{vision_context}"
     )
 

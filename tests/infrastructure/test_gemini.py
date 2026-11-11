@@ -69,7 +69,7 @@ def test_text_provider_sends_only_text_parts():
         sleep_fn=sleeps.append,
         min_interval=0,
     )
-    summary = provider.summarize("a" * 5000, "tr")
+    summary = provider.summarize("a" * 7000, "tr")
     assert summary == "final summary"
     assert len(request.calls) == 3  # two chunk summaries + combine
     for url, payload, _timeout in request.calls:

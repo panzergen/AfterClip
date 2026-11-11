@@ -134,6 +134,51 @@ def srt_transcript_text(srt_path: Path | None) -> str:
     return "\n".join(entry.text for entry in parse_srt(srt_path, "TRANSCRIPTION"))
 
 
+#: Highlights need timestamps, but full SRT cue numbers and end timestamps are
+#: mostly token overhead. One timestamp per ~15 seconds keeps a useful temporal
+#: anchor without nearly doubling the transcript size.
+HIGHLIGHT_BLOCK_SECONDS = 15.0
+
+
+def compact_timestamped_transcript(
+    srt_path: Path | None, interval_seconds: float = HIGHLIGHT_BLOCK_SECONDS
+) -> str:
+    """Render a compact ``[HH:MM:SS] text`` transcript for highlight prompts.
+
+    This is deliberately not the full SRT: keeping only one start timestamp per
+    block avoids the cue-number/end-timestamp overhead while preserving enough
+    temporal anchoring for a highlight's start time.
+    """
+    if not srt_path:
+        return ""
+    entries = parse_srt(srt_path, "TRANSCRIPTION")
+    if not entries:
+        return ""
+    interval_ms = max(1000, int(interval_seconds * 1000))
+    lines: list[str] = []
+    block_start_ms = entries[0].start_ms
+    next_boundary_ms = block_start_ms + interval_ms
+    block_texts: list[str] = []
+    for entry in entries:
+        text = entry.text.strip()
+        if not text:
+            continue
+        if block_texts and entry.start_ms >= next_boundary_ms:
+            lines.append(f"[{_format_clock(block_start_ms)}] {' '.join(block_texts)}")
+            block_start_ms = entry.start_ms
+            next_boundary_ms = block_start_ms + interval_ms
+            block_texts = []
+        block_texts.append(text)
+    if block_texts:
+        lines.append(f"[{_format_clock(block_start_ms)}] {' '.join(block_texts)}")
+    return "\n".join(lines)
+
+
+def _format_clock(milliseconds: int) -> str:
+    seconds = max(0, milliseconds) // 1000
+    return f"{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
+
+
 def detect_transcript_language(transcript_dir: Path, audio_stem: str) -> str:
     """Whisper-detected language code from ``<stem>.json`` ("" when unavailable).
 

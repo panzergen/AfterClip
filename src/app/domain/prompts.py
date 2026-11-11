@@ -71,9 +71,8 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "one response.\n"
     ),
     "highlights": (
-        "Analyze the following SRT subtitles (which include exact timestamps) and "
-        "identify the key highlights — decisions, commitments, assigned actions or "
-        "scheduled follow-ups.\n"
+        "Analyze the following timestamped transcript and identify the key highlights — "
+        "decisions, commitments, assigned actions or scheduled follow-ups.\n"
         "Score each candidate 0-10 as a highlight.\n"
         "High score when: the speaker emphasizes importance/commitment ('this is "
         "important', 'we definitely do this', 'we must…'); a decision changes ('we said "
@@ -85,17 +84,17 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "Highlight specific moments with timestamps, not section headers: do NOT simply "
         "retitle each topic section. Every reason must explain why that moment matters.\n"
         "Return a compact JSON array of scored candidates only, no prose. Each candidate "
-        'has "start" (HH:MM:SS), "end" (HH:MM:SS), "title", "score" (integer 0-10) '
-        'and "reason".\n'
-        'Example: [{"start":"00:03:10","end":"00:03:45","title":"Launch date '
-        'moved to May","score":8,"reason":"Explicit commitment"}]\n'
+        'has "start" (HH:MM:SS; use the timestamp of the block containing the moment), '
+        '"title", "score" (integer 0-10) and "reason".\n'
+        'Example: [{"start":"00:03:10","title":"Launch date moved to May",'
+        '"score":8,"reason":"Explicit commitment"}]\n'
         "CRITICAL REQUIREMENT: Do NOT output any thinking, reasoning steps, or internal "
         "monologue. Output ONLY the JSON array.\n"
         'CRITICAL REQUIREMENT: You MUST write "title" and "reason" entirely in the '
-        "language corresponding to language code '{lang}'. If the subtitles contain other "
+        "language corresponding to language code '{lang}'. If the transcript contains other "
         "languages, still write everything in that language; never mix languages within "
         "one response.\n\n"
-        "SRT Subtitles:\n{srt_content}"
+        "Timestamped transcript:\n{srt_content}"
     ),
     "vision_frame": (
         "This frame is from a screen recording (webinar, presentation, software demo or "

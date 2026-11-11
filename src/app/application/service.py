@@ -19,6 +19,7 @@ from app.application.ports import (
 )
 from app.application.provider_registry import is_cloud as provider_is_cloud
 from app.application.service_io import (
+    compact_timestamped_transcript,
     find_resumable_job_dir,
     frame_timestamp,
     frame_window,
@@ -750,7 +751,7 @@ class TranscriptionService:
 
         def action() -> None:
             srt_path = find_transcript_srt(transcript_dir, audio_path.stem)
-            srt_content = srt_path.read_text(encoding="utf-8", errors="ignore") if srt_path else ""
+            highlight_content = compact_timestamped_transcript(srt_path)
             txt_path = transcript_dir / f"{audio_path.stem}.txt"
             transcript_text = (
                 txt_path.read_text(encoding="utf-8", errors="ignore")
@@ -762,7 +763,7 @@ class TranscriptionService:
             def progress(message: str) -> None:
                 recorder.context.on_event(ProgressEvent(message))
 
-            chunks = chunk_text(transcript_text, getattr(self.text_provider, "chunk_size", 3500))
+            chunks = chunk_text(transcript_text, getattr(self.text_provider, "chunk_size", 6000))
             recorder.context.on_event(
                 ProgressEvent(f"AI analysis: transcript split into {len(chunks)} section(s)", 96)
             )
@@ -776,9 +777,9 @@ class TranscriptionService:
             try:
                 highlights = (
                     self.text_provider.extract_highlights(
-                        srt_content, language, progress, cancel_token, **task_kwargs
+                        highlight_content, language, progress, cancel_token, **task_kwargs
                     )
-                    if srt_content
+                    if highlight_content
                     else ""
                 )
             except Exception as error:

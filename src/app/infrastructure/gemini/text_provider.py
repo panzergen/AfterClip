@@ -15,7 +15,8 @@ from app.infrastructure.llm.transport import chunk_text
 
 LOGGER = logging.getLogger(__name__)
 
-CHUNK_SIZE = 3500
+#: Conservative default; cloud models have room for more transcript per call.
+CHUNK_SIZE = 6000
 
 __all__ = ["CHUNK_SIZE", "GeminiError", "GeminiKeyMissing", "GeminiTextProvider"]
 

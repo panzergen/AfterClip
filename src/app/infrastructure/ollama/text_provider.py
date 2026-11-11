@@ -10,7 +10,10 @@ from app.infrastructure.ollama.client import OllamaClient, OllamaError
 
 LOGGER = logging.getLogger(__name__)
 
-CHUNK_SIZE = 3500
+#: 3500 was a conservative default, not a model limit. qwen3.5-agent runs with
+#: an 8192-token context; 6000 characters still leaves room for the prompt and
+#: the output. Callers can pass a smaller chunk_size for a smaller local model.
+CHUNK_SIZE = 6000
 
 
 class OllamaTextProvider:

@@ -2,6 +2,7 @@ import json
 import logging
 import shutil
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from app.application.cancellation import CancelToken, JobCancelled, ProcessingCancelled
@@ -16,6 +17,7 @@ from app.application.ports import (
     TranscriptionProvider,
     VisionProvider,
 )
+from app.application.provider_registry import is_cloud as provider_is_cloud
 from app.application.service_io import (
     find_resumable_job_dir,
     frame_timestamp,
@@ -261,6 +263,15 @@ class TranscriptionService:
             raise JobCancelled
         on_event(ProgressEvent("Transcription", 20))
         result = None
+        frame_pool = None
+        frame_future = None
+        if request.extract_frames:
+            # Frames are independent of Whisper: extract them while the
+            # transcription runs, then join before vision needs them.
+            frame_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="afterclip-frames")
+            frame_future = frame_pool.submit(
+                self._run_frame_extraction, recorder, request, cancel_token
+            )
         try:
             if context.steps.get("transcription", {}).get("status") == "completed":
                 files = tuple(sorted(transcript_dir.glob(f"{audio_path.stem}.*")))
@@ -296,43 +307,10 @@ class TranscriptionService:
                 else:
                     self._run_transcript_filter(recorder, transcript_dir, audio_path)
             self._run_topic_segmentation(recorder, transcript_dir, audio_path, cancel_token)
-            if request.extract_frames:
-                selected_modes = request.frame_modes or (request.frame_mode,)
-                frames_dir = job_dir / "Vision" / "frames"
-                for mode in selected_modes:
-                    if self._frames_cached(context, mode, frames_dir):
-                        recorder.context.on_event(
-                            ProgressEvent(
-                                f"Frame extraction ({mode.title()}) resumed from cache", 98
-                            )
-                        )
-                        continue
-                    recorder.record(
-                        f"frame_extraction_{mode}",
-                        f"Frame extraction ({mode.title()})",
-                        98,
-                        lambda mode=mode: self.media_tool.extract_interval_frames(
-                            request.input_path,
-                            frames_dir,
-                            request.frame_interval,
-                            cancel_token,
-                            request.clip_start,
-                            request.clip_end,
-                            request.highlight_times,
-                            mode,
-                            request.scene_sensitivity,
-                            request.frame_resolution,
-                        ),
-                    )
-                if not any(frames_dir.glob("*.png")):
-                    LOGGER.warning("Frame extraction produced 0 frames in %s", frames_dir)
-                    recorder.context.on_event(
-                        ProgressEvent(
-                            "Frame extraction produced 0 frames; lower scene sensitivity "
-                            "or enable Interval mode",
-                            98,
-                        )
-                    )
+            if frame_future is not None:
+                frame_future.result()
+
+            run_text = False
             if request.analyze_text and self.text_provider is not None:
                 expected_text = analysis_fingerprint(
                     self.text_provider,
@@ -354,7 +332,9 @@ class TranscriptionService:
                                 96,
                             )
                         )
-                    self._run_text_analysis(recorder, transcript_dir, audio_path, cancel_token)
+                    run_text = True
+
+            run_vision = False
             if request.analyze_vision and self.vision_provider is not None:
                 vision_srt = job_dir / "Vision" / "vision_analysis.srt"
                 frames_dir = job_dir / "Vision" / "frames"
@@ -406,19 +386,38 @@ class TranscriptionService:
                         recorder.context.on_event(
                             ProgressEvent("Frame set changed; vision analysis will re-run", 97)
                         )
+                    run_vision = True
+
+            if run_text and run_vision and self._providers_are_cloud():
+                # Local Ollama models share one GPU and swapping them is slower
+                # than running in sequence; only cloud text + vision overlap.
+                self._run_analyses_parallel(
+                    recorder, transcript_dir, audio_path, cancel_token
+                )
+            else:
+                if run_text:
+                    self._run_text_analysis(recorder, transcript_dir, audio_path, cancel_token)
+                if run_vision:
                     self._run_vision_analysis(recorder, transcript_dir, audio_path, cancel_token)
+
             self._record_cloud_usage(recorder)
             self._run_voiceprint_labelling(recorder, transcript_dir, audio_path, cancel_token)
             self._run_master_timeline_step(recorder, job_dir, base_name, transcript_dir, audio_path)
         except ProcessingCancelled as error:
+            self._cancel_parallel_frame(frame_pool, cancel_token)
             recorder.finish("Cancelled")
             raise JobCancelled from error
         except JobCancelled:
+            self._cancel_parallel_frame(frame_pool, cancel_token)
             recorder.finish("Cancelled")
             raise
         except Exception:
+            self._cancel_parallel_frame(frame_pool, cancel_token)
             recorder.finish("Failed")
             raise
+        finally:
+            if frame_pool is not None:
+                frame_pool.shutdown(wait=True)
         shutil.rmtree(work_dir, ignore_errors=True)
         recorder.finish("Succeeded")
         on_event(ProgressEvent("Transcription complete", 100))
@@ -515,6 +514,94 @@ class TranscriptionService:
             return False
         pattern = "scene_*.png" if mode == "scene" else "interval_*.png"
         return any(frames_dir.glob(pattern))
+
+    def _run_frame_extraction(
+        self,
+        recorder: StepRecorder,
+        request: TranscriptionRequest,
+        cancel_token: CancelToken,
+    ) -> None:
+        """Extract every selected frame mode; called alongside transcription."""
+        selected_modes = request.frame_modes or (request.frame_mode,)
+        frames_dir = recorder.context.job_dir / "Vision" / "frames"
+        for mode in selected_modes:
+            if self._frames_cached(recorder.context, mode, frames_dir):
+                recorder.context.on_event(
+                    ProgressEvent(f"Frame extraction ({mode.title()}) resumed from cache", 20)
+                )
+                continue
+            recorder.record(
+                f"frame_extraction_{mode}",
+                f"Frame extraction ({mode.title()})",
+                20,
+                lambda mode=mode: self.media_tool.extract_interval_frames(
+                    request.input_path,
+                    frames_dir,
+                    request.frame_interval,
+                    cancel_token,
+                    request.clip_start,
+                    request.clip_end,
+                    request.highlight_times,
+                    mode,
+                    request.scene_sensitivity,
+                    request.frame_resolution,
+                ),
+                end_percent=20,
+            )
+        if not any(frames_dir.glob("*.png")):
+            LOGGER.warning("Frame extraction produced 0 frames in %s", frames_dir)
+            recorder.context.on_event(
+                ProgressEvent(
+                    "Frame extraction produced 0 frames; lower scene sensitivity "
+                    "or enable Interval mode",
+                    20,
+                )
+            )
+
+    def _providers_are_cloud(self) -> bool:
+        """Cloud text + vision can overlap; local Ollama models share one GPU."""
+        text_provider = getattr(self.text_provider, "provider_name", "")
+        vision_provider = getattr(self.vision_provider, "provider_name", "")
+        return bool(
+            text_provider
+            and vision_provider
+            and provider_is_cloud(text_provider)
+            and provider_is_cloud(vision_provider)
+        )
+
+    def _run_analyses_parallel(
+        self,
+        recorder: StepRecorder,
+        transcript_dir: Path,
+        audio_path: Path,
+        cancel_token: CancelToken,
+    ) -> None:
+        """Run cloud text and vision analysis concurrently."""
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="afterclip-ai") as pool:
+            text_future = pool.submit(
+                self._run_text_analysis, recorder, transcript_dir, audio_path, cancel_token
+            )
+            vision_future = pool.submit(
+                self._run_vision_analysis, recorder, transcript_dir, audio_path, cancel_token
+            )
+            try:
+                text_future.result()
+                vision_future.result()
+            except Exception:
+                cancel = getattr(cancel_token, "cancel", None)
+                if callable(cancel):
+                    cancel()
+                raise
+
+    @staticmethod
+    def _cancel_parallel_frame(frame_pool, cancel_token: CancelToken) -> None:
+        """Stop the background frame job before writing a final job status."""
+        if frame_pool is None:
+            return
+        cancel = getattr(cancel_token, "cancel", None)
+        if callable(cancel):
+            cancel()
+        frame_pool.shutdown(wait=True)
 
     @staticmethod
     def _prompts_state_match(context: JobContext, key: str, expected: dict) -> bool:

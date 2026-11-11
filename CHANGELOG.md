@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Frame extraction now runs alongside Whisper instead of waiting for the
+  transcript. Cloud text and vision analyses run concurrently; local Ollama
+  models stay sequential so they do not fight over one GPU. Job state and
+  report writes are serialized so parallel steps cannot corrupt them.
 - Before a single job starts, AfterClip compares the container duration, the
   duration of the audio it actually extracts, and an optional VTT. When any
   pair differs by more than 5%, a dialog warns that the file may be corrupt or

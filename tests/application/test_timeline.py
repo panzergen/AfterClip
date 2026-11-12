@@ -248,6 +248,34 @@ def test_html_modes_lean_thumbnails_full_and_none(tmp_path: Path):
     assert not (tmp_path / "FullReportAndTimeline.htm").exists()
 
 
+def test_html_has_default_source_video_fallback_and_mini_player(tmp_path: Path):
+    vision = tmp_path / "vision_analysis.srt"
+    vision.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nFILE: ghost.png\nDESCRIPTION: A dashboard screen\n",
+        encoding="utf-8",
+    )
+
+    write_master_timeline(
+        tmp_path,
+        None,
+        vision,
+        (),
+        html_mode="lean",
+        source_video_relative="source/meeting.mp4",
+        source_metadata={"file_name": "meeting.mp4"},
+    )
+
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "id='big-player'" in html_text
+    assert "src='source/meeting.mp4'" in html_text
+    assert "data-fallback-src='meeting.mp4'" in html_text
+    assert "id='mini-player'" in html_text
+    assert "id='maximize-video'" in html_text
+    assert "Drop the original file here" in html_text
+    assert "IntersectionObserver" in html_text
+    assert "data-start-ms='1000'" in html_text
+
+
 def test_full_report_includes_source_metadata(tmp_path: Path):
     vision = tmp_path / "vision_analysis.srt"
     vision.write_text(

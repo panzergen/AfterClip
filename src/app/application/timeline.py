@@ -6,6 +6,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from urllib.parse import quote
 
 from app.application.markdown_html import render_markdown
 from app.application.summary import clean_summary_output
@@ -328,7 +329,8 @@ def _source_metadata_lines(
         "> **Related files:** `AI_Analysis.md`, `Topics.md`, `Summary_Report.md`, "
         "`multimodal_timeline.jsonl`, `multimodal_timeline.meta.json`, "
         "`FullReportAndTimeline.htm`, `Transcripts/converted_audio.txt`, "
-        "`Transcripts/converted_audio.srt`, `Vision/frames/`\n\n",
+        "`Transcripts/converted_audio.srt`, `Vision/frames/`, "
+        "`source/` (original media when copied)\n\n",
     ]
     return lines
 
@@ -348,6 +350,7 @@ def write_master_timeline(
     clip_start: float | None = None,
     clip_end: float | None = None,
     html_mode: str = "",
+    source_video_relative: str = "",
 ) -> tuple[Path, Path]:
     """Write ``Master_Timeline.md`` and ``multimodal_timeline.jsonl``.
 
@@ -411,6 +414,10 @@ def write_master_timeline(
     mode = html_mode if html_mode in {"lean", "thumbnails", "full", "none"} else ""
     if not mode:
         mode = "full" if embed_frames else "lean"
+    if not source_video_relative and metadata.get("file_name"):
+        source_name = str(metadata["file_name"])
+        if (job_dir / "source" / source_name).is_file():
+            source_video_relative = f"source/{source_name}"
     topic_index = 0
     html_path = job_dir / "FullReportAndTimeline.htm"
     # Stream the HTML report instead of accumulating every embedded frame in
@@ -435,7 +442,12 @@ def write_master_timeline(
                 clip_end=clip_end,
             )
         )
-        html_file.write(_html_video_player())
+        html_file.write(
+            _html_video_player(
+                source_video_relative,
+                str(metadata.get("file_name") or ""),
+            )
+        )
         html_file.write("<h2>Timeline</h2>")
     else:
         html_path.unlink(missing_ok=True)
@@ -680,15 +692,30 @@ def split_ai_analysis(markdown: str | None) -> tuple[str, str]:
     return clean_summary_output(summary), highlights
 
 
-def _html_video_player() -> str:
+def _html_video_player(source_relative: str = "", file_name: str = "") -> str:
+    primary = quote(source_relative, safe="/") if source_relative else ""
+    fallback = quote(file_name, safe="") if file_name else ""
+    src = primary or fallback
+    src_attr = f" src='{src}'" if src else ""
+    fallback_attr = f" data-fallback-src='{fallback}'" if fallback else ""
     return (
-        "<section class='player'><div><strong>Source video</strong>"
-        "<span class='hint'>Choose the original file to enable timestamp seeking. "
+        "<section id='big-player' class='player' "
+        "title='Drop the source video here, or choose it to enable timestamp seeking.'>"
+        "<div class='player-head'><strong>Source video</strong>"
+        "<span class='hint'>Drop the original file here, or choose it. "
         "It is not uploaded and is not embedded in this report.</span></div>"
         "<input id='video-file' type='file' accept='video/*'>"
-        "<div id='video-status' class='hint'>No video selected.</div>"
-        "<video id='source-video' controls playsinline preload='metadata'></video>"
-        "</section>"
+        "<div id='video-status' class='hint'>"
+        "The report uses source/&lt;file&gt; by default; if it was moved, "
+        "drop the video here or choose it.</div>"
+        "<div id='big-video-slot' class='video-slot'>"
+        f"<video id='source-video' controls playsinline preload='metadata'{src_attr}"
+        f"{fallback_attr}></video>"
+        "</div></section>"
+        "<div id='mini-player' class='mini-player' aria-hidden='true'>"
+        "<div class='mini-head'><strong>Source video</strong>"
+        "<button id='maximize-video' type='button'>Maximize</button></div>"
+        "<div id='mini-video-slot' class='mini-slot'></div></div>"
     )
 
 
@@ -698,14 +725,55 @@ def _html_seek_script() -> str:
         "const video=document.getElementById('source-video');"
         "const picker=document.getElementById('video-file');"
         "const status=document.getElementById('video-status');"
-        "let objectUrl=null;"
-        "if(!video||!picker||!status)return;"
-        "picker.addEventListener('change',function(){"
-        "const file=picker.files&&picker.files[0];if(!file)return;"
+        "const big=document.getElementById('big-player');"
+        "const bigSlot=document.getElementById('big-video-slot');"
+        "const mini=document.getElementById('mini-player');"
+        "const miniSlot=document.getElementById('mini-video-slot');"
+        "const maximize=document.getElementById('maximize-video');"
+        "let objectUrl=null,fallbackTried=false;"
+        "if(!video||!picker||!status||!big||!bigSlot||!mini||!miniSlot)return;"
+        "function loadFile(file){"
+        "if(!file||!file.type||file.type.indexOf('video/')!==0){"
+        "status.textContent='That file is not a video.';return;}"
         "if(objectUrl)URL.revokeObjectURL(objectUrl);"
-        "objectUrl=URL.createObjectURL(file);video.src=objectUrl;"
-        "status.textContent='Loaded: '+file.name;video.load();"
+        "objectUrl=URL.createObjectURL(file);fallbackTried=true;"
+        "video.src=objectUrl;status.textContent='Loaded: '+file.name;video.load();"
+        "}"
+        "picker.addEventListener('change',function(){"
+        "loadFile(picker.files&&picker.files[0]);});"
+        "['dragenter','dragover'].forEach(function(name){"
+        "big.addEventListener(name,function(event){event.preventDefault();"
+        "big.classList.add('dragover');});});"
+        "['dragleave','drop'].forEach(function(name){"
+        "big.addEventListener(name,function(event){event.preventDefault();"
+        "big.classList.remove('dragover');});});"
+        "big.addEventListener('drop',function(event){"
+        "loadFile(event.dataTransfer.files&&event.dataTransfer.files[0]);});"
+        "video.addEventListener('error',function(){"
+        "const fallback=video.dataset.fallbackSrc||'';"
+        "if(!fallbackTried&&fallback){fallbackTried=true;"
+        "status.textContent='Primary source not found; trying '+fallback;"
+        "video.src=fallback;video.load();return;}"
+        "status.textContent='Video not found. Drop the source file here or choose it.';"
         "});"
+        "function moveVideo(target){"
+        "const time=video.currentTime||0;const playing=!video.paused;"
+        "const rate=video.playbackRate;target.appendChild(video);"
+        "try{video.currentTime=time;}catch(error){}"
+        "video.playbackRate=rate;if(playing){const p=video.play();"
+        "if(p&&p.catch)p.catch(function(){});}}"
+        "let inMini=false;function setMini(value){if(value===inMini)return;"
+        "inMini=value;if(value){mini.classList.add('visible');"
+        "mini.setAttribute('aria-hidden','false');moveVideo(miniSlot);}"
+        "else{mini.classList.remove('visible');mini.setAttribute('aria-hidden','true');"
+        "moveVideo(bigSlot);}}"
+        "if('IntersectionObserver' in window){"
+        "new IntersectionObserver(function(entries){"
+        "const visible=entries[0].isIntersecting;"
+        "if(!visible&&video.src)setMini(true);else setMini(false);"
+        "},{threshold:0.15}).observe(big);}"
+        "if(maximize)maximize.addEventListener('click',function(){setMini(false);"
+        "big.scrollIntoView({behavior:'smooth',block:'start'});});"
         "document.addEventListener('click',function(event){"
         "const button=event.target.closest('button.play');if(!button)return;"
         "if(!video.src){status.textContent='Choose the source video first.';"
@@ -823,12 +891,24 @@ HTML_STYLE = (
     ".topic .badge{margin-left:8px;font-weight:400}"
     "img{max-width:640px;border-radius:6px;display:block;margin:8px 0}"
     "blockquote{margin:8px 0 0}"
-    ".player{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px 16px;"
-    "margin:12px 0}.player video{width:100%;max-height:420px;background:#000;"
+    ".player{background:#fff;border:2px dashed #b9cdea;border-radius:8px;padding:12px 16px;"
+    "margin:12px 0;scroll-margin-top:16px}.player.dragover{background:#eef3fb;"
+    "border-color:#245b9e}.player-head{display:flex;flex-wrap:wrap;gap:8px;"
+    "align-items:baseline}.player video{width:100%;max-height:420px;background:#000;"
     "border-radius:6px;display:block;margin-top:8px}.player .hint{color:#666;"
-    "font-size:12px;margin-top:4px}.play{float:right;background:#eef3fb;color:#245b9e;"
-    "border:1px solid #b9cdea;border-radius:5px;padding:3px 8px;font-size:12px;"
-    "cursor:pointer}.play:hover{background:#dfeafb}"
+    "font-size:12px;margin-top:4px}.video-slot{min-height:1px}"
+    ".mini-player{position:fixed;left:16px;bottom:16px;width:320px;z-index:50;"
+    "background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px;"
+    "box-shadow:0 6px 24px rgba(0,0,0,.18);display:none}"
+    ".mini-player.visible{display:block}.mini-head{display:flex;align-items:center;"
+    "justify-content:space-between;gap:8px;font-size:12px;margin-bottom:6px}"
+    ".mini-head button{background:#eef3fb;color:#245b9e;border:1px solid #b9cdea;"
+    "border-radius:5px;padding:2px 7px;font-size:11px;cursor:pointer}"
+    ".mini-slot video{max-height:170px;margin:0}"
+    ".play{float:right;background:#eef3fb;color:#245b9e;border:1px solid #b9cdea;"
+    "border-radius:5px;padding:3px 8px;font-size:12px;cursor:pointer}"
+    ".play:hover{background:#dfeafb}"
+    "@media (max-width:700px){.mini-player{left:12px;right:12px;bottom:12px;width:auto}}"
 )
 
 

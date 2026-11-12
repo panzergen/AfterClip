@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   JPEG previews for sharing; full embeds original frames. Every report has a
   source-video file picker and per-entry **Play from here** buttons; the video
   itself is never embedded.
+- Jobs copy the original media into `source/` so the HTML report can play it
+  without a file picker. The report falls back to a same-named video beside the
+  HTML, then to drag/drop. The video docks into a floating mini-player while
+  scrolling and can be maximized back to the top player.
 - Highlights are ranked by score and then presented in media order, so the
   final three read chronologically. The highlight prompt no longer awards a
   high score to general setup, onboarding or feature descriptions unless the

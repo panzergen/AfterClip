@@ -121,6 +121,19 @@ def test_service_creates_transcript_output(tmp_path: Path):
     )
 
 
+def test_service_copies_source_video_into_the_job(tmp_path: Path):
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"fixture")
+    result = TranscriptionService(FakeProvider(), FakeMedia()).run(
+        TranscriptionRequest(source, tmp_path / "out"), lambda _: None, Token()
+    )
+    job_dir = result.output_dir.parent
+    copied = job_dir / "source" / "sample.wav"
+    assert copied.read_bytes() == b"fixture"
+    state = json.loads((job_dir / "job_state.json").read_text(encoding="utf-8"))
+    assert state["source_video"] == "source/sample.wav"
+
+
 def test_service_rejects_missing_input(tmp_path: Path):
     with pytest.raises(ValueError, match="not found"):
         TranscriptionService(FakeProvider(), FakeMedia()).run(

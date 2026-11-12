@@ -272,7 +272,10 @@ def _coverage_status(metadata: dict, entries: list[TimelineEntry], clip_end: flo
             expected_end = None
     if expected_end is None or expected_end <= 0:
         return "coverage end unknown"
-    if coverage_end >= expected_end - 1.0:
+    # Trailing silence can end the last entry slightly before the container
+    # duration; only call it incomplete when more than 5% (or 30 s) is missing.
+    tolerance = max(30.0, expected_end * 0.05)
+    if coverage_end >= expected_end - tolerance:
         return "complete"
     missing = expected_end - coverage_end
     return f"incomplete — timeline ends {_format_seconds(missing)} before the expected end"

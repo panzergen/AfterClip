@@ -57,6 +57,7 @@ from app.application.topics import (
 )
 from app.application.transcript_sanitizer import (
     SanitizerConfig,
+    assess_speech,
     load_segments,
     render_srt,
     render_text,
@@ -475,7 +476,7 @@ class TranscriptionService:
         raw_srt = transcript_dir / f"{stem}.raw.srt"
         raw_txt = transcript_dir / f"{stem}.raw.txt"
 
-        def action() -> None:
+        def action():
             if not json_path.is_file():
                 raise RuntimeError("Whisper JSON transcript not found for filtering.")
             # Preserve the raw output exactly once; re-runs stay idempotent by
@@ -488,25 +489,40 @@ class TranscriptionService:
                     shutil.copy2(txt_path, raw_txt)
             segments = load_segments(raw_json)
             result = sanitize_segments(segments, config)
+            try:
+                duration = float(recorder.context.metadata.get("duration") or 0.0)
+            except (TypeError, ValueError):
+                duration = 0.0
+            assessment = assess_speech(result.kept, duration)
             srt_path.write_text(render_srt(result.kept), encoding="utf-8")
             txt_path.write_text(render_text(result.kept), encoding="utf-8")
             report = result.report()
             report["config"] = config.to_dict()
+            report["speech_assessment"] = assessment.to_dict()
             (job_dir / "transcript_filter_report.json").write_text(
                 json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
             )
             recorder.context.state["transcript_filter"] = {
                 "removed": report["removed_count"],
                 "flagged": report["flagged_count"],
+                "speech_detected": assessment.speech_detected,
             }
+            return assessment
 
-        recorder.record(
+        assessment = recorder.record(
             "transcript_filter",
             "Transcript hallucination filter",
             94,
             action,
             tolerated_failure_event=("Transcript filter failed; raw transcript kept", 94),
         )
+        if assessment is not None and not assessment.speech_detected:
+            raise RuntimeError(
+                "No speech detected in the audio. Whisper produced only repeated short "
+                "phrases, so the transcript would be fabricated. Check that the recording "
+                "captured a microphone (not only system/music audio) and record again. "
+                "The raw transcript and assessment are kept for inspection."
+            )
 
     @staticmethod
     def _frames_cached(context: JobContext, mode: str, frames_dir: Path) -> bool:

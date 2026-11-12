@@ -60,6 +60,15 @@ Before a job starts AfterClip checks that the output directory is writable and
 has enough free space. Fix the reported path/permissions or free up space and
 retry. Long Windows paths (> 260 chars) may also need long-path support enabled.
 
+## "No speech detected in the audio"
+
+The recording contains mostly silence, music or noise. Whisper may output
+repeated short phrases such as “Thank you.” even when nobody is speaking.
+AfterClip detects that pattern and stops instead of writing a fabricated
+report. Check that the capture included the microphone (not only system or game
+audio), then record again. The raw transcript and `transcript_filter_report.json`
+are kept for inspection.
+
 ## "Media duration mismatch" before a job
 
 AfterClip compares the container duration, the duration of the audio it

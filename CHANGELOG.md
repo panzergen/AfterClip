@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   collapse to a single marker, and the built-in/slides vision prompts ask for
   one `[unreadable]` per unreadable region instead of one per cell.
 
+### Fixed
+
+- A recording whose audio contains no usable speech no longer produces a
+  fabricated "Thank you." transcript and AI report. The transcript filter now
+  records a speech assessment and stops with an actionable no-speech error when
+  a long recording has almost no words and one phrase dominates. The raw
+  transcript and assessment remain available for inspection.
+
 ### Added
 
 - `Master_Timeline.md` and `FullReportAndTimeline.htm` now carry source

@@ -22,8 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   report writes are serialized so parallel steps cannot corrupt them.
 - Highlight extraction now uses a compact timestamped transcript (one
   timestamp per 15-second block) instead of raw SRT, and text chunks default
-  to 6000 characters instead of 3500. On the 72-minute sample this reduces the
-  text-analysis calls from 56 to about 26.
+  to 5000 characters instead of 3500. This roughly halves the number of
+  text-analysis calls on a long meeting.
 - Before a single job starts, AfterClip compares the container duration, the
   duration of the audio it actually extracts, and an optional VTT. When any
   pair differs by more than 5%, a dialog warns that the file may be corrupt or

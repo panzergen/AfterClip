@@ -763,7 +763,7 @@ class TranscriptionService:
             def progress(message: str) -> None:
                 recorder.context.on_event(ProgressEvent(message))
 
-            chunks = chunk_text(transcript_text, getattr(self.text_provider, "chunk_size", 6000))
+            chunks = chunk_text(transcript_text, getattr(self.text_provider, "chunk_size", 5000))
             recorder.context.on_event(
                 ProgressEvent(f"AI analysis: transcript split into {len(chunks)} section(s)", 96)
             )

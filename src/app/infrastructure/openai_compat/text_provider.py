@@ -15,7 +15,7 @@ from app.infrastructure.openai_compat.client import (
 LOGGER = logging.getLogger(__name__)
 
 #: Conservative default; cloud models have room for more transcript per call.
-CHUNK_SIZE = 6000
+CHUNK_SIZE = 5000
 
 __all__ = ["CHUNK_SIZE", "OpenAICompatError", "OpenAICompatTextProvider"]
 

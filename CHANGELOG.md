@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   timeline also has a reading guide, topic time ranges, entry counts, and a
   coverage status that warns when the timeline ends before the expected source
   end.
+- The HTML report renders the AI summary, highlights and topics from Markdown
+  into real headings, lists, tables and inline formatting instead of showing
+  literal `#`, `|` and `**` characters.
+- Every timeline job writes `multimodal_timeline.meta.json` with the source
+  identity, languages, clip, coverage, counts, related files and JSONL entry
+  schema.
 - Highlights are ranked by score and then presented in media order, so the
   final three read chronologically. The highlight prompt no longer awards a
   high score to general setup, onboarding or feature descriptions unless the

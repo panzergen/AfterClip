@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from app.application.timeline import (
@@ -153,6 +154,65 @@ def test_master_timeline_has_source_metadata_and_reading_guide(tmp_path: Path):
     assert "## How to read this timeline" in markdown
     assert "## [00:00:00,000 --> 00:01:00,000] Opening topic" in markdown
     assert "1 transcription blocks" in markdown
+
+
+def test_master_timeline_writes_jsonl_metadata_sidecar(tmp_path: Path):
+    transcript = tmp_path / "sample.srt"
+    transcript.write_text("1\n00:00:00,000 --> 00:00:02,000\nHello world\n", encoding="utf-8")
+
+    write_master_timeline(
+        tmp_path,
+        transcript,
+        None,
+        (),
+        source_metadata={
+            "file_name": "meeting.mp4",
+            "creation_date": "2026-11-11T08:13:31.000000Z",
+            "duration": "60.0",
+            "media_type": {"media_type": "meeting", "confidence": 0.8},
+        },
+        report_language="tr",
+        transcript_language="tr",
+    )
+
+    meta = json.loads((tmp_path / "multimodal_timeline.meta.json").read_text(encoding="utf-8"))
+    assert meta["source"]["file_name"] == "meeting.mp4"
+    assert meta["source"]["media_type"] == "meeting"
+    assert meta["languages"] == {"transcription": "tr", "report": "tr"}
+    assert meta["coverage"]["transcription_blocks"] == 1
+    assert meta["coverage"]["vision_frames"] == 0
+    assert meta["coverage"]["status"].startswith("incomplete")
+    assert "multimodal_timeline.jsonl" in meta["related_files"]
+
+
+def test_full_report_renders_markdown_summary(tmp_path: Path):
+    vision = tmp_path / "vision_analysis.srt"
+    vision.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nFILE: ghost.png\nDESCRIPTION: A dashboard screen\n",
+        encoding="utf-8",
+    )
+    analysis = (
+        "## Summary\n\n"
+        "## 1. Topic\n\n"
+        "| Name | Value |\n"
+        "| --- | --- |\n"
+        "| A | 1 |\n\n"
+        "- first point\n"
+    )
+
+    write_master_timeline(
+        tmp_path,
+        None,
+        vision,
+        (),
+        embed_frames=True,
+        analysis_markdown=analysis,
+    )
+
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "<h3>1. Topic</h3>" in html_text
+    assert "<table><thead><tr><th>Name</th><th>Value</th></tr></thead>" in html_text
+    assert "<ul><li>first point</li></ul>" in html_text
 
 
 def test_full_report_includes_source_metadata(tmp_path: Path):

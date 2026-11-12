@@ -6,6 +6,7 @@ import logging
 import re
 from pathlib import Path
 
+from app.application.markdown_html import render_markdown
 from app.application.summary import clean_summary_output
 from app.domain.models import SpeakerInterval, TimelineEntry
 
@@ -324,9 +325,9 @@ def _source_metadata_lines(
         f"{coverage_status} · {transcript_count} transcription blocks · "
         f"{vision_count} vision frames · {topic_count} topic sections  \n",
         "> **Related files:** `AI_Analysis.md`, `Topics.md`, `Summary_Report.md`, "
-        "`multimodal_timeline.jsonl`, `FullReportAndTimeline.htm`, "
-        "`Transcripts/converted_audio.txt`, `Transcripts/converted_audio.srt`, "
-        "`Vision/frames/`\n\n",
+        "`multimodal_timeline.jsonl`, `multimodal_timeline.meta.json`, "
+        "`FullReportAndTimeline.htm`, `Transcripts/converted_audio.txt`, "
+        "`Transcripts/converted_audio.srt`, `Vision/frames/`\n\n",
     ]
     return lines
 
@@ -450,6 +451,18 @@ def write_master_timeline(
         markdown_lines.extend(lines)
     timeline_path.write_text("".join(markdown_lines), encoding="utf-8")
     _write_jsonl(jsonl_path, payloads)
+    _write_timeline_meta(
+        job_dir / "multimodal_timeline.meta.json",
+        metadata,
+        report_language,
+        transcript_language,
+        clip_start,
+        clip_end,
+        entries,
+        len(transcript_entries),
+        len(vision_entries),
+        len(topic_list),
+    )
     if html_file is not None:
         html_file.write("</body></html>")
         html_file.close()
@@ -460,6 +473,80 @@ def _write_jsonl(jsonl_path: Path, payloads: list[dict]) -> None:
     with jsonl_path.open("w", encoding="utf-8") as jsonl:
         for payload in payloads:
             jsonl.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def _write_timeline_meta(
+    path: Path,
+    metadata: dict,
+    report_language: str,
+    transcript_language: str,
+    clip_start: float | None,
+    clip_end: float | None,
+    entries: list[TimelineEntry],
+    transcript_count: int,
+    vision_count: int,
+    topic_count: int,
+) -> None:
+    """Machine-readable provenance for the JSONL timeline."""
+    media_type = metadata.get("media_type") if isinstance(metadata.get("media_type"), dict) else {}
+    duration = metadata.get("duration")
+    expected_end_seconds = clip_end
+    if expected_end_seconds is None:
+        try:
+            expected_end_seconds = float(duration)
+        except (TypeError, ValueError):
+            expected_end_seconds = None
+    coverage_end_ms = max((entry.end_ms for entry in entries), default=0)
+    payload = {
+        "schema_version": 1,
+        "generated_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "source": {
+            "file_name": metadata.get("file_name") or "Unknown",
+            "creation_date": metadata.get("creation_date") or "Unknown",
+            "duration_seconds": duration,
+            "file_size_mb": metadata.get("file_size_mb"),
+            "format": metadata.get("format"),
+            "bit_rate": metadata.get("bit_rate"),
+            "media_type": media_type.get("media_type"),
+            "media_type_confidence": media_type.get("confidence"),
+        },
+        "languages": {
+            "transcription": transcript_language or None,
+            "report": report_language or None,
+        },
+        "clip": {"start_seconds": clip_start, "end_seconds": clip_end},
+        "coverage": {
+            "start_ms": 0,
+            "end_ms": coverage_end_ms,
+            "expected_end_ms": int(expected_end_seconds * 1000)
+            if expected_end_seconds is not None
+            else None,
+            "status": _coverage_status(metadata, entries, clip_end),
+            "entries": len(entries),
+            "transcription_blocks": transcript_count,
+            "vision_frames": vision_count,
+            "topic_sections": topic_count,
+        },
+        "related_files": [
+            "Master_Timeline.md",
+            "multimodal_timeline.jsonl",
+            "AI_Analysis.md",
+            "Topics.md",
+            "Summary_Report.md",
+            "FullReportAndTimeline.htm",
+            "Transcripts/converted_audio.txt",
+            "Transcripts/converted_audio.srt",
+            "Vision/frames/",
+        ],
+        "entry_schema": {
+            "timestamp_start_ms": "integer",
+            "timestamp_end_ms": "integer",
+            "event_type": "transcription | vision",
+            "transcription": {"speaker": "string | null", "text": "string"},
+            "vision": {"frame_path": "string | null", "description": "string"},
+        },
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _render_entry(
@@ -632,16 +719,18 @@ def _html_report_sections(
     if summary:
         sections += (
             f"<h2>Summary</h2><div class='prose'>"
-            f"{html_module.escape(summary).replace(chr(10), '<br>')}</div>"
+            f"{render_markdown(summary, heading_offset=1)}</div>"
         )
     if highlights:
         sections += (
             f"<h2>Key Highlights</h2><div class='prose'>"
-            f"{html_module.escape(highlights).replace(chr(10), '<br>')}</div>"
+            f"{render_markdown(highlights, heading_offset=1)}</div>"
         )
     if topics_summary:
-        topics_html = html_module.escape(topics_summary).replace(chr(10), "<br>")
-        sections += f"<h2>Topics</h2><div class='prose'>{topics_html}</div>"
+        sections += (
+            f"<h2>Topics</h2><div class='prose'>"
+            f"{render_markdown(topics_summary, heading_offset=1)}</div>"
+        )
     return sections
 
 
@@ -654,6 +743,12 @@ HTML_STYLE = (
     "margin:12px 0}.meta span{display:block;color:#666;font-size:11px;"
     "text-transform:uppercase;letter-spacing:.04em}.meta strong{font-weight:600}"
     ".prose{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px 16px}"
+    ".prose h2,.prose h3,.prose h4{margin:18px 0 8px;border:0;padding:0}"
+    ".prose ul,.prose ol{margin:8px 0 12px 22px;padding:0}"
+    ".prose li{margin:4px 0}.prose p{margin:8px 0}"
+    ".prose table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px}"
+    ".prose th,.prose td{border:1px solid #ddd;padding:6px 8px;text-align:left;vertical-align:top}"
+    ".prose th{background:#f0f2f5}.prose code{background:#f0f2f5;padding:1px 4px;border-radius:3px}"
     ".entry{background:#fff;border:1px solid #ddd;border-radius:8px;"
     "padding:12px 16px;margin:12px 0}"
     ".badge{font-size:12px;color:#666;letter-spacing:.4px}"

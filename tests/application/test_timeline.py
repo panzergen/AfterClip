@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from app.application.timeline import (
     find_transcript_srt,
     parse_speaker_vtt,
@@ -215,6 +217,37 @@ def test_full_report_renders_markdown_summary(tmp_path: Path):
     assert "<ul><li>first point</li></ul>" in html_text
 
 
+def test_html_modes_lean_thumbnails_full_and_none(tmp_path: Path):
+    Image = pytest.importorskip("PIL.Image")
+    frames_dir = tmp_path / "Vision" / "frames"
+    frames_dir.mkdir(parents=True)
+    Image.new("RGB", (800, 600), (200, 100, 50)).save(frames_dir / "frame_001.png")
+    vision = tmp_path / "vision_analysis.srt"
+    vision.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nFILE: frame_001.png\nDESCRIPTION: A chart\n",
+        encoding="utf-8",
+    )
+
+    write_master_timeline(tmp_path, None, vision, (), html_mode="lean")
+    lean = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "src='Vision/frames/frame_001.png'" in lean
+    assert "data:image" not in lean
+    assert "id='source-video'" in lean and "id='video-file'" in lean
+    assert "button class='play'" in lean and "data-start-ms='1000'" in lean
+
+    write_master_timeline(tmp_path, None, vision, (), html_mode="thumbnails")
+    thumb = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "data:image/jpeg;base64," in thumb
+    assert "href='Vision/frames/frame_001.png'" in thumb
+
+    write_master_timeline(tmp_path, None, vision, (), html_mode="full")
+    full = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "data:image/png;base64," in full
+
+    write_master_timeline(tmp_path, None, vision, (), html_mode="none")
+    assert not (tmp_path / "FullReportAndTimeline.htm").exists()
+
+
 def test_full_report_includes_source_metadata(tmp_path: Path):
     vision = tmp_path / "vision_analysis.srt"
     vision.write_text(
@@ -269,7 +302,7 @@ def test_write_master_timeline_embeds_frames_on_request(tmp_path: Path):
     assert '"frame_path": "Vision/frames/frame_001.png"' in jsonl[0]
 
 
-def test_write_master_timeline_without_embed_writes_no_html(tmp_path: Path):
+def test_write_master_timeline_without_embed_writes_lean_html(tmp_path: Path):
     vision = tmp_path / "vision_analysis.srt"
     vision.write_text(
         "1\n00:00:01,000 --> 00:00:03,000\nFILE: ghost.png\nDESCRIPTION: A dashboard screen\n",
@@ -277,7 +310,9 @@ def test_write_master_timeline_without_embed_writes_no_html(tmp_path: Path):
     )
     timeline_path, _ = write_master_timeline(tmp_path, None, vision, ())
     assert "![Frame](Vision/frames/ghost.png)" in timeline_path.read_text(encoding="utf-8")
-    assert not (tmp_path / "FullReportAndTimeline.htm").exists()
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "src='Vision/frames/ghost.png'" in html_text
+    assert "data:image" not in html_text
 
 
 def test_full_report_includes_summary_and_highlights(tmp_path: Path):

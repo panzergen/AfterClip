@@ -119,6 +119,9 @@ when its exit criteria pass, not when a calendar says so.
 - Visual highlights and scene-based topics.
 - Frame budget: selectable vision sampling density, a maximum frame count and a
   vision resolution, with lower defaults for narrative/travel.
+- Speaker navigation: a speakers section at the top of the HTML report and a
+  non-destructive transcript filter by speaker. See
+  [PLAN_SPEAKERS.md](PLAN_SPEAKERS.md).
 - See [PLAN_VISION_SYNTHESIS.md](PLAN_VISION_SYNTHESIS.md).
 
 **Exit criteria**

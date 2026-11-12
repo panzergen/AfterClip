@@ -923,6 +923,7 @@ class SessionController(QObject):
             topic_min,
             topic_max,
             voiceprint_enabled=form.voiceprintEnabled,
+            html_mode=form.htmlMode,
         )
 
     @Slot()

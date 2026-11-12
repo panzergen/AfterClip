@@ -68,7 +68,8 @@ Each job writes a folder under the output directory:
 ├── Summary_Report.md          # metadata, steps, status, cloud usage
 ├── Master_Timeline.md         # speaker-aware timeline for reading/AI
 ├── multimodal_timeline.jsonl  # machine-readable timeline (text + vision)
-├── FullReportAndTimeline.htm  # human-readable report with embedded frames
+├── multimodal_timeline.meta.json  # source/provenance/coverage/schema
+├── FullReportAndTimeline.htm  # human-readable report (lean by default)
 ├── AI_Analysis.md             # summary + highlights (when AI runs)
 ├── job_state.json             # checkpoint state (enables resume)
 ├── Transcripts/               # Whisper output: .srt, .txt, .json, .vtt

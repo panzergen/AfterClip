@@ -294,14 +294,27 @@ ColumnLayout {
         }
     }
 
-    CheckBox {
+    FieldRow {
         Layout.fillWidth: true
-        text: qsTr("Generate FullReportAndTimeline.htm with embedded frames")
-        checked: jobForm.embedFrames
-        onToggled: jobForm.embedFrames = checked
-        font.pixelSize: Theme.fontSizeSmall
-        ToolTip.visible: hovered
-        ToolTip.delay: 400
-        ToolTip.text: qsTr("Writes a human-readable FullReportAndTimeline.htm with the summary, highlights, full transcript and frames embedded as base64. The Master Timeline .md stays lean with relative file paths.")
+        label: qsTr("HTML report")
+        AppComboBox {
+            width: 300
+            model: jobForm.htmlModeLabels
+            currentIndex: jobForm.htmlModeIndex
+            font.pixelSize: Theme.fontSizeSmall
+            onActivated: (index) => jobForm.htmlModeIndex = index
+        }
+    }
+
+    Text {
+        Layout.fillWidth: true
+        text: qsTr(
+            "Lean links to frames on disk. Standalone thumbnails embeds small "
+            + "previews for sharing. Full embeds the original frames. The Markdown "
+            + "timeline stays lean in every mode."
+        )
+        wrapMode: Text.Wrap
+        font.pixelSize: Theme.fontSizeCaption
+        color: Theme.muted
     }
 }

@@ -57,6 +57,10 @@ class TranscriptionRequest:
     topic_min_seconds: float = 60.0
     topic_max_sections: int = 0
     voiceprint_enabled: bool = False
+    #: HTML report mode: lean (external frames), thumbnails (standalone small),
+    #: full (embedded originals) or none. Empty preserves the legacy
+    #: embed_frames boolean for callers that do not set a mode.
+    html_mode: str = ""
 
 
 @dataclass(frozen=True)

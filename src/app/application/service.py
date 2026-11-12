@@ -237,6 +237,7 @@ class TranscriptionService:
             "analyze_text": request.analyze_text,
             "analyze_vision": request.analyze_vision,
             "voiceprint_enabled": request.voiceprint_enabled,
+            "html_mode": request.html_mode,
         }
         self._record_forecast(context, request)
         recorder.save()
@@ -1220,6 +1221,7 @@ class TranscriptionService:
                 transcript_merge_seconds=request.transcript_merge_seconds,
                 analysis_markdown=analysis_markdown,
                 topics=tuple(self._topics),
+                html_mode=request.html_mode,
                 source_metadata=source_metadata,
                 report_language=resolve_report_language(request, transcript_dir, audio_path.stem),
                 transcript_language=detect_transcript_language(transcript_dir, audio_path.stem),

@@ -88,6 +88,23 @@ def test_advanced_panel_defaults(controllers):
     assert form.intervalMode is False
 
 
+def test_html_mode_and_embed_frames_stay_in_sync(controllers):
+    form = controllers.job_form
+    assert form.htmlMode == "lean"
+    assert form.embedFrames is False
+
+    form.htmlMode = "thumbnails"
+    assert form.htmlModeIndex == 1
+    assert form.embedFrames is False
+
+    form.embedFrames = True
+    assert form.htmlMode == "full"
+    assert form.htmlModeIndex == 2
+
+    form.embedFrames = False
+    assert form.htmlMode == "lean"
+
+
 def test_settings_persists_segment_length(qapp):
     store = InMemorySettingsStore()
     controller = SettingsController(store=store, key_store=NoKeyStore())

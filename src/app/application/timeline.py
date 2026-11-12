@@ -1,6 +1,7 @@
 import base64
 import datetime
 import html as html_module
+import io
 import json
 import logging
 import re
@@ -346,13 +347,14 @@ def write_master_timeline(
     transcript_language: str = "",
     clip_start: float | None = None,
     clip_end: float | None = None,
+    html_mode: str = "",
 ) -> tuple[Path, Path]:
     """Write ``Master_Timeline.md`` and ``multimodal_timeline.jsonl``.
 
     The Markdown stays lean for AI consumption: relative frame paths only, no
-    binary data. Topic sections add ``## title`` headings. When `embed_frames`
-    is set, a human-readable ``FullReportAndTimeline.htm`` is written alongside
-    with frames embedded as base64 plus the AI summary, highlights and topics.
+    binary data. Topic sections add ``## title`` headings. The HTML report mode
+    is ``lean`` (external frame links), ``thumbnails`` (small embedded previews),
+    ``full`` (original frames embedded) or ``none``.
     """
     all_entries: list[TimelineEntry] = []
     if transcript_srt:
@@ -406,16 +408,20 @@ def write_master_timeline(
         "- The machine-readable companion is `multimodal_timeline.jsonl` "
         "(one JSON object per line).\n\n---\n\n",
     ]
+    mode = html_mode if html_mode in {"lean", "thumbnails", "full", "none"} else ""
+    if not mode:
+        mode = "full" if embed_frames else "lean"
     topic_index = 0
+    html_path = job_dir / "FullReportAndTimeline.htm"
     # Stream the HTML report instead of accumulating every embedded frame in
     # memory: a large job otherwise holds all base64 frames at once.
     html_file = None
-    if embed_frames:
+    if mode != "none":
         summary, highlights = split_ai_analysis(analysis_markdown or "")
         topics_summary = "\n".join(
             f"- `[{topic.start_str} --> {topic.end_str}]` {topic.title}" for topic in topic_list
         )
-        html_file = (job_dir / "FullReportAndTimeline.htm").open("w", encoding="utf-8")
+        html_file = html_path.open("w", encoding="utf-8")
         html_file.write(_html_head(str(metadata.get("file_name") or "")))
         html_file.write(
             _html_report_sections(
@@ -429,7 +435,10 @@ def write_master_timeline(
                 clip_end=clip_end,
             )
         )
+        html_file.write(_html_video_player())
         html_file.write("<h2>Timeline</h2>")
+    else:
+        html_path.unlink(missing_ok=True)
     for entry in entries:
         while topic_index < len(topic_list) and entry.start_ms >= topic_list[topic_index].start_ms:
             topic = topic_list[topic_index]
@@ -444,7 +453,7 @@ def write_master_timeline(
                     f"{html_module.escape(topic.end_str)}]</span></h2>"
                 )
             topic_index += 1
-        payload, html_row, lines = _render_entry(entry, speaker_intervals, job_dir, embed_frames)
+        payload, html_row, lines = _render_entry(entry, speaker_intervals, job_dir, mode)
         if html_file is not None:
             html_file.write(html_row)
         payloads.append(payload)
@@ -464,6 +473,7 @@ def write_master_timeline(
         len(topic_list),
     )
     if html_file is not None:
+        html_file.write(_html_seek_script())
         html_file.write("</body></html>")
         html_file.close()
     return timeline_path, jsonl_path
@@ -553,12 +563,16 @@ def _render_entry(
     entry: TimelineEntry,
     speaker_intervals: tuple[SpeakerInterval, ...],
     job_dir: Path,
-    embed_frames: bool,
+    html_mode: str,
 ):
     """One entry -> (jsonl payload, html row, markdown lines)."""
     speaker = resolve_speaker(speaker_intervals, entry.start_ms, entry.end_ms)
     speaker_badge = f" `[SPEAKER: {speaker}]`" if speaker else ""
     start_badge = f"[{entry.start_str} --> {entry.end_str}]"
+    play_button = (
+        f"<button class='play' type='button' data-start-ms='{entry.start_ms}'>"
+        "▶ Play from here</button>"
+    )
     if entry.context_type == "VISION":
         file_match = VISION_FILE_PATTERN.search(entry.text)
         description_match = VISION_DESCRIPTION_PATTERN.search(entry.text)
@@ -566,18 +580,32 @@ def _render_entry(
         description = description_match.group(1).strip() if description_match else entry.text
         frame_link = f"Vision/frames/{frame_name}" if frame_name else None
         html_frame_link = frame_link
-        if embed_frames and frame_name:
+        thumbnail_link = None
+        if frame_name and html_mode == "full":
             embedded = _embedded_frame_data(job_dir / "Vision" / "frames" / frame_name)
             if embedded:
                 html_frame_link = embedded
+        elif frame_name and html_mode == "thumbnails":
+            thumbnail_link = _embedded_thumbnail_data(
+                job_dir / "Vision" / "frames" / frame_name
+            )
+            if thumbnail_link:
+                html_frame_link = thumbnail_link
         lines = [f"### `{start_badge}` `[VISION]`\n"]
         if frame_link:
             lines.append(f"![Frame]({frame_link})\n")
         lines.append(f"> {description}\n\n---\n\n")
+        image_html = ""
+        if html_frame_link:
+            image = f"<img src='{html_frame_link}' alt='Frame'>"
+            if thumbnail_link and frame_link:
+                image = f"<a href='{frame_link}' target='_blank' rel='noopener'>{image}</a>"
+            image_html = image
         html_row = (
             f"<div class='entry'><span class='badge'>[{html_module.escape(entry.start_str)} --> "
             f"{html_module.escape(entry.end_str)}] VISION</span>"
-            + (f"<img src='{html_frame_link}' alt='Frame'>" if html_frame_link else "")
+            + play_button
+            + image_html
             + f"<blockquote>{html_module.escape(description)}</blockquote></div>"
         )
         payload = {
@@ -598,7 +626,8 @@ def _render_entry(
     html_row = (
         f"<div class='entry'><span class='badge'>[{html_module.escape(entry.start_str)} --> "
         f"{html_module.escape(entry.end_str)}] TRANSCRIPTION{speaker_html}</span>"
-        f"<blockquote>{html_module.escape(entry.text)}</blockquote></div>"
+        + play_button
+        + f"<blockquote>{html_module.escape(entry.text)}</blockquote></div>"
     )
     payload = {
         "timestamp_start_ms": entry.start_ms,
@@ -649,6 +678,44 @@ def split_ai_analysis(markdown: str | None) -> tuple[str, str]:
         return clean_summary_output(markdown.strip()), ""
     highlights = _analysis_section(markdown, "Key Highlights", ("Topics", "Summary")) or ""
     return clean_summary_output(summary), highlights
+
+
+def _html_video_player() -> str:
+    return (
+        "<section class='player'><div><strong>Source video</strong>"
+        "<span class='hint'>Choose the original file to enable timestamp seeking. "
+        "It is not uploaded and is not embedded in this report.</span></div>"
+        "<input id='video-file' type='file' accept='video/*'>"
+        "<div id='video-status' class='hint'>No video selected.</div>"
+        "<video id='source-video' controls playsinline preload='metadata'></video>"
+        "</section>"
+    )
+
+
+def _html_seek_script() -> str:
+    return (
+        "<script>(function(){"
+        "const video=document.getElementById('source-video');"
+        "const picker=document.getElementById('video-file');"
+        "const status=document.getElementById('video-status');"
+        "let objectUrl=null;"
+        "if(!video||!picker||!status)return;"
+        "picker.addEventListener('change',function(){"
+        "const file=picker.files&&picker.files[0];if(!file)return;"
+        "if(objectUrl)URL.revokeObjectURL(objectUrl);"
+        "objectUrl=URL.createObjectURL(file);video.src=objectUrl;"
+        "status.textContent='Loaded: '+file.name;video.load();"
+        "});"
+        "document.addEventListener('click',function(event){"
+        "const button=event.target.closest('button.play');if(!button)return;"
+        "if(!video.src){status.textContent='Choose the source video first.';"
+        "picker.click();return;}"
+        "const ms=Number(button.dataset.startMs||0);"
+        "video.currentTime=ms/1000;const play=video.play();"
+        "if(play&&play.catch)play.catch(function(){});"
+        "});"
+        "})();</script>"
+    )
 
 
 def _html_head(file_name: str = "") -> str:
@@ -756,6 +823,12 @@ HTML_STYLE = (
     ".topic .badge{margin-left:8px;font-weight:400}"
     "img{max-width:640px;border-radius:6px;display:block;margin:8px 0}"
     "blockquote{margin:8px 0 0}"
+    ".player{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px 16px;"
+    "margin:12px 0}.player video{width:100%;max-height:420px;background:#000;"
+    "border-radius:6px;display:block;margin-top:8px}.player .hint{color:#666;"
+    "font-size:12px;margin-top:4px}.play{float:right;background:#eef3fb;color:#245b9e;"
+    "border:1px solid #b9cdea;border-radius:5px;padding:3px 8px;font-size:12px;"
+    "cursor:pointer}.play:hover{background:#dfeafb}"
 )
 
 
@@ -766,3 +839,20 @@ def _embedded_frame_data(frame_path: Path) -> str | None:
     except OSError:
         return None
     return f"data:image/png;base64,{encoded}"
+
+
+def _embedded_thumbnail_data(frame_path: Path, max_width: int = 640, quality: int = 72):
+    """Small JPEG data URI for the standalone report; None on failure."""
+    try:
+        from PIL import Image
+
+        with Image.open(frame_path) as image:
+            image = image.convert("RGB")
+            image.thumbnail((max_width, max_width))
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=quality, optimize=True)
+    except Exception as error:
+        LOGGER.warning("Could not create thumbnail for %s: %s", frame_path, error)
+        return None
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"

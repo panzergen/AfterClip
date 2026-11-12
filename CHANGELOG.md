@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Every timeline job writes `multimodal_timeline.meta.json` with the source
   identity, languages, clip, coverage, counts, related files and JSONL entry
   schema.
+- HTML reports now have explicit lean, standalone-thumbnail, full and none
+  modes. Lean is the default and only links to frames; thumbnails embed small
+  JPEG previews for sharing; full embeds original frames. Every report has a
+  source-video file picker and per-entry **Play from here** buttons; the video
+  itself is never embedded.
 - Highlights are ranked by score and then presented in media order, so the
   final three read chronologically. The highlight prompt no longer awards a
   high score to general setup, onboarding or feature descriptions unless the

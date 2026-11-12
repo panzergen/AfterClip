@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Highlights are ranked by score and then presented in media order, so the
+  final three read chronologically. The highlight prompt no longer awards a
+  high score to general setup, onboarding or feature descriptions unless the
+  speaker states a decision, change or commitment.
 - Frame extraction now runs alongside Whisper instead of waiting for the
   transcript. Cloud text and vision analyses run concurrently; local Ollama
   models stay sequential so they do not fight over one GPU. Job state and

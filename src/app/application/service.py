@@ -20,6 +20,7 @@ from app.application.ports import (
 from app.application.provider_registry import is_cloud as provider_is_cloud
 from app.application.service_io import (
     compact_timestamped_transcript,
+    detect_transcript_language,
     find_resumable_job_dir,
     frame_timestamp,
     frame_window,
@@ -1204,6 +1205,12 @@ class TranscriptionService:
                 if analysis_path.is_file()
                 else ""
             )
+            source_metadata = dict(recorder.context.metadata or {})
+            source_metadata.setdefault("file_name", request.input_path.name)
+            if not source_metadata.get("duration"):
+                source_metadata["duration"] = recorder.context.state.get("media", {}).get(
+                    "duration"
+                )
             return write_master_timeline(
                 job_dir,
                 transcript_srt,
@@ -1213,6 +1220,11 @@ class TranscriptionService:
                 transcript_merge_seconds=request.transcript_merge_seconds,
                 analysis_markdown=analysis_markdown,
                 topics=tuple(self._topics),
+                source_metadata=source_metadata,
+                report_language=resolve_report_language(request, transcript_dir, audio_path.stem),
+                transcript_language=detect_transcript_language(transcript_dir, audio_path.stem),
+                clip_start=request.clip_start,
+                clip_end=request.clip_end,
             )
 
         timeline_paths = recorder.record("master_timeline", "Master timeline", 99, action)

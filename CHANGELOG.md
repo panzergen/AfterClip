@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Master_Timeline.md` and `FullReportAndTimeline.htm` now carry source
+  provenance: file name, source creation date, duration, media type,
+  transcription/report languages, clip range and related files. The Markdown
+  timeline also has a reading guide, topic time ranges, entry counts, and a
+  coverage status that warns when the timeline ends before the expected source
+  end.
 - Highlights are ranked by score and then presented in media order, so the
   final three read chronologically. The highlight prompt no longer awards a
   high score to general setup, onboarding or feature descriptions unless the

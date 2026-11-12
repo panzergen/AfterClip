@@ -1,4 +1,5 @@
 import base64
+import datetime
 import html as html_module
 import json
 import logging
@@ -244,6 +245,89 @@ def merge_transcript_entries(
 _UNSET = object()
 
 
+def _format_seconds(value) -> str:
+    try:
+        total = int(float(value))
+    except (TypeError, ValueError):
+        return str(value or "Unknown")
+    return f"{total // 3600:02d}:{(total % 3600) // 60:02d}:{total % 60:02d}"
+
+
+def _format_milliseconds(value: int) -> str:
+    seconds = max(0, int(value)) / 1000.0
+    whole = int(seconds)
+    millis = round((seconds - whole) * 1000)
+    return f"{whole // 3600:02d}:{(whole % 3600) // 60:02d}:{whole % 60:02d},{millis:03d}"
+
+
+def _coverage_status(metadata: dict, entries: list[TimelineEntry], clip_end: float | None) -> str:
+    coverage_end = max((entry.end_ms for entry in entries), default=0) / 1000.0
+    expected_end: float | None = None
+    if clip_end is not None:
+        expected_end = float(clip_end)
+    else:
+        try:
+            expected_end = float(metadata.get("duration"))
+        except (TypeError, ValueError):
+            expected_end = None
+    if expected_end is None or expected_end <= 0:
+        return "coverage end unknown"
+    if coverage_end >= expected_end - 1.0:
+        return "complete"
+    missing = expected_end - coverage_end
+    return f"incomplete — timeline ends {_format_seconds(missing)} before the expected end"
+
+
+def _source_metadata_lines(
+    metadata: dict,
+    report_language: str,
+    transcript_language: str,
+    clip_start: float | None,
+    clip_end: float | None,
+    entries: list[TimelineEntry],
+    transcript_count: int,
+    vision_count: int,
+    topic_count: int,
+) -> list[str]:
+    """A compact, AI-readable provenance block for Master_Timeline.md."""
+    media_type = metadata.get("media_type") if isinstance(metadata.get("media_type"), dict) else {}
+    file_name = str(metadata.get("file_name") or "Unknown")
+    creation_date = str(metadata.get("creation_date") or "Unknown")
+    duration = _format_seconds(metadata.get("duration"))
+    media_label = str(media_type.get("media_type") or "Unknown")
+    confidence = media_type.get("confidence")
+    if confidence is not None:
+        media_label += f" (confidence {confidence})"
+    clip_label = (
+        "Full file"
+        if clip_start is None and clip_end is None
+        else f"{clip_start or 0} --> {clip_end if clip_end is not None else 'end'}"
+    )
+    coverage_end = max((entry.end_ms for entry in entries), default=0)
+    coverage_status = _coverage_status(metadata, entries, clip_end)
+    generated = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    lines = [
+        f"> **Source file:** `{file_name}`  \n",
+        f"> **Source creation date:** `{creation_date}`  \n",
+        f"> **Duration:** `{duration}`  \n",
+        f"> **Media type:** {media_label}  \n",
+        f"> **File size:** `{metadata.get('file_size_mb', 'Unknown')} MB`  \n",
+        f"> **Format:** `{metadata.get('format', 'Unknown')}`  \n",
+        f"> **Clip range:** `{clip_label}`  \n",
+        f"> **Transcription language:** `{transcript_language or 'Unknown'}`  \n",
+        f"> **Report language:** `{report_language or 'Unknown'}`  \n",
+        f"> **Generated:** `{generated}`  \n",
+        f"> **Coverage:** `00:00:00,000 --> {_format_milliseconds(coverage_end)}` · "
+        f"{coverage_status} · {transcript_count} transcription blocks · "
+        f"{vision_count} vision frames · {topic_count} topic sections  \n",
+        "> **Related files:** `AI_Analysis.md`, `Topics.md`, `Summary_Report.md`, "
+        "`multimodal_timeline.jsonl`, `FullReportAndTimeline.htm`, "
+        "`Transcripts/converted_audio.txt`, `Transcripts/converted_audio.srt`, "
+        "`Vision/frames/`\n\n",
+    ]
+    return lines
+
+
 def write_master_timeline(
     job_dir: Path,
     transcript_srt: Path | None,
@@ -253,6 +337,11 @@ def write_master_timeline(
     transcript_merge_seconds: float | None = None,
     analysis_markdown: str | None = None,
     topics: tuple = (),
+    source_metadata: dict | None = None,
+    report_language: str = "",
+    transcript_language: str = "",
+    clip_start: float | None = None,
+    clip_end: float | None = None,
 ) -> tuple[Path, Path]:
     """Write ``Master_Timeline.md`` and ``multimodal_timeline.jsonl``.
 
@@ -278,13 +367,41 @@ def write_master_timeline(
     timeline_path = job_dir / "Master_Timeline.md"
     jsonl_path = job_dir / "multimodal_timeline.jsonl"
     payloads: list[dict] = []
+    topic_list = list(topics)
+    metadata = source_metadata or {}
     markdown_lines = [
         "# Master Chronological Timeline\n\n",
-        "This document combines **Audio Transcription**, **Speaker Diarization**, "
-        "and **Vision AI Scene Analysis**"
-        " in a unified chronological sequence.\n\n---\n\n",
+        *_source_metadata_lines(
+            metadata,
+            report_language,
+            transcript_language,
+            clip_start,
+            clip_end,
+            entries,
+            len(transcript_entries),
+            len(vision_entries),
+            len(topic_list),
+        ),
+        "## How to read this timeline\n\n",
+        "- Entries are ordered by **start time**. A `TRANSCRIPTION` entry and a "
+        "`VISION` entry can overlap; vision time is the frame timestamp, not a "
+        "separate speech event.\n",
+        "- A `TRANSCRIPTION` entry is the cleaned Whisper transcript. A "
+        "`SPEAKER: name` label comes from the supplied VTT or voiceprints; it is "
+        "absent when no diarization source was supplied.\n",
+        "- The transcript is machine-generated ASR. Treat names and technical "
+        "terms as potentially misspelled unless they also appear in a vision "
+        "description.\n",
+        "- A `VISION` entry describes a screen frame. The image link is relative to "
+        "this job folder. `[unreadable]` means the text could not be read; "
+        "`(no visible screen content)` means the frame had no usable screen content.\n",
+        "- `##` headings are topic sections, not timeline entries. Each heading "
+        "includes its topic time range. Cite an entry by its start timestamp.\n",
+        "- Timestamps use `HH:MM:SS,mmm`, relative to the source file (or the "
+        "selected clip start).\n",
+        "- The machine-readable companion is `multimodal_timeline.jsonl` "
+        "(one JSON object per line).\n\n---\n\n",
     ]
-    topic_list = list(topics)
     topic_index = 0
     # Stream the HTML report instead of accumulating every embedded frame in
     # memory: a large job otherwise holds all base64 frames at once.
@@ -295,13 +412,26 @@ def write_master_timeline(
             f"- `[{topic.start_str} --> {topic.end_str}]` {topic.title}" for topic in topic_list
         )
         html_file = (job_dir / "FullReportAndTimeline.htm").open("w", encoding="utf-8")
-        html_file.write(_html_head())
-        html_file.write(_html_report_sections(summary, highlights, topics_summary))
+        html_file.write(_html_head(str(metadata.get("file_name") or "")))
+        html_file.write(
+            _html_report_sections(
+                summary,
+                highlights,
+                topics_summary,
+                metadata=metadata,
+                report_language=report_language,
+                transcript_language=transcript_language,
+                clip_start=clip_start,
+                clip_end=clip_end,
+            )
+        )
         html_file.write("<h2>Timeline</h2>")
     for entry in entries:
         while topic_index < len(topic_list) and entry.start_ms >= topic_list[topic_index].start_ms:
             topic = topic_list[topic_index]
-            markdown_lines.append(f"\n## {topic.title}\n\n")
+            markdown_lines.append(
+                f"\n## [{topic.start_str} --> {topic.end_str}] {topic.title}\n\n"
+            )
             if html_file is not None:
                 html_file.write(
                     "<h2 class='topic'>"
@@ -431,16 +561,71 @@ def split_ai_analysis(markdown: str | None) -> tuple[str, str]:
     return clean_summary_output(summary), highlights
 
 
-def _html_head() -> str:
+def _html_head(file_name: str = "") -> str:
+    title = f"AfterClip — {file_name}" if file_name else "AfterClip Full Report & Timeline"
     return (
         "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-        "<title>AfterClip Full Report & Timeline</title>"
+        f"<title>{html_module.escape(title)}</title>"
         f"<style>{HTML_STYLE}</style></head><body>"
     )
 
 
-def _html_report_sections(summary: str, highlights: str, topics_summary: str) -> str:
+def _html_metadata(
+    metadata: dict,
+    report_language: str,
+    transcript_language: str,
+    clip_start: float | None,
+    clip_end: float | None,
+) -> str:
+    media_type = metadata.get("media_type") if isinstance(metadata.get("media_type"), dict) else {}
+    media_label = str(media_type.get("media_type") or "Unknown")
+    if media_type.get("confidence") is not None:
+        media_label += f" (confidence {media_type.get('confidence')})"
+    clip_label = (
+        "Full file"
+        if clip_start is None and clip_end is None
+        else f"{clip_start or 0} --> {clip_end if clip_end is not None else 'end'}"
+    )
+    fields = (
+        ("Source file", metadata.get("file_name") or "Unknown"),
+        ("Source creation date", metadata.get("creation_date") or "Unknown"),
+        ("Duration", _format_seconds(metadata.get("duration"))),
+        ("Media type", media_label),
+        ("Transcription language", transcript_language or "Unknown"),
+        ("Report language", report_language or "Unknown"),
+        ("Clip range", clip_label),
+        (
+            "Generated",
+            datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        ),
+    )
+    cells = "".join(
+        f"<div><span>{html_module.escape(label)}</span>"
+        f"<strong>{html_module.escape(str(value))}</strong></div>"
+        for label, value in fields
+    )
+    return f"<div class='meta'>{cells}</div>"
+
+
+def _html_report_sections(
+    summary: str,
+    highlights: str,
+    topics_summary: str,
+    *,
+    metadata: dict | None = None,
+    report_language: str = "",
+    transcript_language: str = "",
+    clip_start: float | None = None,
+    clip_end: float | None = None,
+) -> str:
     sections = "<h1>AfterClip Full Report &amp; Timeline</h1>"
+    sections += _html_metadata(
+        metadata or {},
+        report_language,
+        transcript_language,
+        clip_start,
+        clip_end,
+    )
     if summary:
         sections += (
             f"<h2>Summary</h2><div class='prose'>"
@@ -461,6 +646,10 @@ HTML_STYLE = (
     "body{font-family:'Segoe UI',sans-serif;margin:24px auto;max-width:900px;"
     "background:#f5f6f8;color:#222}"
     "h1{margin-bottom:4px}h2{margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px}"
+    ".meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;"
+    "background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px 16px;"
+    "margin:12px 0}.meta span{display:block;color:#666;font-size:11px;"
+    "text-transform:uppercase;letter-spacing:.04em}.meta strong{font-weight:600}"
     ".prose{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px 16px}"
     ".entry{background:#fff;border:1px solid #ddd;border-radius:8px;"
     "padding:12px 16px;margin:12px 0}"

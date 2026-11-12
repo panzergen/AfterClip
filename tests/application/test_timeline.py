@@ -120,6 +120,71 @@ def test_write_master_timeline_merges_entries_and_speakers(tmp_path: Path):
     assert '"event_type": "vision"' in lines[1] and "frame_001.png" in lines[1]
 
 
+def test_master_timeline_has_source_metadata_and_reading_guide(tmp_path: Path):
+    from app.application.topics import TopicSegment
+
+    transcript = tmp_path / "sample.srt"
+    transcript.write_text("1\n00:00:00,000 --> 00:00:02,000\nHello world\n", encoding="utf-8")
+    topics = (TopicSegment(0, 60_000, "00:00:00,000", "00:01:00,000", "Opening topic"),)
+
+    timeline_path, _ = write_master_timeline(
+        tmp_path,
+        transcript,
+        None,
+        (),
+        topics=topics,
+        source_metadata={
+            "file_name": "meeting.mp4",
+            "creation_date": "2026-11-11T08:13:31.000000Z",
+            "duration": "60.0",
+            "file_size_mb": 12.5,
+            "format": "mov,mp4",
+            "media_type": {"media_type": "meeting", "confidence": 0.8},
+        },
+        report_language="tr",
+        transcript_language="tr",
+    )
+
+    markdown = timeline_path.read_text(encoding="utf-8")
+    assert "**Source file:** `meeting.mp4`" in markdown
+    assert "2026-11-11T08:13:31.000000Z" in markdown
+    assert "**Duration:** `00:01:00`" in markdown
+    assert "**Report language:** `tr`" in markdown
+    assert "## How to read this timeline" in markdown
+    assert "## [00:00:00,000 --> 00:01:00,000] Opening topic" in markdown
+    assert "1 transcription blocks" in markdown
+
+
+def test_full_report_includes_source_metadata(tmp_path: Path):
+    vision = tmp_path / "vision_analysis.srt"
+    vision.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nFILE: ghost.png\nDESCRIPTION: A dashboard screen\n",
+        encoding="utf-8",
+    )
+
+    write_master_timeline(
+        tmp_path,
+        None,
+        vision,
+        (),
+        embed_frames=True,
+        source_metadata={
+            "file_name": "meeting.mp4",
+            "creation_date": "2026-11-11T08:13:31.000000Z",
+            "duration": "60.0",
+            "media_type": {"media_type": "meeting", "confidence": 0.8},
+        },
+        report_language="tr",
+        transcript_language="tr",
+    )
+
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "Source file" in html_text and "meeting.mp4" in html_text
+    assert "Source creation date" in html_text
+    assert "2026-11-11T08:13:31.000000Z" in html_text
+    assert "Report language" in html_text and "tr" in html_text
+
+
 def test_write_master_timeline_embeds_frames_on_request(tmp_path: Path):
     frames_dir = tmp_path / "Vision" / "frames"
     frames_dir.mkdir(parents=True)

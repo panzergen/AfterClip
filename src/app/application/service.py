@@ -193,21 +193,6 @@ class TranscriptionService:
         work_dir = job_dir / "temp"
         transcript_dir.mkdir(parents=True, exist_ok=True)
         work_dir.mkdir(parents=True, exist_ok=True)
-        source_relative = ""
-        try:
-            source_dir = job_dir / "source"
-            source_dir.mkdir(parents=True, exist_ok=True)
-            source_target = source_dir / request.input_path.name
-            if source_target.resolve() != request.input_path.resolve():
-                if (
-                    not source_target.is_file()
-                    or source_target.stat().st_size != request.input_path.stat().st_size
-                ):
-                    on_event(ProgressEvent("Copying source video to output", 3))
-                    shutil.copy2(request.input_path, source_target)
-                source_relative = f"source/{request.input_path.name}"
-        except OSError as error:
-            LOGGER.warning("Could not copy source video into the job folder: %s", error)
         context = JobContext(
             job_dir=job_dir,
             state_path=job_dir / "job_state.json",
@@ -235,8 +220,8 @@ class TranscriptionService:
             "duration": context.metadata.get("duration"),
             "file_size_mb": context.metadata.get("file_size_mb"),
         }
-        if source_relative:
-            context.state["source_video"] = source_relative
+        context.state.pop("source_video", None)
+        context.state["source_video_uri"] = request.input_path.resolve().as_uri()
         guess = classify_tier1(
             signals_from_metadata(
                 str(request.input_path),
@@ -1241,7 +1226,9 @@ class TranscriptionService:
             )
             source_metadata = dict(recorder.context.metadata or {})
             source_metadata.setdefault("file_name", request.input_path.name)
-            source_metadata["source_video"] = recorder.context.state.get("source_video", "")
+            source_uri = recorder.context.state.get("source_video_uri") or (
+                request.input_path.resolve().as_uri()
+            )
             if not source_metadata.get("duration"):
                 source_metadata["duration"] = recorder.context.state.get("media", {}).get(
                     "duration"
@@ -1257,7 +1244,7 @@ class TranscriptionService:
                 topics=tuple(self._topics),
                 html_mode=request.html_mode,
                 source_metadata=source_metadata,
-                source_video_relative=source_metadata.get("source_video", ""),
+                source_video_uri=source_uri,
                 report_language=resolve_report_language(request, transcript_dir, audio_path.stem),
                 transcript_language=detect_transcript_language(transcript_dir, audio_path.stem),
                 clip_start=request.clip_start,

@@ -329,8 +329,7 @@ def _source_metadata_lines(
         "> **Related files:** `AI_Analysis.md`, `Topics.md`, `Summary_Report.md`, "
         "`multimodal_timeline.jsonl`, `multimodal_timeline.meta.json`, "
         "`FullReportAndTimeline.htm`, `Transcripts/converted_audio.txt`, "
-        "`Transcripts/converted_audio.srt`, `Vision/frames/`, "
-        "`source/` (original media when copied)\n\n",
+        "`Transcripts/converted_audio.srt`, `Vision/frames/`\n\n",
     ]
     return lines
 
@@ -350,7 +349,7 @@ def write_master_timeline(
     clip_start: float | None = None,
     clip_end: float | None = None,
     html_mode: str = "",
-    source_video_relative: str = "",
+    source_video_uri: str = "",
 ) -> tuple[Path, Path]:
     """Write ``Master_Timeline.md`` and ``multimodal_timeline.jsonl``.
 
@@ -414,10 +413,6 @@ def write_master_timeline(
     mode = html_mode if html_mode in {"lean", "thumbnails", "full", "none"} else ""
     if not mode:
         mode = "full" if embed_frames else "lean"
-    if not source_video_relative and metadata.get("file_name"):
-        source_name = str(metadata["file_name"])
-        if (job_dir / "source" / source_name).is_file():
-            source_video_relative = f"source/{source_name}"
     topic_index = 0
     html_path = job_dir / "FullReportAndTimeline.htm"
     # Stream the HTML report instead of accumulating every embedded frame in
@@ -444,7 +439,7 @@ def write_master_timeline(
         )
         html_file.write(
             _html_video_player(
-                source_video_relative,
+                source_video_uri,
                 str(metadata.get("file_name") or ""),
             )
         )
@@ -692,8 +687,8 @@ def split_ai_analysis(markdown: str | None) -> tuple[str, str]:
     return clean_summary_output(summary), highlights
 
 
-def _html_video_player(source_relative: str = "", file_name: str = "") -> str:
-    primary = quote(source_relative, safe="/") if source_relative else ""
+def _html_video_player(source_uri: str = "", file_name: str = "") -> str:
+    primary = source_uri
     fallback = quote(file_name, safe="") if file_name else ""
     src = primary or fallback
     src_attr = f" src='{src}'" if src else ""
@@ -706,8 +701,8 @@ def _html_video_player(source_relative: str = "", file_name: str = "") -> str:
         "It is not uploaded and is not embedded in this report.</span></div>"
         "<input id='video-file' type='file' accept='video/*'>"
         "<div id='video-status' class='hint'>"
-        "The report uses source/&lt;file&gt; by default; if it was moved, "
-        "drop the video here or choose it.</div>"
+        "The report uses the original source address by default; if it was "
+        "moved, drop the video here or choose it.</div>"
         "<div id='big-video-slot' class='video-slot'>"
         f"<video id='source-video' controls playsinline preload='metadata'{src_attr}"
         f"{fallback_attr}></video>"

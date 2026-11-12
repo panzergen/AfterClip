@@ -73,17 +73,17 @@ Each job writes a folder under the output directory:
 ├── AI_Analysis.md             # summary + highlights (when AI runs)
 ├── job_state.json             # checkpoint state (enables resume)
 ├── Transcripts/               # Whisper output: .srt, .txt, .json, .vtt
-├── source/                    # copied original media (for report playback)
 └── Vision/
     ├── vision_analysis.srt    # per-frame AI descriptions
     ├── timeline_frames.srt    # every extracted frame
     └── frames/*.png
 ```
 
-The HTML report uses `source/<file>` by default. If that copy is moved, it
-falls back to a video with the same file name next to the HTML; otherwise the
-reader can drop the video onto the report player. The floating mini-player
-keeps the video visible while scrolling and can be maximized again.
+The HTML report references the original media by its `file:///` address; the
+video is not copied into the output folder. If that file is moved, it falls
+back to a video with the same file name next to the HTML; otherwise the reader
+can drop the video onto the report player. The floating mini-player keeps the
+video visible while scrolling and can be maximized again.
 
 Interrupted jobs resume: re-running the same file reuses completed steps.
 Transcription and extracted frames are reused as-is; AI text/vision analysis

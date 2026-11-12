@@ -261,13 +261,13 @@ def test_html_has_default_source_video_fallback_and_mini_player(tmp_path: Path):
         vision,
         (),
         html_mode="lean",
-        source_video_relative="source/meeting.mp4",
+        source_video_uri="file:///F:/media/meeting.mp4",
         source_metadata={"file_name": "meeting.mp4"},
     )
 
     html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
     assert "id='big-player'" in html_text
-    assert "src='source/meeting.mp4'" in html_text
+    assert "src='file:///F:/media/meeting.mp4'" in html_text
     assert "data-fallback-src='meeting.mp4'" in html_text
     assert "id='mini-player'" in html_text
     assert "id='maximize-video'" in html_text

@@ -220,6 +220,36 @@ def test_full_report_renders_markdown_summary(tmp_path: Path):
     assert "<ul><li>first point</li></ul>" in html_text
 
 
+def test_html_has_speaker_stats_and_topic_links(tmp_path: Path):
+    from app.application.topics import TopicSegment
+
+    transcript = tmp_path / "sample.srt"
+    transcript.write_text(
+        "1\n00:00:00,000 --> 00:00:05,000\nHello there\n\n"
+        "2\n00:00:05,000 --> 00:00:09,000\nWelcome back\n",
+        encoding="utf-8",
+    )
+    speakers = (SpeakerInterval(0, 9000, "Alice"), SpeakerInterval(9000, 30000, "Bob"))
+    topics = (TopicSegment(0, 60_000, "00:00:00,000", "00:01:00,000", "Opening"),)
+
+    write_master_timeline(
+        tmp_path,
+        transcript,
+        None,
+        speakers,
+        topics=topics,
+        html_mode="lean",
+        source_metadata={"file_name": "meeting.mp4"},
+    )
+
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "id='speakers-content'" in html_text
+    assert "Alice" in html_text and "speaking" in html_text
+    assert "data-speaker-card='Alice'" in html_text
+    assert "href='#entry-0'" in html_text
+    assert "title='Jump to transcript'" in html_text
+
+
 def test_html_modes_lean_thumbnails_full_and_none(tmp_path: Path):
     Image = pytest.importorskip("PIL.Image")
     frames_dir = tmp_path / "Vision" / "frames"
@@ -238,6 +268,7 @@ def test_html_modes_lean_thumbnails_full_and_none(tmp_path: Path):
     assert "id='source-video'" in lean and "id='video-file'" in lean
     assert "button class='play'" in lean and "data-start-ms='1000'" in lean
     assert "id='vision-toggle' checked" in lean
+    assert "class='vision-body has-image'" in lean
 
     write_master_timeline(tmp_path, None, vision, (), html_mode="thumbnails")
     thumb = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")

@@ -84,9 +84,11 @@ video is not copied into the output folder. If that file is moved, it falls
 back to a video with the same file name next to the HTML; otherwise the reader
 can drop the video onto the report player. The floating mini-player keeps the
 video visible while scrolling and can be returned to the top with **View on
-top**. The timeline has vision and speaker filters; **Scroll transcript**
+top**. The report includes a Speakers section with speaking time and block
+counts; the timeline has vision and speaker filters, **Scroll transcript**
 follows the playing video, topic headings jump to their transcript location,
-and entry/section copy buttons appear on hover.
+and entry/section copy buttons appear on hover. On wide screens, vision text
+sits beside its frame.
 
 Interrupted jobs resume: re-running the same file reuses completed steps.
 Transcription and extracted frames are reused as-is; AI text/vision analysis

@@ -420,16 +420,17 @@ def write_master_timeline(
     html_file = None
     if mode != "none":
         summary, highlights = split_ai_analysis(analysis_markdown or "")
-        topics_summary = "\n".join(
-            f"- `[{topic.start_str} --> {topic.end_str}]` {topic.title}" for topic in topic_list
-        )
+        topic_anchors = _topic_anchor_ids(topic_list, entries)
+        topics_html = _html_topic_list(topic_list, topic_anchors)
+        speaker_stats = _speaker_stats(speaker_intervals, transcript_entries)
         html_file = html_path.open("w", encoding="utf-8")
         html_file.write(_html_head(str(metadata.get("file_name") or "")))
         html_file.write(
             _html_report_sections(
                 summary,
                 highlights,
-                topics_summary,
+                topics_html,
+                speaker_stats=speaker_stats,
                 metadata=metadata,
                 report_language=report_language,
                 transcript_language=transcript_language,
@@ -455,11 +456,17 @@ def write_master_timeline(
                 f"\n## [{topic.start_str} --> {topic.end_str}] {topic.title}\n\n"
             )
             if html_file is not None:
+                topic_anchor = (
+                    topic_anchors[topic_index]
+                    if topic_index < len(topic_anchors) and topic_anchors[topic_index]
+                    else entry_id
+                )
                 html_file.write(
                     "<h2 class='topic' id='topic-"
                     f"{topic_index}'>"
-                    f"<a class='topic-link' href='#{entry_id}'>"
-                    f"{html_module.escape(topic.title)}</a>"
+                    f"<a class='topic-link' href='#{topic_anchor}' "
+                    "title='Jump to transcript'>"
+                    f"{html_module.escape(topic.title)} ↓</a>"
                     f"<span class='badge'>[{html_module.escape(topic.start_str)} --&gt; "
                     f"{html_module.escape(topic.end_str)}]</span>"
                     "<button class='copy-section topic-copy' type='button'>Copy</button>"
@@ -623,14 +630,15 @@ def _render_entry(
             if thumbnail_link and frame_link:
                 image = f"<a href='{frame_link}' target='_blank' rel='noopener'>{image}</a>"
             image_html = image
+        body_class = "vision-body has-image" if image_html else "vision-body"
         html_row = (
             f"<div class='entry'{id_attr} data-event-type='vision' "
             f"data-start-ms='{entry.start_ms}' data-has-frame='{1 if frame_available else 0}'>"
             f"<span class='badge'>[{html_module.escape(entry.start_str)} --> "
             f"{html_module.escape(entry.end_str)}] VISION</span>"
             + entry_actions
-            + image_html
-            + f"<blockquote>{html_module.escape(description)}</blockquote></div>"
+            + f"<div class='{body_class}'>{image_html}"
+            f"<blockquote>{html_module.escape(description)}</blockquote></div></div>"
         )
         payload = {
             "timestamp_start_ms": entry.start_ms,
@@ -853,6 +861,11 @@ def _html_interaction_script() -> str:
         "if(filterCount)filterCount.textContent=visible+' entries shown';}"
         "if(visionToggle)visionToggle.addEventListener('change',applyFilters);"
         "if(speakerFilter)speakerFilter.addEventListener('change',applyFilters);"
+        "document.querySelectorAll('[data-speaker-card]').forEach(function(card){"
+        "card.addEventListener('click',function(){"
+        "if(speakerFilter){speakerFilter.value=card.dataset.speakerCard;applyFilters();}"
+        "const tools=document.getElementById('timeline-tools');"
+        "if(tools)tools.scrollIntoView({behavior:'smooth',block:'start'});});});"
         "applyFilters();"
         "function updateVisionAvailability(){"
         "const rows=Array.prototype.slice.call("
@@ -898,6 +911,80 @@ def _section_head(title: str, target_id: str) -> str:
         f"<button class='copy-section' type='button' data-copy-target='{target_id}'>"
         "Copy</button></div>"
     )
+
+
+def _topic_anchor_ids(topic_list: list, entries: list[TimelineEntry]) -> list[str]:
+    anchors: list[str] = []
+    for topic in topic_list:
+        anchor = ""
+        for index, entry in enumerate(entries):
+            if entry.start_ms >= topic.start_ms:
+                anchor = f"entry-{index}"
+                break
+        anchors.append(anchor)
+    return anchors
+
+
+def _html_topic_list(topic_list: list, anchors: list[str]) -> str:
+    if not topic_list:
+        return ""
+    items = []
+    for topic, anchor in zip(topic_list, anchors, strict=False):
+        title = html_module.escape(topic.title)
+        if anchor:
+            title = f"<a href='#{anchor}' title='Jump to transcript'>{title} ↓</a>"
+        items.append(
+            f"<li>{title} <span class='badge'>[{html_module.escape(topic.start_str)} "
+            f"--&gt; {html_module.escape(topic.end_str)}]</span></li>"
+        )
+    return "<ul class='topic-list'>" + "".join(items) + "</ul>"
+
+
+def _speaker_stats(
+    speaker_intervals: tuple[SpeakerInterval, ...],
+    transcript_entries: list[TimelineEntry],
+) -> list[dict]:
+    """Per-speaker speaking time, segment count and first/last timestamps."""
+    spans: dict[str, list[tuple[int, int]]] = {}
+    for interval in speaker_intervals:
+        if interval.speaker:
+            spans.setdefault(interval.speaker, []).append((interval.start_ms, interval.end_ms))
+    stats: dict[str, dict] = {}
+    for speaker, values in spans.items():
+        values.sort()
+        merged: list[list[int]] = []
+        for start, end in values:
+            if merged and start <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+        stats[speaker] = {
+            "speaker": speaker,
+            "talk_ms": sum(end - start for start, end in merged),
+            "segments": 0,
+            "first_ms": merged[0][0],
+            "last_ms": merged[-1][1],
+        }
+    for entry in transcript_entries:
+        speaker = resolve_speaker(speaker_intervals, entry.start_ms, entry.end_ms)
+        if not speaker:
+            continue
+        stat = stats.setdefault(
+            speaker,
+            {
+                "speaker": speaker,
+                "talk_ms": 0,
+                "segments": 0,
+                "first_ms": entry.start_ms,
+                "last_ms": entry.end_ms,
+            },
+        )
+        stat["segments"] += 1
+        stat["first_ms"] = min(stat["first_ms"], entry.start_ms)
+        stat["last_ms"] = max(stat["last_ms"], entry.end_ms)
+        if not spans:
+            stat["talk_ms"] += max(0, entry.end_ms - entry.start_ms)
+    return sorted(stats.values(), key=lambda stat: stat["talk_ms"], reverse=True)
 
 
 def _html_timeline_tools(
@@ -983,8 +1070,9 @@ def _html_metadata(
 def _html_report_sections(
     summary: str,
     highlights: str,
-    topics_summary: str,
+    topics_html: str,
     *,
+    speaker_stats: list[dict] | None = None,
     metadata: dict | None = None,
     report_language: str = "",
     transcript_language: str = "",
@@ -999,6 +1087,24 @@ def _html_report_sections(
         clip_start,
         clip_end,
     )
+    if speaker_stats is not None:
+        cards = "".join(
+            f"<button class='speaker-card' type='button' "
+            f"data-speaker-card='{html_module.escape(stat['speaker'])}'>"
+            f"<strong>{html_module.escape(stat['speaker'])}</strong>"
+            f"<span>{_format_seconds(stat['talk_ms'] / 1000)} speaking</span>"
+            f"<span>{stat['segments']} blocks · "
+            f"{_format_milliseconds(stat['first_ms'])} → "
+            f"{_format_milliseconds(stat['last_ms'])}</span></button>"
+            for stat in speaker_stats
+        )
+        if not cards:
+            cards = (
+                "<p class='hint'>No speaker labels available. Supply a speaker VTT "
+                "or enable voiceprints to populate this section.</p>"
+            )
+        sections += _section_head("Speakers", "speakers-content")
+        sections += f"<div id='speakers-content' class='speaker-cards'>{cards}</div>"
     if summary:
         sections += _section_head("Summary", "summary-content")
         sections += (
@@ -1011,19 +1117,16 @@ def _html_report_sections(
             f"<div id='highlights-content' class='prose'>"
             f"{render_markdown(highlights, heading_offset=1)}</div>"
         )
-    if topics_summary:
+    if topics_html:
         sections += _section_head("Topics", "topics-content")
-        sections += (
-            f"<div id='topics-content' class='prose'>"
-            f"{render_markdown(topics_summary, heading_offset=1)}</div>"
-        )
+        sections += f"<div id='topics-content' class='prose'>{topics_html}</div>"
     return sections
 
 
 HTML_STYLE = (
-    "body{font-family:'Segoe UI',sans-serif;margin:0;background:#f5f6f8;color:#222}"
-    "#report-content{max-width:900px;margin:24px auto;padding:0 16px;"
-    "transition:margin-left .2s ease,max-width .2s ease}"
+    "html{scroll-behavior:smooth}body{font-family:'Segoe UI',sans-serif;margin:0;"
+    "background:#f5f6f8;color:#222}#report-content{max-width:900px;margin:24px auto;"
+    "padding:0 16px;transition:margin-left .2s ease,max-width .2s ease}"
     ".mini-active #report-content{max-width:calc(100% - 360px);margin-left:340px}"
     "h1{margin-bottom:4px}h2{margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px}"
     ".section-head{display:flex;align-items:center;justify-content:space-between;gap:10px}"
@@ -1060,6 +1163,16 @@ HTML_STYLE = (
     "background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px 12px;"
     "margin:10px 0}.timeline-tools label{font-size:13px}"
     ".timeline-tools select{margin-left:4px}"
+    ".speaker-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));"
+    "gap:8px;margin:8px 0}.speaker-card{display:flex;flex-direction:column;gap:3px;"
+    "text-align:left;background:#fff;border:1px solid #ddd;border-radius:8px;"
+    "padding:8px 10px;cursor:pointer;font:inherit;color:inherit}"
+    ".speaker-card:hover{background:#eef3fb;border-color:#b9cdea}"
+    ".speaker-card strong{font-size:13px}.speaker-card span{font-size:11px;color:#666}"
+    ".topic-list a{color:#245b9e;text-decoration:underline}"
+    ".topic-link{color:#245b9e!important;text-decoration:none}"
+    ".topic-link:hover{text-decoration:underline}"
+    ".vision-body{min-width:0}"
     "img{max-width:640px;border-radius:6px;display:block;margin:8px 0}"
     "blockquote{margin:8px 0 0}.hint{color:#666;font-size:12px}"
     ".player{background:#fff;border:2px dashed #b9cdea;border-radius:8px;padding:12px 16px;"
@@ -1078,6 +1191,10 @@ HTML_STYLE = (
     "border-radius:5px;padding:2px 7px;font-size:11px;cursor:pointer}"
     ".mini-head button.active{background:#245b9e;color:#fff}"
     ".mini-slot video{max-height:170px;margin:0}"
+    "@media (min-width:1300px){#report-content{max-width:1100px}"
+    ".vision-body.has-image{display:grid;grid-template-columns:minmax(0,1.1fr) "
+    "minmax(0,.9fr);gap:16px;align-items:start}"
+    ".vision-body.has-image img{max-width:100%;margin:0}}"
     "@media (max-width:1000px){.mini-active #report-content{margin:24px auto;"
     "max-width:900px}}"
     "@media (max-width:700px){.mini-player{left:12px;right:12px;bottom:12px;width:auto}"

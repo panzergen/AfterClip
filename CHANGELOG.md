@@ -51,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   information and report sections, and topic links that jump to the first
   transcript entry of each topic. Missing vision frames render text only, with
   no broken-image icons.
+- The report starts with a **Speakers** section showing each speaker's total
+  speaking time, transcript block count and first/last timestamp; clicking a
+  speaker applies the transcript filter. Above 1300 px, vision images and their
+  text sit side by side instead of stacking.
 - Highlights are ranked by score and then presented in media order, so the
   final three read chronologically. The highlight prompt no longer awards a
   high score to general setup, onboarding or feature descriptions unless the

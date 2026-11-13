@@ -444,9 +444,11 @@ def write_master_timeline(
             )
         )
         html_file.write("<h2>Timeline</h2>")
+        html_file.write(_html_timeline_tools(entries, speaker_intervals, job_dir))
     else:
         html_path.unlink(missing_ok=True)
-    for entry in entries:
+    for entry_index, entry in enumerate(entries):
+        entry_id = f"entry-{entry_index}"
         while topic_index < len(topic_list) and entry.start_ms >= topic_list[topic_index].start_ms:
             topic = topic_list[topic_index]
             markdown_lines.append(
@@ -454,13 +456,19 @@ def write_master_timeline(
             )
             if html_file is not None:
                 html_file.write(
-                    "<h2 class='topic'>"
-                    f"{html_module.escape(topic.title)}"
+                    "<h2 class='topic' id='topic-"
+                    f"{topic_index}'>"
+                    f"<a class='topic-link' href='#{entry_id}'>"
+                    f"{html_module.escape(topic.title)}</a>"
                     f"<span class='badge'>[{html_module.escape(topic.start_str)} --&gt; "
-                    f"{html_module.escape(topic.end_str)}]</span></h2>"
+                    f"{html_module.escape(topic.end_str)}]</span>"
+                    "<button class='copy-section topic-copy' type='button'>Copy</button>"
+                    "</h2>"
                 )
             topic_index += 1
-        payload, html_row, lines = _render_entry(entry, speaker_intervals, job_dir, mode)
+        payload, html_row, lines = _render_entry(
+            entry, speaker_intervals, job_dir, mode, entry_id
+        )
         if html_file is not None:
             html_file.write(html_row)
         payloads.append(payload)
@@ -480,7 +488,9 @@ def write_master_timeline(
         len(topic_list),
     )
     if html_file is not None:
+        html_file.write("</main>")
         html_file.write(_html_seek_script())
+        html_file.write(_html_interaction_script())
         html_file.write("</body></html>")
         html_file.close()
     return timeline_path, jsonl_path
@@ -571,31 +581,36 @@ def _render_entry(
     speaker_intervals: tuple[SpeakerInterval, ...],
     job_dir: Path,
     html_mode: str,
+    entry_id: str = "",
 ):
     """One entry -> (jsonl payload, html row, markdown lines)."""
     speaker = resolve_speaker(speaker_intervals, entry.start_ms, entry.end_ms)
     speaker_badge = f" `[SPEAKER: {speaker}]`" if speaker else ""
     start_badge = f"[{entry.start_str} --> {entry.end_str}]"
-    play_button = (
-        f"<button class='play' type='button' data-start-ms='{entry.start_ms}'>"
-        "▶ Play from here</button>"
+    entry_actions = (
+        "<div class='entry-actions'>"
+        f"<button class='play' type='button' data-start-ms='{entry.start_ms}'>Play</button>"
+        "<button class='copy-entry' type='button'>Copy</button>"
+        "<button class='quote-entry' type='button' aria-pressed='false'>Quote</button>"
+        "</div>"
     )
+    id_attr = f" id='{entry_id}'" if entry_id else ""
     if entry.context_type == "VISION":
         file_match = VISION_FILE_PATTERN.search(entry.text)
         description_match = VISION_DESCRIPTION_PATTERN.search(entry.text)
         frame_name = file_match.group(1).strip() if file_match else None
         description = description_match.group(1).strip() if description_match else entry.text
         frame_link = f"Vision/frames/{frame_name}" if frame_name else None
-        html_frame_link = frame_link
+        frame_path = job_dir / "Vision" / "frames" / frame_name if frame_name else None
+        frame_available = bool(frame_path and frame_path.is_file())
+        html_frame_link = frame_link if frame_available else None
         thumbnail_link = None
-        if frame_name and html_mode == "full":
-            embedded = _embedded_frame_data(job_dir / "Vision" / "frames" / frame_name)
+        if frame_available and html_mode == "full":
+            embedded = _embedded_frame_data(frame_path)
             if embedded:
                 html_frame_link = embedded
-        elif frame_name and html_mode == "thumbnails":
-            thumbnail_link = _embedded_thumbnail_data(
-                job_dir / "Vision" / "frames" / frame_name
-            )
+        elif frame_available and html_mode == "thumbnails":
+            thumbnail_link = _embedded_thumbnail_data(frame_path)
             if thumbnail_link:
                 html_frame_link = thumbnail_link
         lines = [f"### `{start_badge}` `[VISION]`\n"]
@@ -603,15 +618,17 @@ def _render_entry(
             lines.append(f"![Frame]({frame_link})\n")
         lines.append(f"> {description}\n\n---\n\n")
         image_html = ""
-        if html_frame_link:
-            image = f"<img src='{html_frame_link}' alt='Frame'>"
+        if frame_available and html_frame_link:
+            image = f"<img src='{html_frame_link}' alt='Frame' loading='lazy'>"
             if thumbnail_link and frame_link:
                 image = f"<a href='{frame_link}' target='_blank' rel='noopener'>{image}</a>"
             image_html = image
         html_row = (
-            f"<div class='entry'><span class='badge'>[{html_module.escape(entry.start_str)} --> "
+            f"<div class='entry'{id_attr} data-event-type='vision' "
+            f"data-start-ms='{entry.start_ms}' data-has-frame='{1 if frame_available else 0}'>"
+            f"<span class='badge'>[{html_module.escape(entry.start_str)} --> "
             f"{html_module.escape(entry.end_str)}] VISION</span>"
-            + play_button
+            + entry_actions
             + image_html
             + f"<blockquote>{html_module.escape(description)}</blockquote></div>"
         )
@@ -630,10 +647,13 @@ def _render_entry(
         f"> {entry.text}\n\n---\n\n",
     ]
     speaker_html = f" &middot; {html_module.escape(speaker)}" if speaker else ""
+    speaker_attr = html_module.escape(speaker or "")
     html_row = (
-        f"<div class='entry'><span class='badge'>[{html_module.escape(entry.start_str)} --> "
+        f"<div class='entry'{id_attr} data-event-type='transcription' "
+        f"data-start-ms='{entry.start_ms}' data-speaker='{speaker_attr}'>"
+        f"<span class='badge'>[{html_module.escape(entry.start_str)} --> "
         f"{html_module.escape(entry.end_str)}] TRANSCRIPTION{speaker_html}</span>"
-        + play_button
+        + entry_actions
         + f"<blockquote>{html_module.escape(entry.text)}</blockquote></div>"
     )
     payload = {
@@ -709,7 +729,10 @@ def _html_video_player(source_uri: str = "", file_name: str = "") -> str:
         "</div></section>"
         "<div id='mini-player' class='mini-player' aria-hidden='true'>"
         "<div class='mini-head'><strong>Source video</strong>"
-        "<button id='maximize-video' type='button'>Maximize</button></div>"
+        "<span class='mini-actions'>"
+        "<button id='maximize-video' type='button'>View on top</button>"
+        "<button id='follow-transcript' type='button' aria-pressed='false'>"
+        "Scroll transcript</button></span></div>"
         "<div id='mini-video-slot' class='mini-slot'></div></div>"
     )
 
@@ -761,7 +784,8 @@ def _html_seek_script() -> str:
         "inMini=value;if(value){mini.classList.add('visible');"
         "mini.setAttribute('aria-hidden','false');moveVideo(miniSlot);}"
         "else{mini.classList.remove('visible');mini.setAttribute('aria-hidden','true');"
-        "moveVideo(bigSlot);}}"
+        "moveVideo(bigSlot);}"
+        "document.body.classList.toggle('mini-active',value);}"
         "if('IntersectionObserver' in window){"
         "new IntersectionObserver(function(entries){"
         "const visible=entries[0].isIntersecting;"
@@ -781,12 +805,136 @@ def _html_seek_script() -> str:
     )
 
 
+def _html_interaction_script() -> str:
+    return (
+        "<script>(function(){"
+        "function fallback(text){"
+        "const area=document.createElement('textarea');area.value=text;"
+        "area.style.position='fixed';area.style.opacity='0';document.body.appendChild(area);"
+        "area.select();try{document.execCommand('copy');}catch(error){}area.remove();}"
+        "function copyText(text){text=String(text||'').trim();if(!text)return;"
+        "if(navigator.clipboard&&navigator.clipboard.writeText){"
+        "navigator.clipboard.writeText(text).catch(function(){fallback(text);});"
+        "}else{fallback(text);}}"
+        "document.addEventListener('click',function(event){"
+        "const copyEntry=event.target.closest('button.copy-entry');"
+        "if(copyEntry){const row=copyEntry.closest('.entry');"
+        "const quote=row&&row.querySelector('blockquote');"
+        "copyText(quote?quote.innerText:row?row.innerText:'');"
+        "copyEntry.textContent='Copied';setTimeout(function(){copyEntry.textContent='Copy';},1200);"
+        "return;}"
+        "const sectionCopy=event.target.closest('button.copy-section');"
+        "if(sectionCopy){const target=sectionCopy.dataset.copyTarget;"
+        "if(target){copyText((document.getElementById(target)||{}).innerText||'');}"
+        "else if(sectionCopy.classList.contains('topic-copy')){"
+        "const heading=sectionCopy.closest('.topic');let text=heading?heading.innerText:'';"
+        "let node=heading?heading.nextElementSibling:null;"
+        "while(node&&!node.classList.contains('topic')&&!node.classList.contains('timeline-tools')){"
+        "text+='\\n'+node.innerText;node=node.nextElementSibling;}copyText(text);}"
+        "return;}"
+        "const quoteButton=event.target.closest('button.quote-entry');"
+        "if(quoteButton){const on=quoteButton.getAttribute('aria-pressed')!=='true';"
+        "quoteButton.setAttribute('aria-pressed',on?'true':'false');"
+        "quoteButton.classList.toggle('active',on);}"
+        "});"
+        "document.querySelectorAll('img').forEach(function(image){"
+        "image.addEventListener('error',function(){image.style.display='none';"
+        "const row=image.closest('.entry');if(row)row.dataset.hasFrame='0';});});"
+        "const visionToggle=document.getElementById('vision-toggle');"
+        "const speakerFilter=document.getElementById('speaker-filter');"
+        "const filterCount=document.getElementById('filter-count');"
+        "function applyFilters(){"
+        "const showVision=visionToggle?visionToggle.checked:true;"
+        "const speaker=speakerFilter?speakerFilter.value:'';let visible=0;"
+        "document.querySelectorAll('.entry').forEach(function(row){"
+        "const isVision=row.dataset.eventType==='vision';"
+        "const matchSpeaker=!speaker||row.dataset.speaker===speaker;"
+        "const show=isVision?showVision:matchSpeaker;row.hidden=!show;if(show)visible++;});"
+        "if(filterCount)filterCount.textContent=visible+' entries shown';}"
+        "if(visionToggle)visionToggle.addEventListener('change',applyFilters);"
+        "if(speakerFilter)speakerFilter.addEventListener('change',applyFilters);"
+        "applyFilters();"
+        "function updateVisionAvailability(){"
+        "const rows=Array.prototype.slice.call("
+        "document.querySelectorAll(\".entry[data-event-type='vision']\"));"
+        "const images=rows.reduce(function(list,row){return list.concat("
+        "Array.prototype.slice.call(row.querySelectorAll('img')));},[]);"
+        "const missing=images.length===0||images.every(function(image){"
+        "return image.style.display==='none'||(image.complete&&image.naturalWidth===0);});"
+        "if(rows.length&&missing&&visionToggle&&visionToggle.checked){"
+        "visionToggle.checked=false;applyFilters();}}"
+        "window.addEventListener('load',function(){setTimeout(updateVisionAvailability,1200);});"
+        "const follow=document.getElementById('follow-transcript');"
+        "const video=document.getElementById('source-video');"
+        "let following=false,lastTarget=null;"
+        "function scrollToCurrent(){if(!video)return;const ms=video.currentTime*1000;"
+        "const rows=Array.prototype.slice.call(document.querySelectorAll("
+        "'.entry[data-start-ms]'));let target=null;"
+        "for(let i=0;i<rows.length;i++){const row=rows[i];if(row.hidden)continue;"
+        "if(Number(row.dataset.startMs)<=ms)target=row;else break;}"
+        "if(target&&target!==lastTarget){lastTarget=target;"
+        "target.scrollIntoView({behavior:'smooth',block:'center'});}}"
+        "if(follow)follow.addEventListener('click',function(){"
+        "following=!following;follow.setAttribute('aria-pressed',following?'true':'false');"
+        "follow.textContent=following?'Stop scrolling':'Scroll transcript';"
+        "follow.classList.toggle('active',following);if(following)scrollToCurrent();});"
+        "if(video)video.addEventListener('timeupdate',function(){if(following)scrollToCurrent();});"
+        "})();</script>"
+    )
+
+
 def _html_head(file_name: str = "") -> str:
     title = f"AfterClip — {file_name}" if file_name else "AfterClip Full Report & Timeline"
     return (
         "<!DOCTYPE html><html><head><meta charset='utf-8'>"
         f"<title>{html_module.escape(title)}</title>"
-        f"<style>{HTML_STYLE}</style></head><body>"
+        f"<style>{HTML_STYLE}</style></head><body><main id='report-content'>"
+    )
+
+
+def _section_head(title: str, target_id: str) -> str:
+    return (
+        f"<div class='section-head'><h2>{html_module.escape(title)}</h2>"
+        f"<button class='copy-section' type='button' data-copy-target='{target_id}'>"
+        "Copy</button></div>"
+    )
+
+
+def _html_timeline_tools(
+    entries: list[TimelineEntry],
+    speaker_intervals: tuple[SpeakerInterval, ...],
+    job_dir: Path,
+) -> str:
+    speaker_values = {
+        resolve_speaker(speaker_intervals, entry.start_ms, entry.end_ms)
+        for entry in entries
+        if entry.context_type != "VISION"
+    }
+    speakers = sorted(speaker for speaker in speaker_values if speaker)
+    options = "".join(
+        f"<option value='{html_module.escape(speaker)}'>{html_module.escape(speaker)}</option>"
+        for speaker in speakers
+    )
+    speaker_disabled = "" if speakers else " disabled"
+    vision_entries = [entry for entry in entries if entry.context_type == "VISION"]
+    vision_available = any(
+        (
+            job_dir
+            / "Vision"
+            / "frames"
+            / (VISION_FILE_PATTERN.search(entry.text).group(1).strip())
+        ).is_file()
+        for entry in vision_entries
+        if VISION_FILE_PATTERN.search(entry.text)
+    )
+    checked = " checked" if vision_available else ""
+    return (
+        "<div class='timeline-tools' id='timeline-tools'>"
+        "<label><input type='checkbox' id='vision-toggle'"
+        f"{checked}> Vision entries</label>"
+        "<label>Speaker <select id='speaker-filter'"
+        f"{speaker_disabled}><option value=''>All speakers</option>{options}</select></label>"
+        "<span id='filter-count' class='hint'></span></div>"
     )
 
 
@@ -824,7 +972,12 @@ def _html_metadata(
         f"<strong>{html_module.escape(str(value))}</strong></div>"
         for label, value in fields
     )
-    return f"<div class='meta'>{cells}</div>"
+    return (
+        "<div class='meta-wrap'><div class='section-head'><h3>Source</h3>"
+        "<button class='copy-section' type='button' data-copy-target='source-meta'>"
+        "Copy</button></div>"
+        f"<div class='meta' id='source-meta'>{cells}</div></div>"
+    )
 
 
 def _html_report_sections(
@@ -847,30 +1000,37 @@ def _html_report_sections(
         clip_end,
     )
     if summary:
+        sections += _section_head("Summary", "summary-content")
         sections += (
-            f"<h2>Summary</h2><div class='prose'>"
+            f"<div id='summary-content' class='prose'>"
             f"{render_markdown(summary, heading_offset=1)}</div>"
         )
     if highlights:
+        sections += _section_head("Key Highlights", "highlights-content")
         sections += (
-            f"<h2>Key Highlights</h2><div class='prose'>"
+            f"<div id='highlights-content' class='prose'>"
             f"{render_markdown(highlights, heading_offset=1)}</div>"
         )
     if topics_summary:
+        sections += _section_head("Topics", "topics-content")
         sections += (
-            f"<h2>Topics</h2><div class='prose'>"
+            f"<div id='topics-content' class='prose'>"
             f"{render_markdown(topics_summary, heading_offset=1)}</div>"
         )
     return sections
 
 
 HTML_STYLE = (
-    "body{font-family:'Segoe UI',sans-serif;margin:24px auto;max-width:900px;"
-    "background:#f5f6f8;color:#222}"
+    "body{font-family:'Segoe UI',sans-serif;margin:0;background:#f5f6f8;color:#222}"
+    "#report-content{max-width:900px;margin:24px auto;padding:0 16px;"
+    "transition:margin-left .2s ease,max-width .2s ease}"
+    ".mini-active #report-content{max-width:calc(100% - 360px);margin-left:340px}"
     "h1{margin-bottom:4px}h2{margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px}"
-    ".meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;"
-    "background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px 16px;"
-    "margin:12px 0}.meta span{display:block;color:#666;font-size:11px;"
+    ".section-head{display:flex;align-items:center;justify-content:space-between;gap:10px}"
+    ".section-head h2,.section-head h3{margin:0;border:0;padding:0}"
+    ".meta-wrap{margin-top:20px}.meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));"
+    "gap:8px 16px;background:#fff;border:1px solid #ddd;border-radius:8px;"
+    "padding:12px 16px;margin:8px 0}.meta span{display:block;color:#666;font-size:11px;"
     "text-transform:uppercase;letter-spacing:.04em}.meta strong{font-weight:600}"
     ".prose{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px 16px}"
     ".prose h2,.prose h3,.prose h4{margin:18px 0 8px;border:0;padding:0}"
@@ -880,12 +1040,28 @@ HTML_STYLE = (
     ".prose th,.prose td{border:1px solid #ddd;padding:6px 8px;text-align:left;vertical-align:top}"
     ".prose th{background:#f0f2f5}.prose code{background:#f0f2f5;padding:1px 4px;border-radius:3px}"
     ".entry{background:#fff;border:1px solid #ddd;border-radius:8px;"
-    "padding:12px 16px;margin:12px 0}"
+    "padding:12px 16px;margin:12px 0;scroll-margin-top:18px}"
+    ".entry-actions{float:right;display:flex;gap:4px;opacity:0;transition:opacity .15s}"
+    ".entry:hover .entry-actions{opacity:1}.entry-actions button{background:#eef3fb;"
+    "color:#245b9e;border:1px solid #b9cdea;border-radius:5px;padding:2px 7px;"
+    "font-size:11px;cursor:pointer}.entry-actions button:hover{background:#dfeafb}"
+    ".entry-actions .quote-entry.active{background:#245b9e;color:#fff}"
     ".badge{font-size:12px;color:#666;letter-spacing:.4px}"
-    ".topic{margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px}"
-    ".topic .badge{margin-left:8px;font-weight:400}"
+    ".topic{margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px;"
+    "display:flex;align-items:center;flex-wrap:wrap;gap:8px}"
+    ".topic .badge{margin-left:4px;font-weight:400}.topic-link{color:inherit;"
+    "text-decoration:none}.topic-link:hover{text-decoration:underline}"
+    ".copy-section{background:#eef3fb;color:#245b9e;border:1px solid #b9cdea;"
+    "border-radius:5px;padding:2px 7px;font-size:11px;cursor:pointer;margin-left:auto;"
+    "opacity:0;transition:opacity .15s}.section-head:hover .copy-section,"
+    ".meta-wrap:hover .copy-section,.topic:hover .copy-section{opacity:1}"
+    ".copy-section:hover{background:#dfeafb}"
+    ".timeline-tools{display:flex;flex-wrap:wrap;align-items:center;gap:14px;"
+    "background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px 12px;"
+    "margin:10px 0}.timeline-tools label{font-size:13px}"
+    ".timeline-tools select{margin-left:4px}"
     "img{max-width:640px;border-radius:6px;display:block;margin:8px 0}"
-    "blockquote{margin:8px 0 0}"
+    "blockquote{margin:8px 0 0}.hint{color:#666;font-size:12px}"
     ".player{background:#fff;border:2px dashed #b9cdea;border-radius:8px;padding:12px 16px;"
     "margin:12px 0;scroll-margin-top:16px}.player.dragover{background:#eef3fb;"
     "border-color:#245b9e}.player-head{display:flex;flex-wrap:wrap;gap:8px;"
@@ -896,14 +1072,17 @@ HTML_STYLE = (
     "background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px;"
     "box-shadow:0 6px 24px rgba(0,0,0,.18);display:none}"
     ".mini-player.visible{display:block}.mini-head{display:flex;align-items:center;"
-    "justify-content:space-between;gap:8px;font-size:12px;margin-bottom:6px}"
+    "justify-content:space-between;gap:8px;font-size:12px;margin-bottom:6px;"
+    "flex-wrap:wrap}.mini-actions{display:flex;gap:4px}"
     ".mini-head button{background:#eef3fb;color:#245b9e;border:1px solid #b9cdea;"
     "border-radius:5px;padding:2px 7px;font-size:11px;cursor:pointer}"
+    ".mini-head button.active{background:#245b9e;color:#fff}"
     ".mini-slot video{max-height:170px;margin:0}"
-    ".play{float:right;background:#eef3fb;color:#245b9e;border:1px solid #b9cdea;"
-    "border-radius:5px;padding:3px 8px;font-size:12px;cursor:pointer}"
-    ".play:hover{background:#dfeafb}"
-    "@media (max-width:700px){.mini-player{left:12px;right:12px;bottom:12px;width:auto}}"
+    "@media (max-width:1000px){.mini-active #report-content{margin:24px auto;"
+    "max-width:900px}}"
+    "@media (max-width:700px){.mini-player{left:12px;right:12px;bottom:12px;width:auto}"
+    ".entry-actions{opacity:1}}@media (hover:none){.entry-actions{opacity:1}"
+    ".copy-section{opacity:1}}[hidden]{display:none!important}"
 )
 
 

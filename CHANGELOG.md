@@ -45,7 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   copying the video into the output folder. If that path is unavailable, the
   report falls back to a same-named video beside the HTML, then to drag/drop.
   The video docks into a floating mini-player while scrolling and can be
-  maximized back to the top player.
+  returned to the top with **View on top**.
+- The HTML timeline now has vision and speaker filters, a **Scroll transcript**
+  follow mode, copy/quotation hover actions on entries, copy buttons on source
+  information and report sections, and topic links that jump to the first
+  transcript entry of each topic. Missing vision frames render text only, with
+  no broken-image icons.
 - Highlights are ranked by score and then presented in media order, so the
   final three read chronologically. The highlight prompt no longer awards a
   high score to general setup, onboarding or feature descriptions unless the

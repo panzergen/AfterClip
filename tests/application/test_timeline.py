@@ -156,6 +156,9 @@ def test_master_timeline_has_source_metadata_and_reading_guide(tmp_path: Path):
     assert "## How to read this timeline" in markdown
     assert "## [00:00:00,000 --> 00:01:00,000] Opening topic" in markdown
     assert "1 transcription blocks" in markdown
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "href='#entry-0'" in html_text
+    assert "class='topic-link'" in html_text
 
 
 def test_master_timeline_writes_jsonl_metadata_sidecar(tmp_path: Path):
@@ -234,6 +237,7 @@ def test_html_modes_lean_thumbnails_full_and_none(tmp_path: Path):
     assert "data:image" not in lean
     assert "id='source-video'" in lean and "id='video-file'" in lean
     assert "button class='play'" in lean and "data-start-ms='1000'" in lean
+    assert "id='vision-toggle' checked" in lean
 
     write_master_timeline(tmp_path, None, vision, (), html_mode="thumbnails")
     thumb = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
@@ -271,9 +275,19 @@ def test_html_has_default_source_video_fallback_and_mini_player(tmp_path: Path):
     assert "data-fallback-src='meeting.mp4'" in html_text
     assert "id='mini-player'" in html_text
     assert "id='maximize-video'" in html_text
+    assert ">View on top</button>" in html_text
+    assert "id='follow-transcript'" in html_text
     assert "Drop the original file here" in html_text
     assert "IntersectionObserver" in html_text
     assert "data-start-ms='1000'" in html_text
+    assert "id='vision-toggle'" in html_text
+    assert "id='vision-toggle' checked" not in html_text
+    assert "id='speaker-filter'" in html_text
+    assert "class='entry-actions'" in html_text
+    assert "class='copy-entry'" in html_text
+    assert "class='quote-entry'" in html_text
+    assert "class='copy-section'" in html_text
+    assert "topic-link" in html_text
 
 
 def test_full_report_includes_source_metadata(tmp_path: Path):
@@ -331,6 +345,9 @@ def test_write_master_timeline_embeds_frames_on_request(tmp_path: Path):
 
 
 def test_write_master_timeline_without_embed_writes_lean_html(tmp_path: Path):
+    frames_dir = tmp_path / "Vision" / "frames"
+    frames_dir.mkdir(parents=True)
+    (frames_dir / "ghost.png").write_bytes(b"png")
     vision = tmp_path / "vision_analysis.srt"
     vision.write_text(
         "1\n00:00:01,000 --> 00:00:03,000\nFILE: ghost.png\nDESCRIPTION: A dashboard screen\n",
@@ -341,6 +358,18 @@ def test_write_master_timeline_without_embed_writes_lean_html(tmp_path: Path):
     html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
     assert "src='Vision/frames/ghost.png'" in html_text
     assert "data:image" not in html_text
+
+
+def test_lean_html_omits_missing_frame_image(tmp_path: Path):
+    vision = tmp_path / "vision_analysis.srt"
+    vision.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nFILE: ghost.png\nDESCRIPTION: A dashboard screen\n",
+        encoding="utf-8",
+    )
+    write_master_timeline(tmp_path, None, vision, ())
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "src='Vision/frames/ghost.png'" not in html_text
+    assert "A dashboard screen" in html_text
 
 
 def test_full_report_includes_summary_and_highlights(tmp_path: Path):

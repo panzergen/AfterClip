@@ -197,12 +197,8 @@ class PresetsController(QObject):
         form.intervalMode = "interval" in pack.frame_modes
         form.sceneMode = "scene" in pack.frame_modes
         form.frameInterval = pack.frame_interval
-        form.frameResolutionIndex = {"full": 0, "mid": 1, "low": 2}.get(
-            pack.frame_resolution, 0
-        )
-        self._set_status(
-            f"Applied '{pack.label}' frame defaults. Save a preset to keep them."
-        )
+        form.frameResolutionIndex = {"full": 0, "mid": 1, "low": 2}.get(pack.frame_resolution, 0)
+        self._set_status(f"Applied '{pack.label}' frame defaults. Save a preset to keep them.")
 
     @Slot()
     def applySelected(self) -> None:
@@ -310,8 +306,7 @@ class PresetsController(QObject):
                     pass
             self._update_badge(preset)
             self._set_status(
-                f"Preset '{preset.name}' stores no prompts; showing the global "
-                "prompts (Inherited)."
+                f"Preset '{preset.name}' stores no prompts; showing the global prompts (Inherited)."
             )
             return
         base = self.prompt_store.load()

@@ -82,9 +82,7 @@ def resolve_cli_prompts(
     return apply_preset_to_prompts(preset, base)
 
 
-def preset_badge(
-    preset: Preset | None, has_unsaved: bool, global_is_default: bool = False
-) -> str:
+def preset_badge(preset: Preset | None, has_unsaved: bool, global_is_default: bool = False) -> str:
     """Badge text for the preset selector (Phase 1 UI)."""
     if has_unsaved:
         return "Custom"

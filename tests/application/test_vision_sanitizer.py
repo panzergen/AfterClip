@@ -91,9 +91,7 @@ def test_placeholder_only_vision_responses_have_no_content():
     assert not has_vision_content(
         "TITLE: [none] SLIDE TEXT: [none] VISUALS: [none] HIGHLIGHT: [none]"
     )
-    assert not has_vision_content(
-        "Başlık: [none] İçerik: [none] Grafik: [none] Öne Çıkan: [none]"
-    )
+    assert not has_vision_content("Başlık: [none] İçerik: [none] Grafik: [none] Öne Çıkan: [none]")
     assert not has_vision_content("TITLE: [none] SLIDE TEXT: [unreadable] VISUALS: [none]")
     assert not has_vision_content("")
     # HIGHLIGHT is often the transcript leaking in; it must not count as a

@@ -172,6 +172,7 @@ def _truncate(text: str, limit: int) -> str:
 
 def _collapse_placeholder_runs(text: str) -> str:
     """Collapse ``[unreadable] | [unreadable] | …`` into one marker."""
+
     def replace(match: re.Match[str]) -> str:
         return f"[{match.group(1).lower()}]"
 

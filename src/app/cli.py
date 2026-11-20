@@ -49,8 +49,7 @@ def _add_job_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--language", help="Transcription language hint")
     parser.add_argument(
         "--report-language",
-        help="Language for all AI outputs (summary, highlights, vision, topics); "
-        "omit for English",
+        help="Language for all AI outputs (summary, highlights, vision, topics); omit for English",
     )
     parser.add_argument("--task", default="", help="Extra instructions for AI analysis")
     parser.add_argument(

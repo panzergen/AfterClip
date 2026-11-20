@@ -520,5 +520,3 @@ def test_vision_analysis_resumes_from_checkpoint(tmp_path):
     )
     assert vision.calls == []
     assert "DESCRIPTION: cached" in (vision_dir / "vision_analysis.srt").read_text(encoding="utf-8")
-
-

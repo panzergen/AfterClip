@@ -483,10 +483,7 @@ class SessionController(QObject):
     @Slot()
     def proceedAfterDurationWarning(self) -> None:
         """QML warning dialog accepted: run the job with the available media."""
-        if (
-            self._pending_duration_report is None
-            or not self._pending_duration_report.has_warning
-        ):
+        if self._pending_duration_report is None or not self._pending_duration_report.has_warning:
             return
         self._duration_check_passed = True
         self._pending_duration_report = None

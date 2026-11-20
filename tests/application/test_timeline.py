@@ -197,12 +197,7 @@ def test_full_report_renders_markdown_summary(tmp_path: Path):
         encoding="utf-8",
     )
     analysis = (
-        "## Summary\n\n"
-        "## 1. Topic\n\n"
-        "| Name | Value |\n"
-        "| --- | --- |\n"
-        "| A | 1 |\n\n"
-        "- first point\n"
+        "## Summary\n\n## 1. Topic\n\n| Name | Value |\n| --- | --- |\n| A | 1 |\n\n- first point\n"
     )
 
     write_master_timeline(

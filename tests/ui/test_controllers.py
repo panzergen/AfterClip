@@ -549,9 +549,7 @@ def test_start_gates_cloud_job_behind_consent(controllers, monkeypatch, tmp_path
 def test_duration_mismatch_warning_lists_truncated_audio(controllers):
     session = controllers.session
     warnings = []
-    session.durationWarningRequested.connect(
-        lambda title, text: warnings.append((title, text))
-    )
+    session.durationWarningRequested.connect(lambda title, text: warnings.append((title, text)))
     report = MediaDurationReport(
         video_seconds=4322.0,
         audio_seconds=1921.0,

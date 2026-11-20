@@ -36,9 +36,7 @@ def test_optional_placeholders_are_accepted_and_default_to_empty():
         "summary", lang="en", transcript="hello", task="summarize", vision_context="slides"
     )
     assert "summarize" in rendered and "slides" in rendered
-    vision = PromptSet().render(
-        "vision_frame", user_desc="", audio_context="", lang="en"
-    )
+    vision = PromptSet().render("vision_frame", user_desc="", audio_context="", lang="en")
     assert "{timestamp}" not in vision
     assert validate_template("topic_title", "{lang} {content} {timestamp}") != []
 

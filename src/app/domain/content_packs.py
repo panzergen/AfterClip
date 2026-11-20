@@ -74,8 +74,8 @@ _SLIDES_PROMPTS: dict[str, str] = {
         "Return a compact JSON array of scored candidates only, no prose. Each "
         "candidate has 'start' (HH:MM:SS; use the block timestamp), 'title', "
         "'score' (integer 0-10) and 'reason'.\n"
-        "Example: [{\"start\":\"00:03:10\",\"title\":\"Q3 revenue up 12 percent\","
-        "\"score\":8,\"reason\":\"Exact number shown on slide and emphasized\"}]\n"
+        'Example: [{"start":"00:03:10","title":"Q3 revenue up 12 percent",'
+        '"score":8,"reason":"Exact number shown on slide and emphasized"}]\n'
         "Do NOT output any thinking, reasoning or internal monologue. Output "
         "ONLY the JSON array.\n"
         "You MUST write 'title' and 'reason' entirely in language '{lang}'.\n"
@@ -144,9 +144,7 @@ def _combine(subject: str) -> str:
 def _highlights(focus: str) -> str:
     return (
         "Analyze the following timestamped transcript "
-        "and identify the key highlights: "
-        + focus
-        + ".\n"
+        "and identify the key highlights: " + focus + ".\n"
         "Score each candidate 0-10 as a highlight. High score for a clear claim, "
         "exact number, decision, recommendation, result or answered question; "
         "low score for repetition, logistics or optional detail.\n"
@@ -223,9 +221,7 @@ _SOFTWARE_DEMO_PROMPTS: dict[str, str] = {
         "Visual context:\n{vision_context}"
     ),
     "summary_combine": _combine("software demo"),
-    "highlights": _highlights(
-        "key steps, features, workarounds, results and practical caveats"
-    ),
+    "highlights": _highlights("key steps, features, workarounds, results and practical caveats"),
     "topic_segmentation": _topics("preferring steps or feature changes"),
     "topic_title": _title("prefer the page or feature name when the speaker states one"),
 }

@@ -333,8 +333,7 @@ class TranscriptionService:
                     if context.steps.get("text_analysis", {}).get("status") == "completed":
                         recorder.context.on_event(
                             ProgressEvent(
-                                "Prompts or report language changed; "
-                                "AI text analysis will re-run",
+                                "Prompts or report language changed; AI text analysis will re-run",
                                 96,
                             )
                         )
@@ -383,8 +382,7 @@ class TranscriptionService:
                     if vision_completed and not vision_prompts_match:
                         recorder.context.on_event(
                             ProgressEvent(
-                                "Prompts or report language changed; "
-                                "vision analysis will re-run",
+                                "Prompts or report language changed; vision analysis will re-run",
                                 97,
                             )
                         )
@@ -397,9 +395,7 @@ class TranscriptionService:
             if run_text and run_vision and self._providers_are_cloud():
                 # Local Ollama models share one GPU and swapping them is slower
                 # than running in sequence; only cloud text + vision overlap.
-                self._run_analyses_parallel(
-                    recorder, transcript_dir, audio_path, cancel_token
-                )
+                self._run_analyses_parallel(recorder, transcript_dir, audio_path, cancel_token)
             else:
                 if run_text:
                     self._run_text_analysis(recorder, transcript_dir, audio_path, cancel_token)
@@ -895,9 +891,7 @@ class TranscriptionService:
                 reason = cleaned.reason
                 retry_description = None
                 if frame_failed:
-                    cleaned = VisionSanitizeResult(
-                        BLANK_VISION_DESCRIPTION, True, "blank", 0
-                    )
+                    cleaned = VisionSanitizeResult(BLANK_VISION_DESCRIPTION, True, "blank", 0)
                     reason = "blank"
                     blank += 1
                 # A custom pack may not fit this frame (for example a slide-only
@@ -930,9 +924,7 @@ class TranscriptionService:
                                 timestamp=srt_timestamp(timestamp),
                             )
                         except Exception as error:  # a retry must not drop the frame
-                            LOGGER.warning(
-                                "Vision retry failed for %s: %s", frame.name, error
-                            )
+                            LOGGER.warning("Vision retry failed for %s: %s", frame.name, error)
                             retry_description = ""
                         retried += 1
                         retry_cleaned = sanitize_description(

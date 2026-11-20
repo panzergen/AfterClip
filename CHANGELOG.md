@@ -16,9 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Frame extraction works with FFmpeg 9, which removed `-vsync`. AfterClip now
   uses `-fps_mode vfr` and falls back to `-vsync vfr` only for older FFmpeg
   versions that do not recognize the new spelling.
-
-### Fixed
-
 - A recording whose audio contains no usable speech no longer produces a
   fabricated "Thank you." transcript and AI report. The transcript filter now
   records a speech assessment and stops with an actionable no-speech error when

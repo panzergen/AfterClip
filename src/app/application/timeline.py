@@ -452,9 +452,7 @@ def write_master_timeline(
         entry_id = f"entry-{entry_index}"
         while topic_index < len(topic_list) and entry.start_ms >= topic_list[topic_index].start_ms:
             topic = topic_list[topic_index]
-            markdown_lines.append(
-                f"\n## [{topic.start_str} --> {topic.end_str}] {topic.title}\n\n"
-            )
+            markdown_lines.append(f"\n## [{topic.start_str} --> {topic.end_str}] {topic.title}\n\n")
             if html_file is not None:
                 topic_anchor = (
                     topic_anchors[topic_index]
@@ -473,9 +471,7 @@ def write_master_timeline(
                     "</h2>"
                 )
             topic_index += 1
-        payload, html_row, lines = _render_entry(
-            entry, speaker_intervals, job_dir, mode, entry_id
-        )
+        payload, html_row, lines = _render_entry(entry, speaker_intervals, job_dir, mode, entry_id)
         if html_file is not None:
             html_file.write(html_row)
         payloads.append(payload)

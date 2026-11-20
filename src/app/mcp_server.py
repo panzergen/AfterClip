@@ -236,9 +236,7 @@ def fix_job(
     if force:
         state.pop("text_analysis_prompts", None)
         state.pop("vision_analysis_prompts", None)
-        state_path.write_text(
-            json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
     saved_preset = _preset_by_name(preset)
     run_settings = state.get("run_settings")

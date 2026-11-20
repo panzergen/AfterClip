@@ -75,8 +75,6 @@ def test_preset_badge_states():
     assert preset_badge(replace, False) == "Applied"
     assert preset_badge(replace, True) == "Custom"
     assert preset_badge(Preset(name="i", prompt_mode="inherit"), False) == "Inherited"
-    legacy = Preset(
-        name="l", prompt_mode="legacy-partial", prompt_overrides={"summary": "x"}
-    )
+    legacy = Preset(name="l", prompt_mode="legacy-partial", prompt_overrides={"summary": "x"})
     assert preset_badge(legacy, False) == "Legacy"
     assert preset_badge(None, False) == "Saved"

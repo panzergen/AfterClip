@@ -312,8 +312,7 @@ def _parse_title_array(raw: str | None, count: int) -> list[str] | None:
                 titles = [value.strip() for value in values]
             elif all(isinstance(value, dict) for value in values):
                 titles = [
-                    str(value.get("title") or value.get("text") or "").strip()
-                    for value in values
+                    str(value.get("title") or value.get("text") or "").strip() for value in values
                 ]
             else:
                 titles = []
@@ -342,8 +341,7 @@ def _translate_one_prompt(title: str, language: str) -> str:
     source = detect_language(title)
     if source and source != language:
         opening = (
-            f"The title below is written in {language_name(source)}. "
-            f"Translate it into {target}."
+            f"The title below is written in {language_name(source)}. Translate it into {target}."
         )
     else:
         opening = f"The title below is not in {target}. Translate it into {target}."

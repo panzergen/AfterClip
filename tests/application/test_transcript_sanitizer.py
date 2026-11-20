@@ -78,8 +78,7 @@ def test_assess_speech_flags_hallucinated_silence():
 
 def test_assess_speech_accepts_normal_conversation():
     segments = [
-        seg(f"this is a normal sentence with several words number {index}")
-        for index in range(50)
+        seg(f"this is a normal sentence with several words number {index}") for index in range(50)
     ]
 
     assessment = assess_speech(segments, duration_seconds=600)

@@ -27,9 +27,7 @@ def test_compact_timestamped_transcript_keeps_one_timestamp_per_block(tmp_path: 
     text = compact_timestamped_transcript(path, interval_seconds=10)
 
     assert text == (
-        "[00:00:00] Hello world. Second line.\n"
-        "[00:00:20] After a gap.\n"
-        "[00:00:31] Last line."
+        "[00:00:00] Hello world. Second line.\n[00:00:20] After a gap.\n[00:00:31] Last line."
     )
     assert "-->" not in text
     assert "1\n00:" not in text

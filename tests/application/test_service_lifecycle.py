@@ -395,15 +395,9 @@ class NamedProvider:
 
 
 def test_text_vision_overlap_is_limited_to_cloud_providers():
-    cloud = TranscriptionService(
-        None, None, NamedProvider("gemini"), NamedProvider("opencode_go")
-    )
-    mixed = TranscriptionService(
-        None, None, NamedProvider("gemini"), NamedProvider("ollama")
-    )
-    local = TranscriptionService(
-        None, None, NamedProvider("ollama"), NamedProvider("ollama")
-    )
+    cloud = TranscriptionService(None, None, NamedProvider("gemini"), NamedProvider("opencode_go"))
+    mixed = TranscriptionService(None, None, NamedProvider("gemini"), NamedProvider("ollama"))
+    local = TranscriptionService(None, None, NamedProvider("ollama"), NamedProvider("ollama"))
 
     assert cloud._providers_are_cloud() is True
     assert mixed._providers_are_cloud() is False

@@ -43,9 +43,7 @@ def test_slides_starter_renders_with_existing_placeholders():
     assert pack is not None
     prompts = PromptSet().with_overrides(pack.prompts)
 
-    summary = prompts.render(
-        "summary", lang="en", transcript="Slide one. Slide two."
-    )
+    summary = prompts.render("summary", lang="en", transcript="Slide one. Slide two.")
     assert "slide-by-slide" in summary
     assert "{lang}" not in summary and "{transcript}" not in summary
     assert "{task}" not in summary and "{vision_context}" not in summary

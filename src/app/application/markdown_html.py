@@ -73,11 +73,7 @@ def render_markdown(text: str | None, heading_offset: int = 0) -> str:
             index += 1
             continue
 
-        if (
-            "|" in line
-            and index + 1 < len(lines)
-            and _TABLE_SEPARATOR.match(lines[index + 1])
-        ):
+        if "|" in line and index + 1 < len(lines) and _TABLE_SEPARATOR.match(lines[index + 1]):
             flush_list()
             rows: list[str] = []
             index += 2

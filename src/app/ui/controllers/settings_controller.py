@@ -266,9 +266,7 @@ class SettingsController(QObject):
     reportLanguage = Property(
         str, _get_report_language, _set_report_language, notify=reportLanguageChanged
     )
-    reportLanguageLabels = Property(
-        "QVariantList", _get_report_language_labels, constant=True
-    )
+    reportLanguageLabels = Property("QVariantList", _get_report_language_labels, constant=True)
     reportLanguageIndex = Property(
         int,
         _get_report_language_index,

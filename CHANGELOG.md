@@ -55,12 +55,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   speaking time, transcript block count and first/last timestamp; clicking a
   speaker applies the transcript filter. Above 1300 px, vision images and their
   text sit side by side instead of stacking.
-- The floating report player now has a **×** close button, and the page returns
-  to its centered layout. The mini-player switches on its top edge instead of
-  an intersection ratio, so the report no longer shakes or toggles while
-  scrolling past the main player.
-- A Teams/SharePoint recording link can be supplied per job (advanced settings
-  or `--teams-url`). Every transcript entry then gets a **Teams** button that
+- The floating report player now has a **×** close button that pauses playback,
+  and the page returns to its centered layout. The mini-player switches on its
+  top edge instead of an intersection ratio, so the report no longer shakes or
+  toggles while scrolling past the main player.
+- A Teams/OneDrive/SharePoint recording link can be supplied per job (under the
+  media selector or `--teams-url`). Every transcript entry then gets a **Teams** button that
   opens the recording at that entry's timestamp by rewriting
   `nav.playbackOptions.startTimeInSeconds` while preserving the SharePoint
   `id` and other query parameters.

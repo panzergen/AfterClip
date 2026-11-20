@@ -99,6 +99,23 @@ ApplicationWindow {
                 }
             }
 
+            TextField {
+                Layout.fillWidth: true
+                height: Theme.controlHeight
+                placeholderText: qsTr("Optional Teams/OneDrive link for this video")
+                text: jobForm.teamsUrl
+                font.pixelSize: Theme.fontSizeSmall
+                selectByMouse: true
+                onTextEdited: jobForm.teamsUrl = text
+                ToolTip.visible: hovered
+                ToolTip.delay: 400
+                ToolTip.text: qsTr(
+                    "Adds a Teams button to every transcript entry. The link is "
+                    + "used for playback in Teams; the local media file is still "
+                    + "required for transcription."
+                )
+            }
+
             TabBar {
                 id: tabBar
                 Layout.fillWidth: true

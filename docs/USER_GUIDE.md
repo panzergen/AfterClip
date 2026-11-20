@@ -92,11 +92,17 @@ appear on hover. On wide screens, vision text sits beside its frame.
 
 ### Teams/SharePoint timestamp links
 
-Paste the Teams or SharePoint recording link into **Teams link** in the
-advanced settings (or pass `--teams-url` on the CLI). Every transcript entry
-then gets a **Teams ↗** button. The link keeps the SharePoint `id` and other
-parameters, and changes `startTimeInSeconds` in the `nav` parameter to that
-entry's timestamp, so Teams opens at the right moment.
+Paste the Teams, OneDrive or SharePoint recording link into the field directly
+under the media selector (or pass `--teams-url` on the CLI). Every transcript
+entry then gets a **Teams ↗** button. The link keeps the SharePoint `id` and
+other parameters, and changes `startTimeInSeconds` in the `nav` parameter to
+that entry's timestamp, so Teams opens at the right moment.
+
+Each recording has its own link, because the SharePoint `id` names that specific
+file. AfterClip does **not** download the video from this link. Personal
+OneDrive/SharePoint `stream.aspx` links require a Microsoft sign-in and are not
+direct file downloads, so the local video is still required for transcription;
+the link is only for timestamped playback in Teams.
 
 Interrupted jobs resume: re-running the same file reuses completed steps.
 Transcription and extracted frames are reused as-is; AI text/vision analysis

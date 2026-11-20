@@ -306,26 +306,6 @@ ColumnLayout {
         }
     }
 
-    FieldRow {
-        Layout.fillWidth: true
-        label: qsTr("Teams link")
-        TextField {
-            width: parent.width
-            height: Theme.controlHeight
-            placeholderText: qsTr("Optional Teams/SharePoint recording link")
-            text: jobForm.teamsUrl
-            font.pixelSize: Theme.fontSizeSmall
-            selectByMouse: true
-            onTextEdited: jobForm.teamsUrl = text
-            ToolTip.visible: hovered
-            ToolTip.delay: 400
-            ToolTip.text: qsTr(
-                "Adds a Teams button to every transcript entry. The button opens "
-                + "the recording at that entry's timestamp."
-            )
-        }
-    }
-
     Text {
         Layout.fillWidth: true
         text: qsTr(

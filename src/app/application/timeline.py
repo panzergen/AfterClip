@@ -861,7 +861,7 @@ def _html_seek_script() -> str:
         "window.addEventListener('resize',updateMini);"
         "video.addEventListener('loadedmetadata',updateMini);"
         "if(closeMini)closeMini.addEventListener('click',function(){"
-        "miniDismissed=true;setMini(false);});"
+        "video.pause();miniDismissed=true;setMini(false);});"
         "if(maximize)maximize.addEventListener('click',function(){miniDismissed=false;"
         "setMini(false);big.scrollIntoView({behavior:'smooth',block:'start'});});"
         "document.addEventListener('click',function(event){"

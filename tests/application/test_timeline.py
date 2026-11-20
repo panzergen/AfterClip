@@ -362,6 +362,7 @@ def test_html_has_default_source_video_fallback_and_mini_player(tmp_path: Path):
     assert ">View on top</button>" in html_text
     assert "id='follow-transcript'" in html_text
     assert "id='close-mini'" in html_text
+    assert "video.pause();miniDismissed=true" in html_text
     assert "Drop the original file here" in html_text
     assert "IntersectionObserver" not in html_text
     assert "top<-160" in html_text and "top>-40" in html_text

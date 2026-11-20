@@ -6,7 +6,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from app.application.markdown_html import render_markdown
 from app.application.summary import clean_summary_output
@@ -350,6 +350,7 @@ def write_master_timeline(
     clip_end: float | None = None,
     html_mode: str = "",
     source_video_uri: str = "",
+    teams_url: str = "",
 ) -> tuple[Path, Path]:
     """Write ``Master_Timeline.md`` and ``multimodal_timeline.jsonl``.
 
@@ -471,7 +472,14 @@ def write_master_timeline(
                     "</h2>"
                 )
             topic_index += 1
-        payload, html_row, lines = _render_entry(entry, speaker_intervals, job_dir, mode, entry_id)
+        payload, html_row, lines = _render_entry(
+            entry,
+            speaker_intervals,
+            job_dir,
+            mode,
+            entry_id,
+            teams_url=teams_url,
+        )
         if html_file is not None:
             html_file.write(html_row)
         payloads.append(payload)
@@ -579,21 +587,67 @@ def _write_timeline_meta(
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def build_teams_playback_url(base_url: str, seconds: int) -> str:
+    """Point a Teams/SharePoint recording link at ``seconds``.
+
+    Teams stores the seek position in the URL-encoded ``nav`` JSON parameter,
+    for example ``{"playbackOptions":{"startTimeInSeconds":120}}``. Existing
+    query parameters (including the SharePoint ``id`` path) are preserved.
+    """
+    value = (base_url or "").strip()
+    if not value:
+        return ""
+    parts = urlsplit(value)
+    if parts.scheme.lower() not in {"http", "https"} or not parts.netloc:
+        return ""
+    params = parse_qsl(parts.query, keep_blank_values=True)
+    nav: dict = {}
+    for key, raw in params:
+        if key != "nav" or not raw:
+            continue
+        try:
+            loaded = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(loaded, dict):
+            nav = loaded
+    options = nav.get("playbackOptions")
+    if not isinstance(options, dict):
+        options = {}
+        nav["playbackOptions"] = options
+    options["startTimeInSeconds"] = max(0, int(seconds))
+    params = [(key, raw) for key, raw in params if key != "nav"]
+    params.append(("nav", json.dumps(nav, ensure_ascii=False, separators=(",", ":"))))
+    query = urlencode(params, doseq=True, quote_via=quote)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+
+
 def _render_entry(
     entry: TimelineEntry,
     speaker_intervals: tuple[SpeakerInterval, ...],
     job_dir: Path,
     html_mode: str,
     entry_id: str = "",
+    teams_url: str = "",
 ):
     """One entry -> (jsonl payload, html row, markdown lines)."""
     speaker = resolve_speaker(speaker_intervals, entry.start_ms, entry.end_ms)
     speaker_badge = f" `[SPEAKER: {speaker}]`" if speaker else ""
     start_badge = f"[{entry.start_str} --> {entry.end_str}]"
+    teams_action = ""
+    if entry.context_type != "VISION" and teams_url:
+        playback_url = build_teams_playback_url(teams_url, entry.start_ms // 1000)
+        if playback_url:
+            teams_action = (
+                f"<a class='teams-link' href='{html_module.escape(playback_url, quote=True)}' "
+                "target='_blank' rel='noopener' title='Open in Teams at this timestamp'>"
+                "Teams &#8599;</a>"
+            )
     entry_actions = (
         "<div class='entry-actions'>"
         f"<button class='play' type='button' data-start-ms='{entry.start_ms}'>Play</button>"
-        "<button class='copy-entry' type='button'>Copy</button>"
+        + teams_action
+        + "<button class='copy-entry' type='button'>Copy</button>"
         "<button class='quote-entry' type='button' aria-pressed='false'>Quote</button>"
         "</div>"
     )
@@ -736,7 +790,10 @@ def _html_video_player(source_uri: str = "", file_name: str = "") -> str:
         "<span class='mini-actions'>"
         "<button id='maximize-video' type='button'>View on top</button>"
         "<button id='follow-transcript' type='button' aria-pressed='false'>"
-        "Scroll transcript</button></span></div>"
+        "Scroll transcript</button>"
+        "<button id='close-mini' class='mini-close' type='button' "
+        "aria-label='Close video panel' title='Close video panel'>&times;</button>"
+        "</span></div>"
         "<div id='mini-video-slot' class='mini-slot'></div></div>"
     )
 
@@ -752,6 +809,7 @@ def _html_seek_script() -> str:
         "const mini=document.getElementById('mini-player');"
         "const miniSlot=document.getElementById('mini-video-slot');"
         "const maximize=document.getElementById('maximize-video');"
+        "const closeMini=document.getElementById('close-mini');"
         "let objectUrl=null,fallbackTried=false;"
         "if(!video||!picker||!status||!big||!bigSlot||!mini||!miniSlot)return;"
         "function loadFile(file){"
@@ -784,19 +842,28 @@ def _html_seek_script() -> str:
         "try{video.currentTime=time;}catch(error){}"
         "video.playbackRate=rate;if(playing){const p=video.play();"
         "if(p&&p.catch)p.catch(function(){});}}"
-        "let inMini=false;function setMini(value){if(value===inMini)return;"
+        "let inMini=false,miniDismissed=false;"
+        "function setMini(value){if(value===inMini)return;"
         "inMini=value;if(value){mini.classList.add('visible');"
         "mini.setAttribute('aria-hidden','false');moveVideo(miniSlot);}"
         "else{mini.classList.remove('visible');mini.setAttribute('aria-hidden','true');"
         "moveVideo(bigSlot);}"
         "document.body.classList.toggle('mini-active',value);}"
-        "if('IntersectionObserver' in window){"
-        "new IntersectionObserver(function(entries){"
-        "const visible=entries[0].isIntersecting;"
-        "if(!visible&&video.src)setMini(true);else setMini(false);"
-        "},{threshold:0.15}).observe(big);}"
-        "if(maximize)maximize.addEventListener('click',function(){setMini(false);"
-        "big.scrollIntoView({behavior:'smooth',block:'start'});});"
+        # Show only after the source player is well above the viewport, and hide
+        # only after it is nearly back. Using its top edge (not intersection
+        # ratio) keeps the mini-player from oscillating when the page reflows.
+        "function updateMini(){if(!video.src){setMini(false);return;}"
+        "const top=big.getBoundingClientRect().top;"
+        "if(miniDismissed){if(top>-20)miniDismissed=false;setMini(false);return;}"
+        "if(inMini){if(top>-40)setMini(false);}"
+        "else if(top<-160)setMini(true);}"
+        "window.addEventListener('scroll',updateMini,{passive:true});"
+        "window.addEventListener('resize',updateMini);"
+        "video.addEventListener('loadedmetadata',updateMini);"
+        "if(closeMini)closeMini.addEventListener('click',function(){"
+        "miniDismissed=true;setMini(false);});"
+        "if(maximize)maximize.addEventListener('click',function(){miniDismissed=false;"
+        "setMini(false);big.scrollIntoView({behavior:'smooth',block:'start'});});"
         "document.addEventListener('click',function(event){"
         "const button=event.target.closest('button.play');if(!button)return;"
         "if(!video.src){status.textContent='Choose the source video first.';"
@@ -804,7 +871,9 @@ def _html_seek_script() -> str:
         "const ms=Number(button.dataset.startMs||0);"
         "video.currentTime=ms/1000;const play=video.play();"
         "if(play&&play.catch)play.catch(function(){});"
+        "miniDismissed=false;updateMini();"
         "});"
+        "updateMini();"
         "})();</script>"
     )
 
@@ -1144,6 +1213,9 @@ HTML_STYLE = (
     ".entry:hover .entry-actions{opacity:1}.entry-actions button{background:#eef3fb;"
     "color:#245b9e;border:1px solid #b9cdea;border-radius:5px;padding:2px 7px;"
     "font-size:11px;cursor:pointer}.entry-actions button:hover{background:#dfeafb}"
+    ".entry-actions .teams-link{background:#eef3fb;color:#245b9e;border:1px solid #b9cdea;"
+    "border-radius:5px;padding:2px 7px;font-size:11px;text-decoration:none}"
+    ".entry-actions .teams-link:hover{background:#dfeafb}"
     ".entry-actions .quote-entry.active{background:#245b9e;color:#fff}"
     ".badge{font-size:12px;color:#666;letter-spacing:.4px}"
     ".topic{margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px;"
@@ -1186,6 +1258,9 @@ HTML_STYLE = (
     ".mini-head button{background:#eef3fb;color:#245b9e;border:1px solid #b9cdea;"
     "border-radius:5px;padding:2px 7px;font-size:11px;cursor:pointer}"
     ".mini-head button.active{background:#245b9e;color:#fff}"
+    ".mini-head .mini-close{width:24px;height:24px;padding:0;font-size:16px;"
+    "line-height:1;background:#fff;color:#555;border-color:#ccc}"
+    ".mini-head .mini-close:hover{background:#f1f1f1;color:#111}"
     ".mini-slot video{max-height:170px;margin:0}"
     "@media (min-width:1300px){#report-content{max-width:1100px}"
     ".vision-body.has-image{display:grid;grid-template-columns:minmax(0,1.1fr) "

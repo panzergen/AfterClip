@@ -79,6 +79,11 @@ def _add_job_args(parser: argparse.ArgumentParser) -> None:
         help="HTML report mode: lean external frames, small standalone thumbnails, "
         "full embedded originals, or none",
     )
+    parser.add_argument(
+        "--teams-url",
+        default="",
+        help="Teams/SharePoint recording link; adds per-entry timestamp links",
+    )
     parser.add_argument("--no-filter", action="store_true", help="Disable hallucination filtering")
     parser.add_argument("--topics", choices=TOPIC_METHODS, help="Topic segmentation method")
     parser.add_argument("--topic-min-seconds", type=float, help="Minimum topic section seconds")
@@ -232,6 +237,7 @@ def build_request(args, preset: Preset | None = None) -> TranscriptionRequest:
         vision_model=vision_model or "",
         embed_frames=embed_frames,
         html_mode=html_mode,
+        teams_url=getattr(args, "teams_url", "") or "",
         frame_resolution=_resolve_resolution(args, preset),
         transcript_merge_seconds=segment_seconds,
         output_language=report_language or "",

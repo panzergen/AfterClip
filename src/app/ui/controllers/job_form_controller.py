@@ -82,6 +82,7 @@ class JobFormController(QObject):
         self._frame_resolution_index = 0
         self._embed_frames = False
         self._html_mode = "lean"
+        self._teams_url = ""
         self._reuse_transcription = False
         self._transcript_filter = True
         self._voiceprint_enabled = False
@@ -386,6 +387,13 @@ class JobFormController(QObject):
         if 0 <= index < len(HTML_MODE_VALUES):
             self._set_html_mode(HTML_MODE_VALUES[index])
 
+    def _get_teams_url(self) -> str:
+        return self._teams_url
+
+    def _set_teams_url(self, value: str) -> None:
+        self._teams_url = str(value).strip()
+        self.teamsUrlChanged.emit()
+
     def _get_reuse_transcription(self) -> bool:
         return self._reuse_transcription
 
@@ -414,6 +422,7 @@ class JobFormController(QObject):
     frameResolutionIndexChanged = Signal()
     embedFramesChanged = Signal()
     htmlModeChanged = Signal()
+    teamsUrlChanged = Signal()
     reuseTranscriptionChanged = Signal()
     transcriptFilterChanged = Signal()
     voiceprintEnabledChanged = Signal()
@@ -437,6 +446,7 @@ class JobFormController(QObject):
     embedFrames = Property(bool, _get_embed_frames, _set_embed_frames, notify=embedFramesChanged)
     htmlMode = Property(str, _get_html_mode, _set_html_mode, notify=htmlModeChanged)
     htmlModeLabels = Property("QVariantList", _get_html_mode_labels, constant=True)
+    teamsUrl = Property(str, _get_teams_url, _set_teams_url, notify=teamsUrlChanged)
     htmlModeIndex = Property(
         int, _get_html_mode_index, _set_html_mode_index, notify=htmlModeChanged
     )
@@ -748,6 +758,7 @@ class JobFormController(QObject):
             "scene_sensitivity": self._scene_sensitivity,
             "embed_frames": self._embed_frames,
             "html_mode": self._html_mode,
+            "teams_url": self._teams_url,
             "transcript_merge_seconds": self.segment_override(),
             "output_language": self._report_language,
             "text_provider_name": selection[0] if selection else "ollama",

@@ -105,6 +105,14 @@ def test_html_mode_and_embed_frames_stay_in_sync(controllers):
     assert form.htmlMode == "lean"
 
 
+def test_teams_url_is_captured_for_single_and_batch_jobs(controllers):
+    form = controllers.job_form
+    assert form.teamsUrl == ""
+    form.teamsUrl = " https://example.com/stream.aspx?id=abc "
+    assert form.teamsUrl == "https://example.com/stream.aspx?id=abc"
+    assert form.snapshot()["teams_url"] == "https://example.com/stream.aspx?id=abc"
+
+
 def test_settings_persists_segment_length(qapp):
     store = InMemorySettingsStore()
     controller = SettingsController(store=store, key_store=NoKeyStore())

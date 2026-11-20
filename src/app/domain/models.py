@@ -61,6 +61,9 @@ class TranscriptionRequest:
     #: full (embedded originals) or none. Empty preserves the legacy
     #: embed_frames boolean for callers that do not set a mode.
     html_mode: str = ""
+    #: Optional Teams/SharePoint recording link. When set, every transcript
+    #: entry gets a timestamped link that opens the recording at that second.
+    teams_url: str = ""
 
 
 @dataclass(frozen=True)

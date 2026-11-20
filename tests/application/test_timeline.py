@@ -1,9 +1,13 @@
+import html as html_module
 import json
+import re
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
 from app.application.timeline import (
+    build_teams_playback_url,
     find_transcript_srt,
     parse_speaker_vtt,
     parse_srt,
@@ -12,6 +16,60 @@ from app.application.timeline import (
     write_master_timeline,
 )
 from app.domain.models import SpeakerInterval, TimelineEntry
+
+TEAMS_URL = (
+    "https://ofisimheryerde-my.sharepoint.com/personal/metin_onarcan_vidizayn_com/"
+    "_layouts/15/stream.aspx?id=%2Fpersonal%2Fmetin_onarcan_vidizayn_com%2FDocuments"
+    "%2FKay%C4%B1tlar%2FCall%20with%20Gurkan%20and%203%20others-20261120_123441-"
+    "Meeting%20Recording%2Emp4&referrer=Teams%2ETEAMS-ELECTRON&referrerScenario="
+    "RecapOpenInStreamButton%2Eview&nav=%7B%22playbackOptions%22%3A%7B"
+    "%22startTimeInSeconds%22%3A120%7D%7D"
+)
+
+
+def test_teams_playback_url_replaces_start_second():
+    url = build_teams_playback_url(TEAMS_URL, 95)
+    query = parse_qs(urlsplit(url).query)
+    nav = json.loads(query["nav"][0])
+    assert nav["playbackOptions"]["startTimeInSeconds"] == 95
+    assert query["id"][0].endswith("Meeting Recording.mp4")
+    assert query["referrer"] == ["Teams.TEAMS-ELECTRON"]
+
+
+def test_teams_playback_url_adds_nav_when_missing():
+    url = build_teams_playback_url("https://example.com/stream.aspx?id=abc", 42)
+    query = parse_qs(urlsplit(url).query)
+    assert json.loads(query["nav"][0])["playbackOptions"]["startTimeInSeconds"] == 42
+    assert query["id"] == ["abc"]
+
+
+def test_teams_playback_url_rejects_non_web_links():
+    assert build_teams_playback_url("", 10) == ""
+    assert build_teams_playback_url("javascript:alert(1)", 10) == ""
+    assert build_teams_playback_url("not a url", 10) == ""
+
+
+def test_html_adds_teams_links_at_entry_seconds(tmp_path: Path):
+    transcript = tmp_path / "sample.srt"
+    transcript.write_text(
+        "1\n00:00:05,000 --> 00:00:09,000\nHello there\n",
+        encoding="utf-8",
+    )
+    write_master_timeline(
+        tmp_path,
+        transcript,
+        None,
+        (),
+        html_mode="lean",
+        teams_url=TEAMS_URL,
+    )
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    match = re.search(r"class='teams-link' href='([^']+)'", html_text)
+    assert match, "Teams link missing from transcript entry"
+    href = html_module.unescape(match.group(1))
+    query = parse_qs(urlsplit(href).query)
+    assert json.loads(query["nav"][0])["playbackOptions"]["startTimeInSeconds"] == 5
+
 
 SPEAKER_VTT = """WEBVTT
 
@@ -303,8 +361,10 @@ def test_html_has_default_source_video_fallback_and_mini_player(tmp_path: Path):
     assert "id='maximize-video'" in html_text
     assert ">View on top</button>" in html_text
     assert "id='follow-transcript'" in html_text
+    assert "id='close-mini'" in html_text
     assert "Drop the original file here" in html_text
-    assert "IntersectionObserver" in html_text
+    assert "IntersectionObserver" not in html_text
+    assert "top<-160" in html_text and "top>-40" in html_text
     assert "data-start-ms='1000'" in html_text
     assert "id='vision-toggle'" in html_text
     assert "id='vision-toggle' checked" not in html_text

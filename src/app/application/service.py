@@ -241,6 +241,7 @@ class TranscriptionService:
             "analyze_vision": request.analyze_vision,
             "voiceprint_enabled": request.voiceprint_enabled,
             "html_mode": request.html_mode,
+            "teams_url": request.teams_url,
         }
         self._record_forecast(context, request)
         recorder.save()
@@ -1237,6 +1238,7 @@ class TranscriptionService:
                 html_mode=request.html_mode,
                 source_metadata=source_metadata,
                 source_video_uri=source_uri,
+                teams_url=request.teams_url,
                 report_language=resolve_report_language(request, transcript_dir, audio_path.stem),
                 transcript_language=detect_transcript_language(transcript_dir, audio_path.stem),
                 clip_start=request.clip_start,

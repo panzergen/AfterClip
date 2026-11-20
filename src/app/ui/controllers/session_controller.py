@@ -921,6 +921,7 @@ class SessionController(QObject):
             topic_max,
             voiceprint_enabled=form.voiceprintEnabled,
             html_mode=form.htmlMode,
+            teams_url=form.teamsUrl,
         )
 
     @Slot()

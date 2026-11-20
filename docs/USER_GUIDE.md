@@ -98,8 +98,10 @@ entry then gets a **Teams ↗** button. The link keeps the SharePoint `id` and
 other parameters, and changes `startTimeInSeconds` in the `nav` parameter to
 that entry's timestamp, so Teams opens at the right moment.
 
-Each recording has its own link, because the SharePoint `id` names that specific
-file. AfterClip does **not** download the video from this link. Personal
+If the field is empty, the HTML report contains no Teams buttons. Each
+recording has its own link, because the SharePoint `id` names that specific
+file; changing the selected video clears the previous link. AfterClip does
+**not** download the video from this link. Personal
 OneDrive/SharePoint `stream.aspx` links require a Microsoft sign-in and are not
 direct file downloads, so the local video is still required for transcription;
 the link is only for timestamped playback in Teams.

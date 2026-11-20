@@ -214,9 +214,10 @@ class SessionController(QObject):
         # crashes in this PySide6 build (faults in Shiboken::String::toCString).
         path = Path(local_path(path)).resolve()
         if str(path) != self._current_input:
-            # Support files (speaker VTT, references) belong to the previous
-            # media; start clean for the newly selected file.
+            # Support files (speaker VTT, references) and the Teams link belong
+            # to the previous media; start clean for the newly selected file.
             self.job_form.clear_support_files()
+            self.job_form.clear_teams_url()
             self._duration_check_passed = False
             self._pending_duration_report = None
         self.media.name = path.stem

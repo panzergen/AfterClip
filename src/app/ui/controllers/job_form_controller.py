@@ -394,6 +394,12 @@ class JobFormController(QObject):
         self._teams_url = str(value).strip()
         self.teamsUrlChanged.emit()
 
+    def clear_teams_url(self) -> None:
+        """Drop the previous video's Teams link when the input changes."""
+        if self._teams_url:
+            self._teams_url = ""
+            self.teamsUrlChanged.emit()
+
     def _get_reuse_transcription(self) -> bool:
         return self._reuse_transcription
 

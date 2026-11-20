@@ -349,11 +349,13 @@ def test_support_files_cleared_when_input_changes(controllers, tmp_path):
     second.write_bytes(b"x")
     session.select_input_path(str(first))
     form.add_support_files([str(tmp_path / "talk.vtt")])
-    assert form.support_files()
+    form.teamsUrl = "https://example.com/stream.aspx?id=first"
+    assert form.support_files() and form.teamsUrl
     session.select_input_path(str(first))  # same file: kept
-    assert form.support_files()
+    assert form.support_files() and form.teamsUrl
     session.select_input_path(str(second))  # different file: cleared
     assert form.support_files() == ()
+    assert form.teamsUrl == ""
 
 
 def test_reuse_transcription_resolves_cached_job(controllers, tmp_path):

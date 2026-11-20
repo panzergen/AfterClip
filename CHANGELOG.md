@@ -60,7 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   top edge instead of an intersection ratio, so the report no longer shakes or
   toggles while scrolling past the main player.
 - A Teams/OneDrive/SharePoint recording link can be supplied per job (under the
-  media selector or `--teams-url`). Every transcript entry then gets a **Teams** button that
+  media selector or `--teams-url`). Changing the media clears the previous
+  link, and no Teams buttons are rendered when the field is empty. Every
+  transcript entry then gets a **Teams** button that
   opens the recording at that entry's timestamp by rewriting
   `nav.playbackOptions.startTimeInSeconds` while preserving the SharePoint
   `id` and other query parameters.

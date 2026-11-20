@@ -49,6 +49,17 @@ def test_teams_playback_url_rejects_non_web_links():
     assert build_teams_playback_url("not a url", 10) == ""
 
 
+def test_html_omits_teams_links_without_url(tmp_path: Path):
+    transcript = tmp_path / "sample.srt"
+    transcript.write_text(
+        "1\n00:00:05,000 --> 00:00:09,000\nHello there\n",
+        encoding="utf-8",
+    )
+    write_master_timeline(tmp_path, transcript, None, (), html_mode="lean")
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "class='teams-link'" not in html_text
+
+
 def test_html_adds_teams_links_at_entry_seconds(tmp_path: Path):
     transcript = tmp_path / "sample.srt"
     transcript.write_text(

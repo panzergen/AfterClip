@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tail in vision descriptions. Consecutive `[unreadable]`/`[none]` placeholders
   collapse to a single marker, and the built-in/slides vision prompts ask for
   one `[unreadable]` per unreadable region instead of one per cell.
+- Frame extraction works with FFmpeg 9, which removed `-vsync`. AfterClip now
+  uses `-fps_mode vfr` and falls back to `-vsync vfr` only for older FFmpeg
+  versions that do not recognize the new spelling.
 
 ### Fixed
 

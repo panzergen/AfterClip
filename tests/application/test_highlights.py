@@ -78,7 +78,7 @@ def test_aggregate_keeps_one_per_five_minute_window():
     assert "weaker" not in result
 
 
-def test_aggregate_keeps_top_three_sorted_by_score():
+def test_aggregate_keeps_top_three_then_sorts_by_time():
     result = aggregate_highlights(
         [
             candidate("00:01:00", "a", 7),
@@ -90,9 +90,34 @@ def test_aggregate_keeps_top_three_sorted_by_score():
     )
     lines = result.splitlines()
     assert len(lines) == 3
-    assert lines[0] == "- 00:11:00 c"
-    assert lines[1] == "- 00:06:00 b"
+    assert lines[0] == "- 00:06:00 b"
+    assert lines[1] == "- 00:11:00 c"
     assert lines[2] == "- 00:16:00 d"
+
+
+def test_aggregate_sorts_across_the_hour_boundary():
+    result = aggregate_highlights(
+        [
+            candidate("00:18:30", "mid", 9),
+            candidate("01:08:33", "late", 8),
+            candidate("00:00:15", "early", 7),
+        ]
+    )
+    assert result.splitlines() == [
+        "- 00:00:15 early",
+        "- 00:18:30 mid",
+        "- 01:08:33 late",
+    ]
+
+
+def test_aggregate_puts_unparseable_times_last():
+    result = aggregate_highlights(
+        [
+            {"title": "No timestamp", "score": 8},
+            candidate("00:01:00", "timed", 9),
+        ]
+    )
+    assert result.splitlines() == ["- 00:01:00 timed", "- No timestamp"]
 
 
 def test_aggregate_renders_without_timestamp_when_missing():

@@ -37,17 +37,21 @@ built-in templates still require a single-language response in `{lang}`.
 
 ## Templates and placeholders
 
-| Template | Placeholders | Used by |
-| --- | --- | --- |
-| `summary` | `{lang}`, `{transcript}` | text analysis (one chunk) |
-| `summary_combine` | `{lang}`, `{summaries}` | text analysis (multi-chunk combine) |
-| `highlights` | `{lang}`, `{srt_content}` | highlights extraction |
-| `vision_frame` | `{user_desc}`, `{audio_context}`, `{lang}` | vision frame description |
-| `media_type_classification` | `{signals}` | media-type classification (WS-D) |
-| `topic_segmentation` | `{lang}`, `{transcript}` | topic segmentation (WS-I) |
-| `topic_title` | `{lang}`, `{content}` | per-topic title generation (WS-I) |
-| `transcript_cleanup` | `{lang}`, `{transcript}` | **not currently called** — template only |
-| `review_revision` | `{lang}`, `{instructions}`, `{content}` | **not currently called** — template only |
+| Template | Required | Optional | Used by |
+| --- | --- | --- | --- |
+| `summary` | `{lang}`, `{transcript}` | `{task}`, `{vision_context}` | text analysis (one chunk) |
+| `summary_combine` | `{lang}`, `{summaries}` | `{task}`, `{vision_context}` | text analysis (multi-chunk combine) |
+| `highlights` | `{lang}`, `{srt_content}` | `{task}`, `{vision_context}` | highlights extraction |
+| `vision_frame` | `{user_desc}`, `{audio_context}`, `{lang}` | `{timestamp}` | vision frame description |
+| `media_type_classification` | `{signals}` | — | media-type classification (WS-D) |
+| `topic_segmentation` | `{lang}`, `{transcript}` | `{task}`, `{vision_context}` | topic segmentation (WS-I) |
+| `topic_title` | `{lang}`, `{content}` | — | per-topic title generation (WS-I) |
+| `transcript_cleanup` | `{lang}`, `{transcript}` | — | **not currently called** — template only |
+| `review_revision` | `{lang}`, `{instructions}`, `{content}` | — | **not currently called** — template only |
+
+Optional placeholders are replaced with an empty string when the caller has no
+value yet. `{timestamp}` is the frame's SRT timestamp. `{vision_context}` is
+reserved for Phase 3 and is empty in the current release.
 
 The last two ship so the text can be inspected and edited in the prompt editor,
 but no code path invokes them yet. Editing them has no effect on the current
@@ -78,6 +82,23 @@ release.
   built-in prompt; an explicit `BLANK: true` frame is stored as
   `(no visible screen content)`. `vision_filter_report.json` records `retried`
   and `blank` counts, and a retry never drops the frame.
+
+## Starter packs
+
+The prompt editor has **Starter text → Load starter…** with six choices:
+
+`Meeting / webinar (default)`, `Slides / presentation`, `Software / app demo`,
+`Physical product demo`, `Narrative video`, and `Travel / documentary`.
+
+A starter loads summary, highlights, vision and topic templates into the
+**session-custom** set; it is not an active preset and does not change
+`prompts.json` on its own. The **Also apply the starter's frame defaults**
+checkbox applies the pack's recommended extraction mode, interval and
+resolution to the job form. Review/edit the text and settings, then use
+**Save to preset** (recommended) or **Save** to persist them.
+
+The meeting-oriented built-in defaults are unchanged, so existing jobs keep
+their current output until a starter is loaded.
 
 ## Resetting
 

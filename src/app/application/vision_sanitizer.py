@@ -36,6 +36,13 @@ _KNOWN_LABEL = re.compile(
     r"BASIL|URL)\s*:",
     re.IGNORECASE,
 )
+#: Two or more consecutive placeholders, optionally separated by table pipes,
+#: commas or semicolons. Dense grids otherwise become a near-infinite
+#: ``[unreadable] | [unreadable] | ...`` tail.
+_PLACEHOLDER_RUN = re.compile(
+    r"(?:\[(unreadable|none)\]\s*(?:[|,;]\s*)?){2,}",
+    re.IGNORECASE,
+)
 #: Only cycles this short are considered loops (a drift loop is always short).
 _MAX_PERIOD = 8
 #: Isolated mismatches (model drift) are tolerated up to this many in a row.
@@ -163,6 +170,16 @@ def _truncate(text: str, limit: int) -> str:
     return head.rstrip() + _ELLIPSIS
 
 
+def _collapse_placeholder_runs(text: str) -> str:
+    """Collapse ``[unreadable] | [unreadable] | …`` into one marker."""
+
+    def replace(match: re.Match[str]) -> str:
+        return f"[{match.group(1).lower()}]"
+
+    collapsed = _PLACEHOLDER_RUN.sub(replace, text)
+    return re.sub(r"\s*\|\s*$", "", collapsed).strip()
+
+
 def is_blank_vision_response(text: object) -> bool:
     """True when the model explicitly marked the frame as blank."""
     return bool(_BLANK_MARKER.search(str(text or "")))
@@ -214,6 +231,11 @@ def sanitize_description(
         return VisionSanitizeResult(normalized, False, "", len(original))
 
     reason = ""
+    collapsed = _collapse_placeholder_runs(normalized)
+    if collapsed != normalized:
+        normalized = collapsed
+        reason = "placeholders"
+
     clauses = _clauses(normalized)
     if len(clauses) >= config.max_repetition:
         found = _periodic_suffix(

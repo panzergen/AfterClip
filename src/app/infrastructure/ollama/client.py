@@ -70,6 +70,7 @@ class OllamaClient:
                 LOGGER.error("Failed to read image %s: %s", image, error)
         if encoded_images:
             payload["images"] = encoded_images
+
         def post() -> dict:
             return post_json_cancellable(
                 f"{self.base_url}/api/generate",
@@ -125,9 +126,7 @@ class OllamaClient:
                 if time.monotonic() >= deadline:
                     terminate_process_tree(process)
                     process.wait()
-                    raise OllamaError(
-                        f"Ollama CLI timed out after {CLI_TIMEOUT_SECONDS} seconds"
-                    )
+                    raise OllamaError(f"Ollama CLI timed out after {CLI_TIMEOUT_SECONDS} seconds")
         finally:
             stdout_data, stderr_data = process.communicate()
         if process.returncode != 0:

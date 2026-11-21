@@ -7,6 +7,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Dense tables and grids no longer produce a long `[unreadable] | [unreadable]`
+  tail in vision descriptions. Consecutive `[unreadable]`/`[none]` placeholders
+  collapse to a single marker, and the built-in/slides vision prompts ask for
+  one `[unreadable]` per unreadable region instead of one per cell.
+- Frame extraction works with FFmpeg 9, which removed `-vsync`. AfterClip now
+  uses `-fps_mode vfr` and falls back to `-vsync vfr` only for older FFmpeg
+  versions that do not recognize the new spelling.
+- A recording whose audio contains no usable speech no longer produces a
+  fabricated "Thank you." transcript and AI report. The transcript filter now
+  records a speech assessment and stops with an actionable no-speech error when
+  a long recording has almost no words and one phrase dominates. The raw
+  transcript and assessment remain available for inspection.
+
+### Added
+
+- `Master_Timeline.md` and `FullReportAndTimeline.htm` now carry source
+  provenance: file name, source creation date, duration, media type,
+  transcription/report languages, clip range and related files. The Markdown
+  timeline also has a reading guide, topic time ranges, entry counts, and a
+  coverage status that warns when the timeline ends before the expected source
+  end.
+- The HTML report renders the AI summary, highlights and topics from Markdown
+  into real headings, lists, tables and inline formatting instead of showing
+  literal `#`, `|` and `**` characters.
+- Every timeline job writes `multimodal_timeline.meta.json` with the source
+  identity, languages, clip, coverage, counts, related files and JSONL entry
+  schema.
+- HTML reports now have explicit lean, standalone-thumbnail, full and none
+  modes. Lean is the default and only links to frames; thumbnails embed small
+  JPEG previews for sharing; full embeds original frames. Every report has a
+  source-video file picker and per-entry **Play from here** buttons; the video
+  itself is never embedded.
+- HTML reports reference the original media by its `file:///` address, without
+  copying the video into the output folder. If that path is unavailable, the
+  report falls back to a same-named video beside the HTML, then to drag/drop.
+  The video docks into a floating mini-player while scrolling and can be
+  returned to the top with **View on top**.
+- The HTML timeline now has vision and speaker filters, a **Scroll transcript**
+  follow mode, copy/quotation hover actions on entries, copy buttons on source
+  information and report sections, and topic links that jump to the first
+  transcript entry of each topic. Missing vision frames render text only, with
+  no broken-image icons.
+- The report starts with a **Speakers** section showing each speaker's total
+  speaking time, transcript block count and first/last timestamp; clicking a
+  speaker applies the transcript filter. Above 1300 px, vision images and their
+  text sit side by side instead of stacking.
+- The floating report player now has a **×** close button that pauses playback,
+  and the page returns to its centered layout. The mini-player switches on its
+  top edge instead of an intersection ratio, so the report no longer shakes or
+  toggles while scrolling past the main player.
+- A Teams/OneDrive/SharePoint recording link can be supplied per job (under the
+  media selector or `--teams-url`). Changing the media clears the previous
+  link, and no Teams buttons are rendered when the field is empty. Every
+  transcript entry then gets a **Teams** button that
+  opens the recording at that entry's timestamp by rewriting
+  `nav.playbackOptions.startTimeInSeconds` while preserving the SharePoint
+  `id` and other query parameters.
+- Highlights are ranked by score and then presented in media order, so the
+  final three read chronologically. The highlight prompt no longer awards a
+  high score to general setup, onboarding or feature descriptions unless the
+  speaker states a decision, change or commitment.
+- Frame extraction now runs alongside Whisper instead of waiting for the
+  transcript. Cloud text and vision analyses run concurrently; local Ollama
+  models stay sequential so they do not fight over one GPU. Job state and
+  report writes are serialized so parallel steps cannot corrupt them.
+- Highlight extraction now uses a compact timestamped transcript (one
+  timestamp per 15-second block) instead of raw SRT, and text chunks default
+  to 5000 characters instead of 3500. This roughly halves the number of
+  text-analysis calls on a long meeting.
+- Before a single job starts, AfterClip compares the container duration, the
+  duration of the audio it actually extracts, and an optional VTT. When any
+  pair differs by more than 5%, a dialog warns that the file may be corrupt or
+  truncated and offers **Cancel - check the file** or **Proceed anyway**.
+- The prompt editor can load six starter packs: meeting/webinar (default),
+  slides, software demo, physical product demo, narrative video and
+  travel/documentary. They load summary, highlights, vision and topic templates
+  as session-custom prompts for review and saving to a preset; no active preset
+  is shipped. `{task}`, `{timestamp}` and `{vision_context}` are accepted as
+  optional placeholders (an unsupplied one renders empty). Loading a starter can
+  also apply its recommended frame mode, interval and resolution to the job
+  form.
+
 ## [0.4.0] — 2026-10-30
 
 Phase 1 preset/prompt semantics plus the report-quality and vision-repair work.

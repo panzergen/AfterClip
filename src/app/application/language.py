@@ -125,6 +125,8 @@ _NON_LATIN = {
     "th": THAI,
 }
 
+# fmt: off
+# Profile tables read better as compact rows than as one word per line.
 _PROFILES: dict[str, LanguageProfile] = {
     "en": LanguageProfile(
         "English",
@@ -416,6 +418,7 @@ _PROFILES: dict[str, LanguageProfile] = {
     "ko": LanguageProfile("Korean", script=HANGUL),
     "th": LanguageProfile("Thai", script=THAI),
 }
+# fmt: on
 
 
 def normalize_code(code: str | None) -> str:
@@ -456,9 +459,7 @@ def detect_language(text: str, minimum: float = 1.5) -> str | None:
                 return code
         return None
     scores = {
-        code: profile.score(text)
-        for code, profile in _PROFILES.items()
-        if profile.script == LATIN
+        code: profile.score(text) for code, profile in _PROFILES.items() if profile.script == LATIN
     }
     ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     if not ranked or ranked[0][1] < minimum:

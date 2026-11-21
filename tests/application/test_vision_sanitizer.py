@@ -91,9 +91,7 @@ def test_placeholder_only_vision_responses_have_no_content():
     assert not has_vision_content(
         "TITLE: [none] SLIDE TEXT: [none] VISUALS: [none] HIGHLIGHT: [none]"
     )
-    assert not has_vision_content(
-        "Başlık: [none] İçerik: [none] Grafik: [none] Öne Çıkan: [none]"
-    )
+    assert not has_vision_content("Başlık: [none] İçerik: [none] Grafik: [none] Öne Çıkan: [none]")
     assert not has_vision_content("TITLE: [none] SLIDE TEXT: [unreadable] VISUALS: [none]")
     assert not has_vision_content("")
     # HIGHLIGHT is often the transcript leaking in; it must not count as a
@@ -109,6 +107,25 @@ def test_real_vision_field_values_count_as_content():
     assert has_vision_content("The screen shows a dashboard with a user table.")
     assert not is_blank_vision_response("TITLE: Dashboard")
     assert is_blank_vision_response("BLANK: true")
+
+
+def test_repeated_unreadable_placeholders_collapse_to_one_marker():
+    text = (
+        "TITLE: Mailing SLIDE TEXT: Assessing and managing patients | Register Now "
+        + " | ".join(["[unreadable]"] * 300)
+    )
+    result = sanitize_description(text)
+    assert result.reason == "placeholders"
+    assert result.text.count("[unreadable]") == 1
+    assert len(result.text) < 500
+    assert result.changed is True
+
+
+def test_placeholder_run_with_mixed_none_and_unreadable_collapses():
+    result = sanitize_description(
+        "TITLE: Slide SLIDE TEXT: [none] | [unreadable] | [none] | [unreadable]"
+    )
+    assert result.text.count("[none]") + result.text.count("[unreadable]") == 1
 
 
 def test_config_round_trip_and_invalid_values_fall_back():

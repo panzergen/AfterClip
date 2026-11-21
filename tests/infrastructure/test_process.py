@@ -132,6 +132,35 @@ def test_extract_interval_frames_builds_mode_filters(tmp_path):
     assert "fps=1/15,scale=768:-2" in low_command
 
 
+def test_extract_interval_frames_uses_fps_mode_for_ffmpeg_9(tmp_path):
+    tool = FfmpegMediaTool(FakeRunner())
+    tool.extract_interval_frames(tmp_path / "in.mp4", tmp_path / "frames", 10, CancellationToken())
+    command = tool.runner.commands[0]
+    assert "-fps_mode" in command and "vfr" in command
+    assert "-vsync" not in command
+
+
+def test_extract_interval_frames_retries_legacy_vsync(tmp_path):
+    class LegacyFfmpegRunner(FakeRunner):
+        def run(self, command, cancel_token):
+            self.commands.append(command)
+            if "-fps_mode" in command:
+                return subprocess.CompletedProcess(
+                    command, 1, "", "Unrecognized option 'fps_mode'."
+                )
+            output = Path(command[-1])
+            output.write_bytes(b"frame")
+            return subprocess.CompletedProcess(command, 0, "", self.stderr)
+
+    tool = FfmpegMediaTool(LegacyFfmpegRunner())
+    frames = tool.extract_interval_frames(
+        tmp_path / "in.mp4", tmp_path / "frames", 10, CancellationToken()
+    )
+    assert len(tool.runner.commands) == 2
+    assert "-vsync" in tool.runner.commands[1]
+    assert frames
+
+
 def test_extract_interval_frames_scales_highlights(tmp_path):
     tool = FfmpegMediaTool(FakeRunner())
     tool.extract_interval_frames(

@@ -6,9 +6,19 @@ class TextAnalysisProvider(Protocol):
     """Local or cloud text analysis over an existing transcript."""
 
     def summarize(
-        self, transcript: str, language: str, on_progress: Callable[[str], None]
+        self,
+        transcript: str,
+        language: str,
+        on_progress: Callable[[str], None],
+        task: str = "",
+        vision_context: str = "",
     ) -> str: ...
 
     def extract_highlights(
-        self, srt_content: str, language: str, on_progress: Callable[[str], None]
+        self,
+        srt_content: str,
+        language: str,
+        on_progress: Callable[[str], None],
+        task: str = "",
+        vision_context: str = "",
     ) -> str: ...

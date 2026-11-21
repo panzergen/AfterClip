@@ -68,7 +68,8 @@ Each job writes a folder under the output directory:
 ├── Summary_Report.md          # metadata, steps, status, cloud usage
 ├── Master_Timeline.md         # speaker-aware timeline for reading/AI
 ├── multimodal_timeline.jsonl  # machine-readable timeline (text + vision)
-├── FullReportAndTimeline.htm  # human-readable report with embedded frames
+├── multimodal_timeline.meta.json  # source/provenance/coverage/schema
+├── FullReportAndTimeline.htm  # human-readable report (lean by default)
 ├── AI_Analysis.md             # summary + highlights (when AI runs)
 ├── job_state.json             # checkpoint state (enables resume)
 ├── Transcripts/               # Whisper output: .srt, .txt, .json, .vtt
@@ -77,6 +78,33 @@ Each job writes a folder under the output directory:
     ├── timeline_frames.srt    # every extracted frame
     └── frames/*.png
 ```
+
+The HTML report references the original media by its `file:///` address; the
+video is not copied into the output folder. If that file is moved, it falls
+back to a video with the same file name next to the HTML; otherwise the reader
+can drop the video onto the report player. The floating mini-player keeps the
+video visible while scrolling, can be returned to the top with **View on top**,
+and closes with the **×** button so the page re-centers. The report includes a
+Speakers section with speaking time and block counts; the timeline has vision
+and speaker filters, **Scroll transcript** follows the playing video, topic
+headings jump to their transcript location, and entry/section copy buttons
+appear on hover. On wide screens, vision text sits beside its frame.
+
+### Teams/SharePoint timestamp links
+
+Paste the Teams, OneDrive or SharePoint recording link into the field directly
+under the media selector (or pass `--teams-url` on the CLI). Every transcript
+entry then gets a **Teams ↗** button. The link keeps the SharePoint `id` and
+other parameters, and changes `startTimeInSeconds` in the `nav` parameter to
+that entry's timestamp, so Teams opens at the right moment.
+
+If the field is empty, the HTML report contains no Teams buttons. Each
+recording has its own link, because the SharePoint `id` names that specific
+file; changing the selected video clears the previous link. AfterClip does
+**not** download the video from this link. Personal
+OneDrive/SharePoint `stream.aspx` links require a Microsoft sign-in and are not
+direct file downloads, so the local video is still required for transcription;
+the link is only for timestamped playback in Teams.
 
 Interrupted jobs resume: re-running the same file reuses completed steps.
 Transcription and extracted frames are reused as-is; AI text/vision analysis

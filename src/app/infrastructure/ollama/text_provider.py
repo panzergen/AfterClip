@@ -10,7 +10,11 @@ from app.infrastructure.ollama.client import OllamaClient, OllamaError
 
 LOGGER = logging.getLogger(__name__)
 
-CHUNK_SIZE = 3500
+#: 3500 was a conservative default, not a model limit. qwen3.5-agent runs with
+#: an 8192-token context; 5000 characters leaves room for the prompt and the
+#: output while keeping each partial summary smaller. Callers can pass a
+#: different chunk_size for another local model.
+CHUNK_SIZE = 5000
 
 
 class OllamaTextProvider:
@@ -40,6 +44,8 @@ class OllamaTextProvider:
         language: str,
         on_progress: Callable[[str], None] | None = None,
         cancel_token: CancelToken | None = None,
+        task: str = "",
+        vision_context: str = "",
     ) -> str:
         chunks = chunk_text(transcript, self.chunk_size)
         if not chunks:
@@ -50,7 +56,13 @@ class OllamaTextProvider:
             return clean_summary_output(
                 self.client.generate(
                     self.model,
-                    self.prompts.render("summary", lang=language or "en", transcript=chunks[0]),
+                    self.prompts.render(
+                        "summary",
+                        lang=language or "en",
+                        transcript=chunks[0],
+                        task=task,
+                        vision_context=vision_context,
+                    ),
                     cancel_token,
                     on_progress,
                 )
@@ -63,7 +75,13 @@ class OllamaTextProvider:
                 clean_summary_output(
                     self.client.generate(
                         self.model,
-                        self.prompts.render("summary", lang=language or "en", transcript=chunk),
+                        self.prompts.render(
+                            "summary",
+                            lang=language or "en",
+                            transcript=chunk,
+                            task=task,
+                            vision_context=vision_context,
+                        ),
                         cancel_token,
                         on_progress,
                     )
@@ -75,7 +93,11 @@ class OllamaTextProvider:
             self.client.generate(
                 self.model,
                 self.prompts.render(
-                    "summary_combine", lang=language or "en", summaries="\n\n".join(partials)
+                    "summary_combine",
+                    lang=language or "en",
+                    summaries="\n\n".join(partials),
+                    task=task,
+                    vision_context=vision_context,
                 ),
                 cancel_token,
                 on_progress,
@@ -88,6 +110,8 @@ class OllamaTextProvider:
         language: str,
         on_progress: Callable[[str], None] | None = None,
         cancel_token: CancelToken | None = None,
+        task: str = "",
+        vision_context: str = "",
     ) -> str:
         chunks = chunk_text(srt_content, self.chunk_size)
         if not chunks:
@@ -100,7 +124,13 @@ class OllamaTextProvider:
                 sections.append(
                     self.client.generate(
                         self.model,
-                        self.prompts.render("highlights", lang=language or "en", srt_content=chunk),
+                        self.prompts.render(
+                            "highlights",
+                            lang=language or "en",
+                            srt_content=chunk,
+                            task=task,
+                            vision_context=vision_context,
+                        ),
                         cancel_token,
                         on_progress,
                     )

@@ -61,9 +61,12 @@ def test_build_request_maps_flags(tmp_path):
             "01:00",
             "--segment",
             "15",
+            "--teams-url",
+            "https://example.com/stream.aspx?id=abc",
         ]
     )
     request = build_request(args)
+    assert request.teams_url == "https://example.com/stream.aspx?id=abc"
     assert request.model == "small"
     assert request.language == "tr"
     assert request.output_language == "en"

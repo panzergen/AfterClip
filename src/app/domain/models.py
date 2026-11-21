@@ -57,6 +57,13 @@ class TranscriptionRequest:
     topic_min_seconds: float = 60.0
     topic_max_sections: int = 0
     voiceprint_enabled: bool = False
+    #: HTML report mode: lean (external frames), thumbnails (standalone small),
+    #: full (embedded originals) or none. Empty preserves the legacy
+    #: embed_frames boolean for callers that do not set a mode.
+    html_mode: str = ""
+    #: Optional Teams/SharePoint recording link. When set, every transcript
+    #: entry gets a timestamped link that opens the recording at that second.
+    teams_url: str = ""
 
 
 @dataclass(frozen=True)

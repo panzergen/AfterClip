@@ -69,7 +69,7 @@ def test_text_provider_sends_only_text_parts():
         sleep_fn=sleeps.append,
         min_interval=0,
     )
-    summary = provider.summarize("a" * 5000, "tr")
+    summary = provider.summarize("a" * 7000, "tr")
     assert summary == "final summary"
     assert len(request.calls) == 3  # two chunk summaries + combine
     for url, payload, _timeout in request.calls:
@@ -106,9 +106,7 @@ def test_vision_prompt_override_is_used_verbatim(tmp_path):
     )
     frame = tmp_path / "scene_00h00m02s.png"
     frame.write_bytes(b"\x89PNG-fake-bytes")
-    provider.analyze_frame(
-        frame, "spoken words", "task", "tr", prompt="FALLBACK SCREEN PROMPT"
-    )
+    provider.analyze_frame(frame, "spoken words", "task", "tr", prompt="FALLBACK SCREEN PROMPT")
     parts = request.calls[0][1]["contents"][0]["parts"]
     assert parts[0]["text"] == "FALLBACK SCREEN PROMPT"
 

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from app.application.media_integrity import MediaDurationReport, compare_durations
 from app.domain.prompts import PromptSet, build_prompt_set
 from app.infrastructure.model_catalog import ModelEntry, ModelSection
 from app.infrastructure.presets import InMemoryPresetStore
@@ -87,6 +88,31 @@ def test_advanced_panel_defaults(controllers):
     assert form.intervalMode is False
 
 
+def test_html_mode_and_embed_frames_stay_in_sync(controllers):
+    form = controllers.job_form
+    assert form.htmlMode == "lean"
+    assert form.embedFrames is False
+
+    form.htmlMode = "thumbnails"
+    assert form.htmlModeIndex == 1
+    assert form.embedFrames is False
+
+    form.embedFrames = True
+    assert form.htmlMode == "full"
+    assert form.htmlModeIndex == 2
+
+    form.embedFrames = False
+    assert form.htmlMode == "lean"
+
+
+def test_teams_url_is_captured_for_single_and_batch_jobs(controllers):
+    form = controllers.job_form
+    assert form.teamsUrl == ""
+    form.teamsUrl = " https://example.com/stream.aspx?id=abc "
+    assert form.teamsUrl == "https://example.com/stream.aspx?id=abc"
+    assert form.snapshot()["teams_url"] == "https://example.com/stream.aspx?id=abc"
+
+
 def test_settings_persists_segment_length(qapp):
     store = InMemorySettingsStore()
     controller = SettingsController(store=store, key_store=NoKeyStore())
@@ -101,6 +127,36 @@ def test_settings_persists_segment_length(qapp):
     controller.save()
     assert store.get("report_language") == "tr"
     assert controller.report_language() == "tr"
+
+
+def test_settings_loads_slides_starter_as_session_prompts(qapp):
+    from app.infrastructure.prompts import InMemoryPromptStore
+
+    store = InMemorySettingsStore()
+    controller = SettingsController(
+        store=store, key_store=NoKeyStore(), prompt_store=InMemoryPromptStore()
+    )
+    assert "Slides / presentation" in controller.starterPackNames
+    controller.loadStarterPack("Slides / presentation")
+    assert controller.promptIndex == 0
+    assert "slide-by-slide" in controller.promptText
+    assert "slide-by-slide" in controller.effective_prompt_set().summary
+    assert controller.promptDirty is True
+    # The starter is not written to the global store until the user saves it.
+    assert "slide-by-slide" not in controller.prompt_store.load().summary
+
+
+def test_presets_apply_starter_frame_defaults(controllers):
+    form = controllers.job_form
+    controllers.presets.applyStarterPackSettings("Slides / presentation")
+    assert form.sceneMode is True and form.intervalMode is False
+    assert form.frameInterval == 30
+    assert form.frameResolutionIndex == 0
+
+    controllers.presets.applyStarterPackSettings("Software / app demo")
+    assert form.intervalMode is True and form.sceneMode is False
+    assert form.frameInterval == 12
+    assert form.frameResolutionIndex == 1
 
 
 def test_job_form_defaults_report_language_from_settings(monkeypatch, qapp):
@@ -293,11 +349,13 @@ def test_support_files_cleared_when_input_changes(controllers, tmp_path):
     second.write_bytes(b"x")
     session.select_input_path(str(first))
     form.add_support_files([str(tmp_path / "talk.vtt")])
-    assert form.support_files()
+    form.teamsUrl = "https://example.com/stream.aspx?id=first"
+    assert form.support_files() and form.teamsUrl
     session.select_input_path(str(first))  # same file: kept
-    assert form.support_files()
+    assert form.support_files() and form.teamsUrl
     session.select_input_path(str(second))  # different file: cleared
     assert form.support_files() == ()
+    assert form.teamsUrl == ""
 
 
 def test_reuse_transcription_resolves_cached_job(controllers, tmp_path):
@@ -486,6 +544,7 @@ def test_start_gates_cloud_job_behind_consent(controllers, monkeypatch, tmp_path
         "_validate_start_conditions",
         lambda: (tmp_path / "in.mp4", tmp_path / "out", None, None),
     )
+    session._duration_check_passed = True  # this test covers consent, not the duration probe
 
     session.startJob()
     assert requests and requests[0][0] == "gemini"
@@ -495,6 +554,48 @@ def test_start_gates_cloud_job_behind_consent(controllers, monkeypatch, tmp_path
     session.grantCloudConsentAndStart()
     assert session._pending_consent_provider is None
     assert controllers.settings.has_cloud_consent("gemini") is True
+
+
+def test_duration_mismatch_warning_lists_truncated_audio(controllers):
+    session = controllers.session
+    warnings = []
+    session.durationWarningRequested.connect(lambda title, text: warnings.append((title, text)))
+    report = MediaDurationReport(
+        video_seconds=4322.0,
+        audio_seconds=1921.0,
+        vtt_seconds=4320.0,
+        issues=compare_durations(4322.0, 1921.0, 4320.0),
+    )
+    session._pending_conditions = (Path("in.mp4"), Path("out"), None, None)
+
+    session._on_duration_check_finished(report)
+
+    assert warnings
+    assert warnings[0][0] == "Media duration mismatch"
+    assert "corrupt" in warnings[0][1]
+    assert "01:12:02" in warnings[0][1]
+    assert "00:32:01" in warnings[0][1]
+    assert session.worker is None
+    assert session._pending_duration_report is report
+
+
+def test_duration_warning_proceed_allows_the_start(controllers, monkeypatch):
+    session = controllers.session
+    report = MediaDurationReport(
+        video_seconds=4322.0,
+        audio_seconds=1921.0,
+        vtt_seconds=4320.0,
+        issues=compare_durations(4322.0, 1921.0, 4320.0),
+    )
+    session._pending_duration_report = report
+    started = []
+    monkeypatch.setattr(session, "startJob", lambda: started.append(True))
+
+    session.proceedAfterDurationWarning()
+
+    assert session._duration_check_passed is True
+    assert session._pending_duration_report is None
+    assert started == [True]
 
 
 def test_settings_prompt_set_roundtrip(controllers):

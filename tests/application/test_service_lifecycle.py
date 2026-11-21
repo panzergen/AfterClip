@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -214,6 +215,193 @@ def test_output_language_is_independent_of_transcription_language(tmp_path):
         CancellationToken(),
     )
     assert provider.languages and all(language == "en" for language in provider.languages)
+
+
+class OverlapProvider:
+    """Transcription waits until frame extraction has actually started."""
+
+    def __init__(self, transcribe_started: threading.Event, frames_started: threading.Event):
+        self.transcribe_started = transcribe_started
+        self.frames_started = frames_started
+
+    def transcribe(self, request, on_progress, cancel_token):
+        self.transcribe_started.set()
+        if not self.frames_started.wait(5):
+            raise RuntimeError("frame extraction did not start while transcription ran")
+        output = request.output_dir / f"{request.input_path.stem}.srt"
+        output.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n", encoding="utf-8")
+        text = request.output_dir / f"{request.input_path.stem}.txt"
+        text.write_text("Hello", encoding="utf-8")
+        return TranscriptionResult(request.output_dir, (output, text))
+
+
+class OverlapMedia:
+    """Frame extraction waits until Whisper has actually started."""
+
+    def __init__(self, transcribe_started: threading.Event, frames_started: threading.Event):
+        self.transcribe_started = transcribe_started
+        self.frames_started = frames_started
+
+    def prepare_audio(self, input_path, work_dir, cancel_token, clip_start=None, clip_end=None):
+        return input_path
+
+    def extract_interval_frames(
+        self,
+        input_path,
+        frames_dir,
+        interval,
+        cancel_token,
+        clip_start=None,
+        clip_end=None,
+        highlight_times=(),
+        mode="interval",
+        sensitivity=0.35,
+        resolution="full",
+    ):
+        self.frames_started.set()
+        if not self.transcribe_started.wait(5):
+            raise RuntimeError("transcription did not start while frames were extracted")
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        frame = frames_dir / "frame_000000.png"
+        frame.write_bytes(b"frame")
+        return (frame,)
+
+
+def test_frames_extract_while_transcription_runs(tmp_path):
+    transcribe_started = threading.Event()
+    frames_started = threading.Event()
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"fixture")
+    output = tmp_path / "out"
+
+    TranscriptionService(
+        OverlapProvider(transcribe_started, frames_started),
+        OverlapMedia(transcribe_started, frames_started),
+    ).run(
+        TranscriptionRequest(
+            source,
+            output,
+            extract_frames=True,
+            frame_modes=("interval",),
+        ),
+        lambda _: None,
+        CancellationToken(),
+    )
+
+    state = json.loads((output / "sample" / "job_state.json").read_text(encoding="utf-8"))
+    assert state["steps"]["transcription"]["status"] == "completed"
+    assert state["steps"]["frame_extraction_interval"]["status"] == "completed"
+
+
+class CloudTextProvider:
+    provider_name = "gemini"
+    model = "cloud-text"
+
+    def __init__(self, text_started: threading.Event, vision_started: threading.Event):
+        self.text_started = text_started
+        self.vision_started = vision_started
+
+    def summarize(self, transcript, language, on_progress=None, cancel_token=None, **kwargs):
+        self.text_started.set()
+        if not self.vision_started.wait(5):
+            raise RuntimeError("vision did not start while cloud text ran")
+        return "cloud summary"
+
+    def extract_highlights(
+        self, srt_content, language, on_progress=None, cancel_token=None, **kwargs
+    ):
+        return ""
+
+
+class CloudVisionProvider:
+    provider_name = "gemini"
+    model = "cloud-vision"
+
+    def __init__(self, text_started: threading.Event, vision_started: threading.Event):
+        self.text_started = text_started
+        self.vision_started = vision_started
+
+    def analyze_frame(
+        self,
+        frame,
+        audio_context,
+        user_task,
+        language,
+        prompt,
+        cancel_token,
+        timestamp=None,
+    ):
+        self.vision_started.set()
+        if not self.text_started.wait(5):
+            raise RuntimeError("text did not start while cloud vision ran")
+        return "A visible slide with a chart."
+
+
+class FrameMedia(CountingMedia):
+    def extract_interval_frames(
+        self,
+        input_path,
+        frames_dir,
+        interval,
+        cancel_token,
+        clip_start=None,
+        clip_end=None,
+        highlight_times=(),
+        mode="interval",
+        sensitivity=0.35,
+        resolution="full",
+    ):
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        frame = frames_dir / "frame_000000.png"
+        frame.write_bytes(b"frame")
+        return (frame,)
+
+
+def test_cloud_text_and_vision_run_in_parallel(tmp_path):
+    text_started = threading.Event()
+    vision_started = threading.Event()
+    source = tmp_path / "sample.wav"
+    source.write_bytes(b"fixture")
+    output = tmp_path / "out"
+
+    TranscriptionService(
+        CountingProvider(),
+        FrameMedia(),
+        CloudTextProvider(text_started, vision_started),
+        CloudVisionProvider(text_started, vision_started),
+    ).run(
+        TranscriptionRequest(
+            source,
+            output,
+            extract_frames=True,
+            frame_modes=("interval",),
+            analyze_text=True,
+            analysis_model="cloud-text",
+            analyze_vision=True,
+            vision_model="cloud-vision",
+        ),
+        lambda _: None,
+        CancellationToken(),
+    )
+
+    state = json.loads((output / "sample" / "job_state.json").read_text(encoding="utf-8"))
+    assert state["steps"]["text_analysis"]["status"] == "completed"
+    assert state["steps"]["vision_analysis"]["status"] == "completed"
+
+
+class NamedProvider:
+    def __init__(self, name: str):
+        self.provider_name = name
+
+
+def test_text_vision_overlap_is_limited_to_cloud_providers():
+    cloud = TranscriptionService(None, None, NamedProvider("gemini"), NamedProvider("opencode_go"))
+    mixed = TranscriptionService(None, None, NamedProvider("gemini"), NamedProvider("ollama"))
+    local = TranscriptionService(None, None, NamedProvider("ollama"), NamedProvider("ollama"))
+
+    assert cloud._providers_are_cloud() is True
+    assert mixed._providers_are_cloud() is False
+    assert local._providers_are_cloud() is False
 
 
 def test_multiple_frame_modes_run_sequentially(tmp_path):

@@ -32,6 +32,13 @@ GEMINI_STATIC_MODELS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-p
 ANALYSIS_MODEL_CHOICE_KEY = "analysis_model_choice"
 VISION_MODEL_CHOICE_KEY = "vision_model_choice"
 SEGMENT_INDEX_MAPPING = {0.0: 0, 15.0: 1, 30.0: 2, 60.0: 3}
+HTML_MODE_VALUES = ("lean", "thumbnails", "full", "none")
+HTML_MODE_LABELS = (
+    "Lean - external frame links",
+    "Standalone thumbnails - smaller sharing file",
+    "Full frames embedded - largest",
+    "No HTML report",
+)
 
 
 def support_note(path: str) -> str:
@@ -74,6 +81,8 @@ class JobFormController(QObject):
         self._scene_sensitivity = 0.35
         self._frame_resolution_index = 0
         self._embed_frames = False
+        self._html_mode = "lean"
+        self._teams_url = ""
         self._reuse_transcription = False
         self._transcript_filter = True
         self._voiceprint_enabled = False
@@ -179,9 +188,7 @@ class JobFormController(QObject):
     reportLanguage = Property(
         str, _get_report_language, _set_report_language, notify=reportLanguageChanged
     )
-    reportLanguageLabels = Property(
-        "QVariantList", _get_report_language_labels, constant=True
-    )
+    reportLanguageLabels = Property("QVariantList", _get_report_language_labels, constant=True)
     reportLanguageIndex = Property(
         int,
         _get_report_language_index,
@@ -350,8 +357,48 @@ class JobFormController(QObject):
         return self._embed_frames
 
     def _set_embed_frames(self, value: bool) -> None:
-        self._embed_frames = bool(value)
+        if bool(value):
+            self._set_html_mode("full")
+        elif self._html_mode == "full":
+            self._set_html_mode("lean")
+
+    def _get_html_mode(self) -> str:
+        return self._html_mode
+
+    def _set_html_mode(self, value: str) -> None:
+        mode = str(value)
+        if mode not in HTML_MODE_VALUES:
+            mode = "lean"
+        if self._html_mode == mode:
+            return
+        self._html_mode = mode
+        self._embed_frames = mode == "full"
+        self.htmlModeChanged.emit()
         self.embedFramesChanged.emit()
+
+    def _get_html_mode_labels(self) -> list:
+        return list(HTML_MODE_LABELS)
+
+    def _get_html_mode_index(self) -> int:
+        return HTML_MODE_VALUES.index(self._html_mode)
+
+    def _set_html_mode_index(self, value: int) -> None:
+        index = int(value)
+        if 0 <= index < len(HTML_MODE_VALUES):
+            self._set_html_mode(HTML_MODE_VALUES[index])
+
+    def _get_teams_url(self) -> str:
+        return self._teams_url
+
+    def _set_teams_url(self, value: str) -> None:
+        self._teams_url = str(value).strip()
+        self.teamsUrlChanged.emit()
+
+    def clear_teams_url(self) -> None:
+        """Drop the previous video's Teams link when the input changes."""
+        if self._teams_url:
+            self._teams_url = ""
+            self.teamsUrlChanged.emit()
 
     def _get_reuse_transcription(self) -> bool:
         return self._reuse_transcription
@@ -380,6 +427,8 @@ class JobFormController(QObject):
     sceneSensitivityChanged = Signal()
     frameResolutionIndexChanged = Signal()
     embedFramesChanged = Signal()
+    htmlModeChanged = Signal()
+    teamsUrlChanged = Signal()
     reuseTranscriptionChanged = Signal()
     transcriptFilterChanged = Signal()
     voiceprintEnabledChanged = Signal()
@@ -401,6 +450,12 @@ class JobFormController(QObject):
         notify=frameResolutionIndexChanged,
     )
     embedFrames = Property(bool, _get_embed_frames, _set_embed_frames, notify=embedFramesChanged)
+    htmlMode = Property(str, _get_html_mode, _set_html_mode, notify=htmlModeChanged)
+    htmlModeLabels = Property("QVariantList", _get_html_mode_labels, constant=True)
+    teamsUrl = Property(str, _get_teams_url, _set_teams_url, notify=teamsUrlChanged)
+    htmlModeIndex = Property(
+        int, _get_html_mode_index, _set_html_mode_index, notify=htmlModeChanged
+    )
     reuseTranscription = Property(
         bool,
         _get_reuse_transcription,
@@ -708,6 +763,8 @@ class JobFormController(QObject):
             "frame_resolution": self.selected_frame_resolution(),
             "scene_sensitivity": self._scene_sensitivity,
             "embed_frames": self._embed_frames,
+            "html_mode": self._html_mode,
+            "teams_url": self._teams_url,
             "transcript_merge_seconds": self.segment_override(),
             "output_language": self._report_language,
             "text_provider_name": selection[0] if selection else "ollama",

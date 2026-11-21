@@ -1,13 +1,86 @@
+import html as html_module
+import json
+import re
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
+
+import pytest
 
 from app.application.timeline import (
+    build_teams_playback_url,
     find_transcript_srt,
     parse_speaker_vtt,
     parse_srt,
     resolve_speaker,
+    vtt_duration_seconds,
     write_master_timeline,
 )
 from app.domain.models import SpeakerInterval, TimelineEntry
+
+TEAMS_URL = (
+    "https://ofisimheryerde-my.sharepoint.com/personal/metin_onarcan_vidizayn_com/"
+    "_layouts/15/stream.aspx?id=%2Fpersonal%2Fmetin_onarcan_vidizayn_com%2FDocuments"
+    "%2FKay%C4%B1tlar%2FCall%20with%20Gurkan%20and%203%20others-20261120_123441-"
+    "Meeting%20Recording%2Emp4&referrer=Teams%2ETEAMS-ELECTRON&referrerScenario="
+    "RecapOpenInStreamButton%2Eview&nav=%7B%22playbackOptions%22%3A%7B"
+    "%22startTimeInSeconds%22%3A120%7D%7D"
+)
+
+
+def test_teams_playback_url_replaces_start_second():
+    url = build_teams_playback_url(TEAMS_URL, 95)
+    query = parse_qs(urlsplit(url).query)
+    nav = json.loads(query["nav"][0])
+    assert nav["playbackOptions"]["startTimeInSeconds"] == 95
+    assert query["id"][0].endswith("Meeting Recording.mp4")
+    assert query["referrer"] == ["Teams.TEAMS-ELECTRON"]
+
+
+def test_teams_playback_url_adds_nav_when_missing():
+    url = build_teams_playback_url("https://example.com/stream.aspx?id=abc", 42)
+    query = parse_qs(urlsplit(url).query)
+    assert json.loads(query["nav"][0])["playbackOptions"]["startTimeInSeconds"] == 42
+    assert query["id"] == ["abc"]
+
+
+def test_teams_playback_url_rejects_non_web_links():
+    assert build_teams_playback_url("", 10) == ""
+    assert build_teams_playback_url("javascript:alert(1)", 10) == ""
+    assert build_teams_playback_url("not a url", 10) == ""
+
+
+def test_html_omits_teams_links_without_url(tmp_path: Path):
+    transcript = tmp_path / "sample.srt"
+    transcript.write_text(
+        "1\n00:00:05,000 --> 00:00:09,000\nHello there\n",
+        encoding="utf-8",
+    )
+    write_master_timeline(tmp_path, transcript, None, (), html_mode="lean")
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "class='teams-link'" not in html_text
+
+
+def test_html_adds_teams_links_at_entry_seconds(tmp_path: Path):
+    transcript = tmp_path / "sample.srt"
+    transcript.write_text(
+        "1\n00:00:05,000 --> 00:00:09,000\nHello there\n",
+        encoding="utf-8",
+    )
+    write_master_timeline(
+        tmp_path,
+        transcript,
+        None,
+        (),
+        html_mode="lean",
+        teams_url=TEAMS_URL,
+    )
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    match = re.search(r"class='teams-link' href='([^']+)'", html_text)
+    assert match, "Teams link missing from transcript entry"
+    href = html_module.unescape(match.group(1))
+    query = parse_qs(urlsplit(href).query)
+    assert json.loads(query["nav"][0])["playbackOptions"]["startTimeInSeconds"] == 5
+
 
 SPEAKER_VTT = """WEBVTT
 
@@ -27,6 +100,14 @@ def test_parse_speaker_vtt_extracts_speaker_intervals(tmp_path: Path):
     assert intervals[0] == SpeakerInterval(500, 4000, "Metin ONARCAN")
     assert intervals[1].start_ms == 4000 and intervals[1].end_ms == 8000
     assert intervals[1].speaker == "Ayse DEMIR"
+
+
+def test_vtt_duration_seconds_uses_last_cue_end(tmp_path: Path):
+    path = tmp_path / "speakers.vtt"
+    path.write_text(SPEAKER_VTT, encoding="utf-8")
+    assert vtt_duration_seconds(path) == 8.0
+    assert vtt_duration_seconds(None) is None
+    assert vtt_duration_seconds(tmp_path / "missing.vtt") is None
 
 
 def test_parse_speaker_vtt_malformed_does_not_crash(tmp_path: Path):
@@ -111,6 +192,232 @@ def test_write_master_timeline_merges_entries_and_speakers(tmp_path: Path):
     assert '"event_type": "vision"' in lines[1] and "frame_001.png" in lines[1]
 
 
+def test_master_timeline_has_source_metadata_and_reading_guide(tmp_path: Path):
+    from app.application.topics import TopicSegment
+
+    transcript = tmp_path / "sample.srt"
+    transcript.write_text("1\n00:00:00,000 --> 00:00:02,000\nHello world\n", encoding="utf-8")
+    topics = (TopicSegment(0, 60_000, "00:00:00,000", "00:01:00,000", "Opening topic"),)
+
+    timeline_path, _ = write_master_timeline(
+        tmp_path,
+        transcript,
+        None,
+        (),
+        topics=topics,
+        source_metadata={
+            "file_name": "meeting.mp4",
+            "creation_date": "2026-11-11T08:13:31.000000Z",
+            "duration": "60.0",
+            "file_size_mb": 12.5,
+            "format": "mov,mp4",
+            "media_type": {"media_type": "meeting", "confidence": 0.8},
+        },
+        report_language="tr",
+        transcript_language="tr",
+    )
+
+    markdown = timeline_path.read_text(encoding="utf-8")
+    assert "**Source file:** `meeting.mp4`" in markdown
+    assert "2026-11-11T08:13:31.000000Z" in markdown
+    assert "**Duration:** `00:01:00`" in markdown
+    assert "**Report language:** `tr`" in markdown
+    assert "## How to read this timeline" in markdown
+    assert "## [00:00:00,000 --> 00:01:00,000] Opening topic" in markdown
+    assert "1 transcription blocks" in markdown
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "href='#entry-0'" in html_text
+    assert "class='topic-link'" in html_text
+
+
+def test_master_timeline_writes_jsonl_metadata_sidecar(tmp_path: Path):
+    transcript = tmp_path / "sample.srt"
+    transcript.write_text("1\n00:00:00,000 --> 00:00:02,000\nHello world\n", encoding="utf-8")
+
+    write_master_timeline(
+        tmp_path,
+        transcript,
+        None,
+        (),
+        source_metadata={
+            "file_name": "meeting.mp4",
+            "creation_date": "2026-11-11T08:13:31.000000Z",
+            "duration": "60.0",
+            "media_type": {"media_type": "meeting", "confidence": 0.8},
+        },
+        report_language="tr",
+        transcript_language="tr",
+    )
+
+    meta = json.loads((tmp_path / "multimodal_timeline.meta.json").read_text(encoding="utf-8"))
+    assert meta["source"]["file_name"] == "meeting.mp4"
+    assert meta["source"]["media_type"] == "meeting"
+    assert meta["languages"] == {"transcription": "tr", "report": "tr"}
+    assert meta["coverage"]["transcription_blocks"] == 1
+    assert meta["coverage"]["vision_frames"] == 0
+    assert meta["coverage"]["status"].startswith("incomplete")
+    assert "multimodal_timeline.jsonl" in meta["related_files"]
+
+
+def test_full_report_renders_markdown_summary(tmp_path: Path):
+    vision = tmp_path / "vision_analysis.srt"
+    vision.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nFILE: ghost.png\nDESCRIPTION: A dashboard screen\n",
+        encoding="utf-8",
+    )
+    analysis = (
+        "## Summary\n\n## 1. Topic\n\n| Name | Value |\n| --- | --- |\n| A | 1 |\n\n- first point\n"
+    )
+
+    write_master_timeline(
+        tmp_path,
+        None,
+        vision,
+        (),
+        embed_frames=True,
+        analysis_markdown=analysis,
+    )
+
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "<h3>1. Topic</h3>" in html_text
+    assert "<table><thead><tr><th>Name</th><th>Value</th></tr></thead>" in html_text
+    assert "<ul><li>first point</li></ul>" in html_text
+
+
+def test_html_has_speaker_stats_and_topic_links(tmp_path: Path):
+    from app.application.topics import TopicSegment
+
+    transcript = tmp_path / "sample.srt"
+    transcript.write_text(
+        "1\n00:00:00,000 --> 00:00:05,000\nHello there\n\n"
+        "2\n00:00:05,000 --> 00:00:09,000\nWelcome back\n",
+        encoding="utf-8",
+    )
+    speakers = (SpeakerInterval(0, 9000, "Alice"), SpeakerInterval(9000, 30000, "Bob"))
+    topics = (TopicSegment(0, 60_000, "00:00:00,000", "00:01:00,000", "Opening"),)
+
+    write_master_timeline(
+        tmp_path,
+        transcript,
+        None,
+        speakers,
+        topics=topics,
+        html_mode="lean",
+        source_metadata={"file_name": "meeting.mp4"},
+    )
+
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "id='speakers-content'" in html_text
+    assert "Alice" in html_text and "speaking" in html_text
+    assert "data-speaker-card='Alice'" in html_text
+    assert "href='#entry-0'" in html_text
+    assert "title='Jump to transcript'" in html_text
+
+
+def test_html_modes_lean_thumbnails_full_and_none(tmp_path: Path):
+    Image = pytest.importorskip("PIL.Image")
+    frames_dir = tmp_path / "Vision" / "frames"
+    frames_dir.mkdir(parents=True)
+    Image.new("RGB", (800, 600), (200, 100, 50)).save(frames_dir / "frame_001.png")
+    vision = tmp_path / "vision_analysis.srt"
+    vision.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nFILE: frame_001.png\nDESCRIPTION: A chart\n",
+        encoding="utf-8",
+    )
+
+    write_master_timeline(tmp_path, None, vision, (), html_mode="lean")
+    lean = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "src='Vision/frames/frame_001.png'" in lean
+    assert "data:image" not in lean
+    assert "id='source-video'" in lean and "id='video-file'" in lean
+    assert "button class='play'" in lean and "data-start-ms='1000'" in lean
+    assert "id='vision-toggle' checked" in lean
+    assert "class='vision-body has-image'" in lean
+
+    write_master_timeline(tmp_path, None, vision, (), html_mode="thumbnails")
+    thumb = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "data:image/jpeg;base64," in thumb
+    assert "href='Vision/frames/frame_001.png'" in thumb
+
+    write_master_timeline(tmp_path, None, vision, (), html_mode="full")
+    full = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "data:image/png;base64," in full
+
+    write_master_timeline(tmp_path, None, vision, (), html_mode="none")
+    assert not (tmp_path / "FullReportAndTimeline.htm").exists()
+
+
+def test_html_has_default_source_video_fallback_and_mini_player(tmp_path: Path):
+    vision = tmp_path / "vision_analysis.srt"
+    vision.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nFILE: ghost.png\nDESCRIPTION: A dashboard screen\n",
+        encoding="utf-8",
+    )
+
+    write_master_timeline(
+        tmp_path,
+        None,
+        vision,
+        (),
+        html_mode="lean",
+        source_video_uri="file:///F:/media/meeting.mp4",
+        source_metadata={"file_name": "meeting.mp4"},
+    )
+
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "id='big-player'" in html_text
+    assert "src='file:///F:/media/meeting.mp4'" in html_text
+    assert "data-fallback-src='meeting.mp4'" in html_text
+    assert "id='mini-player'" in html_text
+    assert "id='maximize-video'" in html_text
+    assert ">View on top</button>" in html_text
+    assert "id='follow-transcript'" in html_text
+    assert "id='close-mini'" in html_text
+    assert "video.pause();miniDismissed=true" in html_text
+    assert "Drop the original file here" in html_text
+    assert "IntersectionObserver" not in html_text
+    assert "top<-160" in html_text and "top>-40" in html_text
+    assert "data-start-ms='1000'" in html_text
+    assert "id='vision-toggle'" in html_text
+    assert "id='vision-toggle' checked" not in html_text
+    assert "id='speaker-filter'" in html_text
+    assert "class='entry-actions'" in html_text
+    assert "class='copy-entry'" in html_text
+    assert "class='quote-entry'" in html_text
+    assert "class='copy-section'" in html_text
+    assert "topic-link" in html_text
+
+
+def test_full_report_includes_source_metadata(tmp_path: Path):
+    vision = tmp_path / "vision_analysis.srt"
+    vision.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nFILE: ghost.png\nDESCRIPTION: A dashboard screen\n",
+        encoding="utf-8",
+    )
+
+    write_master_timeline(
+        tmp_path,
+        None,
+        vision,
+        (),
+        embed_frames=True,
+        source_metadata={
+            "file_name": "meeting.mp4",
+            "creation_date": "2026-11-11T08:13:31.000000Z",
+            "duration": "60.0",
+            "media_type": {"media_type": "meeting", "confidence": 0.8},
+        },
+        report_language="tr",
+        transcript_language="tr",
+    )
+
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "Source file" in html_text and "meeting.mp4" in html_text
+    assert "Source creation date" in html_text
+    assert "2026-11-11T08:13:31.000000Z" in html_text
+    assert "Report language" in html_text and "tr" in html_text
+
+
 def test_write_master_timeline_embeds_frames_on_request(tmp_path: Path):
     frames_dir = tmp_path / "Vision" / "frames"
     frames_dir.mkdir(parents=True)
@@ -135,7 +442,10 @@ def test_write_master_timeline_embeds_frames_on_request(tmp_path: Path):
     assert '"frame_path": "Vision/frames/frame_001.png"' in jsonl[0]
 
 
-def test_write_master_timeline_without_embed_writes_no_html(tmp_path: Path):
+def test_write_master_timeline_without_embed_writes_lean_html(tmp_path: Path):
+    frames_dir = tmp_path / "Vision" / "frames"
+    frames_dir.mkdir(parents=True)
+    (frames_dir / "ghost.png").write_bytes(b"png")
     vision = tmp_path / "vision_analysis.srt"
     vision.write_text(
         "1\n00:00:01,000 --> 00:00:03,000\nFILE: ghost.png\nDESCRIPTION: A dashboard screen\n",
@@ -143,7 +453,21 @@ def test_write_master_timeline_without_embed_writes_no_html(tmp_path: Path):
     )
     timeline_path, _ = write_master_timeline(tmp_path, None, vision, ())
     assert "![Frame](Vision/frames/ghost.png)" in timeline_path.read_text(encoding="utf-8")
-    assert not (tmp_path / "FullReportAndTimeline.htm").exists()
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "src='Vision/frames/ghost.png'" in html_text
+    assert "data:image" not in html_text
+
+
+def test_lean_html_omits_missing_frame_image(tmp_path: Path):
+    vision = tmp_path / "vision_analysis.srt"
+    vision.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nFILE: ghost.png\nDESCRIPTION: A dashboard screen\n",
+        encoding="utf-8",
+    )
+    write_master_timeline(tmp_path, None, vision, ())
+    html_text = (tmp_path / "FullReportAndTimeline.htm").read_text(encoding="utf-8")
+    assert "src='Vision/frames/ghost.png'" not in html_text
+    assert "A dashboard screen" in html_text
 
 
 def test_full_report_includes_summary_and_highlights(tmp_path: Path):

@@ -8,6 +8,7 @@ records every removed/flagged item so the raw transcript can always be kept.
 
 import json
 import re
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -178,6 +179,73 @@ def sanitize_segments(segments: list[dict], config: SanitizerConfig) -> Sanitize
             decisions.append(SegmentDecision(index, start, end, text, "kept"))
         kept.append(segment)
     return SanitizeResult(kept, decisions)
+
+
+@dataclass(frozen=True)
+class SpeechAssessment:
+    speech_detected: bool
+    segments: int
+    words: int
+    unique_words: int
+    words_per_minute: float
+    dominant_phrase: str
+    dominant_ratio: float
+    reason: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "speech_detected": self.speech_detected,
+            "segments": self.segments,
+            "words": self.words,
+            "unique_words": self.unique_words,
+            "words_per_minute": round(self.words_per_minute, 2),
+            "dominant_phrase": self.dominant_phrase,
+            "dominant_ratio": round(self.dominant_ratio, 2),
+            "reason": self.reason,
+        }
+
+
+_WORD_PATTERN = re.compile(r"\w+", re.UNICODE)
+
+
+def assess_speech(segments: list[dict], duration_seconds: float) -> SpeechAssessment:
+    """Detect the classic "Whisper heard silence/music" output.
+
+    This is deliberately conservative: it only flags long recordings with many
+    segments, very few words and one phrase dominating the transcript. A normal
+    sparse conversation should pass.
+    """
+    texts = [str(segment.get("text", "")).strip() for segment in segments]
+    words = _WORD_PATTERN.findall(" ".join(texts).lower())
+    unique_words = len(set(words))
+    minutes = duration_seconds / 60.0 if duration_seconds > 0 else 0.0
+    wpm = len(words) / minutes if minutes > 0 else 0.0
+    counts = Counter(_normalize(text) for text in texts if _normalize(text))
+    dominant_phrase, dominant_count = counts.most_common(1)[0] if counts else ("", 0)
+    dominant_ratio = dominant_count / len(segments) if segments else 0.0
+    flagged = bool(
+        duration_seconds >= 300
+        and len(segments) >= 10
+        and wpm < 5.0
+        and unique_words <= 30
+        and dominant_ratio >= 0.3
+    )
+    reason = (
+        "Audio appears to contain mostly silence, music or noise; "
+        "Whisper produced only a few repeated short phrases."
+        if flagged
+        else ""
+    )
+    return SpeechAssessment(
+        speech_detected=not flagged,
+        segments=len(segments),
+        words=len(words),
+        unique_words=unique_words,
+        words_per_minute=wpm,
+        dominant_phrase=dominant_phrase,
+        dominant_ratio=dominant_ratio,
+        reason=reason,
+    )
 
 
 def load_segments(json_path) -> list[dict]:

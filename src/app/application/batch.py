@@ -46,6 +46,8 @@ class BatchJob:
     vision_provider_name: str = "ollama"
     vision_model: str = ""
     embed_frames: bool = False
+    html_mode: str = ""
+    teams_url: str = ""
     transcript_merge_seconds: float | None = None
     output_language: str = ""
     output_name: str = ""
@@ -94,6 +96,8 @@ class BatchJob:
             analyze_vision=self.analyze_vision,
             vision_model=self.vision_model,
             embed_frames=self.embed_frames,
+            html_mode=self.html_mode,
+            teams_url=self.teams_url,
             frame_resolution=self.frame_resolution,
             transcript_merge_seconds=self.transcript_merge_seconds,
             output_language=self.output_language,

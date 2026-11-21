@@ -78,6 +78,56 @@ Dialog {
         RowLayout {
             spacing: 8
             Text {
+                text: qsTr("Starter text")
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.muted
+            }
+            AppComboBox {
+                id: starterCombo
+                Layout.fillWidth: true
+                model: settings.starterPackNames
+                currentIndex: 0
+                font.pixelSize: Theme.fontSizeSmall
+            }
+            Button {
+                text: qsTr("Load starter...")
+                font.pixelSize: Theme.fontSizeSmall
+                enabled: settings.starterPackNames.length > 0
+                onClicked: {
+                    var name = settings.starterPackNames[starterCombo.currentIndex]
+                    settings.loadStarterPack(name)
+                    if (applyStarterSettings.checked)
+                        presets.applyStarterPackSettings(name)
+                }
+            }
+        }
+
+        CheckBox {
+            id: applyStarterSettings
+            text: qsTr("Also apply the starter's frame defaults")
+            checked: true
+            font.pixelSize: Theme.fontSizeSmall
+        }
+
+        Text {
+            Layout.fillWidth: true
+            text: settings.starterPackDescriptions[starterCombo.currentIndex] || ""
+            font.pixelSize: Theme.fontSizeCaption
+            color: Theme.muted
+            wrapMode: Text.Wrap
+        }
+
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("Starter text is not an active preset. Load it, review/edit it, then save it to a preset.")
+            font.pixelSize: Theme.fontSizeCaption
+            color: Theme.muted
+            wrapMode: Text.Wrap
+        }
+
+        RowLayout {
+            spacing: 8
+            Text {
                 text: qsTr("Template")
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.muted

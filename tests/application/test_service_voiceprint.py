@@ -120,9 +120,7 @@ def test_cached_voiceprint_labels_survive_resume_without_audio(tmp_path):
         [SpeakerSegment(30_000, 50_000, [1.0, 0.0, 0.0])],
         [SpeakerCluster("Speaker 1", [1.0, 0.0, 0.0], [(30_000, 50_000)])],
     )
-    request = TranscriptionRequest(
-        tmp_path / "a.mp4", tmp_path / "out", voiceprint_enabled=False
-    )
+    request = TranscriptionRequest(tmp_path / "a.mp4", tmp_path / "out", voiceprint_enabled=False)
     context = JobContext(
         job_dir=job_dir,
         state_path=job_dir / "job_state.json",

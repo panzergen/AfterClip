@@ -78,7 +78,21 @@ def aggregate_highlights(candidates: list[dict]) -> str:
             best_in_window[bucket] = (candidate, score)
 
     ranked = sorted(best_in_window.values(), key=lambda item: item[1], reverse=True)
-    return _render_highlights([candidate for candidate, _ in ranked[:MAX_HIGHLIGHTS]])
+    selected = [candidate for candidate, _ in ranked[:MAX_HIGHLIGHTS]]
+    # Rank by score first, then present the final three in media order so the
+    # report reads chronologically. Candidates without a parseable timestamp
+    # stay at the end instead of jumping to 00:00:00.
+    selected.sort(key=_candidate_time_key)
+    return _render_highlights(selected)
+
+
+def _candidate_time_key(candidate: dict) -> tuple[bool, int, str]:
+    seconds = _to_seconds(str(candidate.get("start") or ""))
+    return (
+        seconds is None,
+        seconds if seconds is not None else 0,
+        str(candidate.get("title") or ""),
+    )
 
 
 def _extract_json_arrays(text: str) -> list:

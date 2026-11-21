@@ -236,9 +236,7 @@ def fix_job(
     if force:
         state.pop("text_analysis_prompts", None)
         state.pop("vision_analysis_prompts", None)
-        state_path.write_text(
-            json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
     saved_preset = _preset_by_name(preset)
     run_settings = state.get("run_settings")
@@ -267,6 +265,7 @@ def fix_job(
         embed_frames=embed_frames,
         no_filter=False,
         preset=preset,
+        teams_url=str(run_settings.get("teams_url", "") or ""),
         output_name=str(state.get("output_name", "") or ""),
         json=False,
         quiet=True,
@@ -358,6 +357,9 @@ def start_fix_job(
             command += ["--vision-model", vision_model]
     if embed_frames:
         command.append("--embed-frames")
+    stored_teams_url = str((state.get("run_settings") or {}).get("teams_url", "") or "")
+    if stored_teams_url:
+        command += ["--teams-url", stored_teams_url]
     if preset:
         command += ["--preset", preset]
 

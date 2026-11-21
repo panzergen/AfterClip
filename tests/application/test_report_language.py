@@ -126,13 +126,9 @@ def test_resumed_job_reruns_analysis_when_prompts_changed(tmp_path):
     out = tmp_path / "out"
 
     def run_with(summary_text):
-        provider = LanguageRecordingTextProvider(
-            prompts=_build({"summary": summary_text})
-        )
+        provider = LanguageRecordingTextProvider(prompts=_build({"summary": summary_text}))
         TranscriptionService(DetectedLanguageProvider(), PassthroughMedia(), provider).run(
-            TranscriptionRequest(
-                source, out, analyze_text=True, analysis_model="test-model"
-            ),
+            TranscriptionRequest(source, out, analyze_text=True, analysis_model="test-model"),
             lambda _: None,
             CancellationToken(),
         )

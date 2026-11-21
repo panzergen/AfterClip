@@ -218,6 +218,26 @@ class FfmpegMediaTool:
             raise RuntimeError(f"FFmpeg audio conversion failed: {result.stderr.strip()}")
         return output
 
+    def _run_frame_extraction(
+        self, command: list[str], output_pattern: Path, cancel_token
+    ) -> subprocess.CompletedProcess:
+        """Run FFmpeg with the frame-timing option the installed version knows.
+
+        FFmpeg 5 renamed ``-vsync`` to ``-fps_mode`` and FFmpeg 9 removed
+        ``-vsync`` outright. Try the modern spelling first, then retry with the
+        legacy one when an older FFmpeg rejects it.
+        """
+        result = self.runner.run(
+            [*command, "-fps_mode", "vfr", str(output_pattern)],
+            cancel_token,
+        )
+        if result.returncode == 0 or "fps_mode" not in (result.stderr or "").lower():
+            return result
+        return self.runner.run(
+            [*command, "-vsync", "vfr", str(output_pattern)],
+            cancel_token,
+        )
+
     def extract_interval_frames(
         self,
         input_path: Path,
@@ -247,7 +267,7 @@ class FfmpegMediaTool:
             if mode == "scene"
             else f"fps=1/{max(1, interval)}{scale}"
         )
-        result = self.runner.run(
+        result = self._run_frame_extraction(
             [
                 "ffmpeg",
                 "-y",
@@ -256,10 +276,8 @@ class FfmpegMediaTool:
                 str(input_path),
                 "-vf",
                 filters,
-                "-vsync",
-                "vfr",
-                str(output_pattern),
             ],
+            output_pattern,
             cancel_token,
         )
         if result.returncode != 0:

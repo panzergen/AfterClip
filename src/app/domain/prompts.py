@@ -24,7 +24,15 @@ TEMPLATE_REQUIRED_PLACEHOLDERS: dict[str, frozenset[str]] = {
 }
 
 TEMPLATE_OPTIONAL_PLACEHOLDERS: dict[str, frozenset[str]] = {
-    name: frozenset() for name in TEMPLATE_REQUIRED_PLACEHOLDERS
+    "summary": frozenset({"task", "vision_context"}),
+    "summary_combine": frozenset({"task", "vision_context"}),
+    "highlights": frozenset({"task", "vision_context"}),
+    "vision_frame": frozenset({"timestamp"}),
+    "media_type_classification": frozenset(),
+    "transcript_cleanup": frozenset(),
+    "review_revision": frozenset(),
+    "topic_segmentation": frozenset({"task", "vision_context"}),
+    "topic_title": frozenset(),
 }
 
 TEMPLATE_PLACEHOLDERS: dict[str, frozenset[str]] = {
@@ -63,9 +71,8 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "one response.\n"
     ),
     "highlights": (
-        "Analyze the following SRT subtitles (which include exact timestamps) and "
-        "identify the key highlights — decisions, commitments, assigned actions or "
-        "scheduled follow-ups.\n"
+        "Analyze the following timestamped transcript and identify the key highlights — "
+        "decisions, commitments, assigned actions or scheduled follow-ups.\n"
         "Score each candidate 0-10 as a highlight.\n"
         "High score when: the speaker emphasizes importance/commitment ('this is "
         "important', 'we definitely do this', 'we must…'); a decision changes ('we said "
@@ -73,21 +80,23 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "list', '<person> will do it', 'we will open a task/ticket'); a follow-up is "
         "scheduled ('let's talk about this next meeting', 'we'll revisit this').\n"
         "Low score when: the item is optional, a 'nice to have', or for the distant "
-        "future.\n"
+        "future. Do NOT score general feature descriptions, onboarding/login options,\n"
+        "setup narration or agenda items unless the speaker states a decision, change or\n"
+        "commitment.\n"
         "Highlight specific moments with timestamps, not section headers: do NOT simply "
         "retitle each topic section. Every reason must explain why that moment matters.\n"
         "Return a compact JSON array of scored candidates only, no prose. Each candidate "
-        'has "start" (HH:MM:SS), "end" (HH:MM:SS), "title", "score" (integer 0-10) '
-        'and "reason".\n'
-        'Example: [{"start":"00:03:10","end":"00:03:45","title":"Launch date '
-        'moved to May","score":8,"reason":"Explicit commitment"}]\n'
+        'has "start" (HH:MM:SS; use the timestamp of the block containing the moment), '
+        '"title", "score" (integer 0-10) and "reason".\n'
+        'Example: [{"start":"00:03:10","title":"Launch date moved to May",'
+        '"score":8,"reason":"Explicit commitment"}]\n'
         "CRITICAL REQUIREMENT: Do NOT output any thinking, reasoning steps, or internal "
         "monologue. Output ONLY the JSON array.\n"
         'CRITICAL REQUIREMENT: You MUST write "title" and "reason" entirely in the '
-        "language corresponding to language code '{lang}'. If the subtitles contain other "
+        "language corresponding to language code '{lang}'. If the transcript contains other "
         "languages, still write everything in that language; never mix languages within "
         "one response.\n\n"
-        "SRT Subtitles:\n{srt_content}"
+        "Timestamped transcript:\n{srt_content}"
     ),
     "vision_frame": (
         "This frame is from a screen recording (webinar, presentation, software demo or "
@@ -103,6 +112,8 @@ DEFAULT_PROMPTS: dict[str, str] = {
         "short texts intact; summarize plain long paragraphs in one or two sentences; "
         "translate into '{lang}'; keep proper nouns and brand names in original spelling; "
         "write [unreadable] for unclear text; [none] when there is no text>\n"
+        "If a table, grid or dense slide is mostly unreadable, write [unreadable] "
+        "once for the whole region; do not repeat [unreadable] for every cell.\n"
         "UI / VISUALS: <chart, table, diagram, dialog, menu, button, URL or image type; axes, "
         "series, labels and key numbers; [none]>\n"
         "HIGHLIGHT: <only a visible element the presenter points at or emphasizes; never a "
@@ -173,8 +184,16 @@ class PromptSet:
         return getattr(self, name)
 
     def render(self, name: str, **values: object) -> str:
-        """Fill ``{placeholder}`` tokens via explicit replacement (safe)."""
+        """Fill ``{placeholder}`` tokens via explicit replacement (safe).
+
+        Optional placeholders that the caller does not supply are replaced with
+        an empty string, so a starter template can mention ``{task}`` or
+        ``{vision_context}`` before that phase wires a value in.
+        """
         text = self.template(name)
+        known = TEMPLATE_PLACEHOLDERS.get(name, frozenset())
+        for key in known:
+            text = text.replace("{" + key + "}", str(values.get(key, "")))
         for key, value in values.items():
             text = text.replace("{" + key + "}", str(value))
         return text

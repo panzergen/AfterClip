@@ -13,7 +13,7 @@ when its exit criteria pass, not when a calendar says so.
 |---|---|---|
 | **0.3.0** | tagged `v0.3.0` (2026-10-20) | First public release: transcription, reports, topics, vision, voiceprints, batch, CLI/MCP. |
 | **0.4.0** | in progress | Phase 1 (prompt scope/preset semantics) is on `main`; report-quality fixes and `--reuse-transcription` are on `prompt-fix`. |
-| **0.5.0** | planned | Phase 2 — content packs and starter prompts. |
+| **0.5.0** | in progress | Phase 2 — six starter packs, optional placeholders and frame defaults available; JSON sidecar planned. |
 | **0.6.0** | planned | Phase 3 — vision synthesis, structured output, frame budget. |
 | **0.7.0** | planned | Phase 4 — narrative continuity. |
 | **0.8.0** | proposed | Stabilization only; no new features. |
@@ -119,6 +119,9 @@ when its exit criteria pass, not when a calendar says so.
 - Visual highlights and scene-based topics.
 - Frame budget: selectable vision sampling density, a maximum frame count and a
   vision resolution, with lower defaults for narrative/travel.
+- Speaker navigation: a speakers section at the top of the HTML report and a
+  non-destructive transcript filter by speaker. See
+  [PLAN_SPEAKERS.md](PLAN_SPEAKERS.md).
 - See [PLAN_VISION_SYNTHESIS.md](PLAN_VISION_SYNTHESIS.md).
 
 **Exit criteria**

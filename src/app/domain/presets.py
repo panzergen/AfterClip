@@ -37,6 +37,7 @@ class Preset:
     frame_resolution_index: int = 0
     segment_index: int = 2
     embed_frames: bool = False
+    html_mode: str = ""
     prompt_mode: str = "replace"
     prompts: dict[str, str] | None = None
     prompt_overrides: dict[str, str] = field(default_factory=dict)
@@ -107,7 +108,10 @@ class Preset:
         form.sceneSensitivity = self.scene_sensitivity
         form.frameResolutionIndex = self.frame_resolution_index
         form.segmentIndex = self.segment_index
-        form.embedFrames = self.embed_frames
+        if self.html_mode in {"lean", "thumbnails", "full", "none"}:
+            form.htmlMode = self.html_mode
+        else:
+            form.embedFrames = self.embed_frames
 
     @classmethod
     def capture(
@@ -145,6 +149,7 @@ class Preset:
                 frame_resolution_index=form.frameResolutionIndex,
                 segment_index=form.segmentIndex,
                 embed_frames=form.embedFrames,
+                html_mode=getattr(form, "htmlMode", ""),
                 prompt_mode="legacy-partial",
                 prompts=None,
                 prompt_overrides=dict(prompt_overrides),
@@ -168,6 +173,7 @@ class Preset:
             frame_resolution_index=form.frameResolutionIndex,
             segment_index=form.segmentIndex,
             embed_frames=form.embedFrames,
+            html_mode=getattr(form, "htmlMode", ""),
             prompt_mode="replace" if snapshot else "inherit",
             prompts=snapshot,
             prompt_overrides={},

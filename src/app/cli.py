@@ -49,8 +49,7 @@ def _add_job_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--language", help="Transcription language hint")
     parser.add_argument(
         "--report-language",
-        help="Language for all AI outputs (summary, highlights, vision, topics); "
-        "omit for English",
+        help="Language for all AI outputs (summary, highlights, vision, topics); omit for English",
     )
     parser.add_argument("--task", default="", help="Extra instructions for AI analysis")
     parser.add_argument(
@@ -69,7 +68,21 @@ def _add_job_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--vtt", help="Speaker VTT support file")
     parser.add_argument("--segment", type=float, help="Transcript merge seconds (0 = raw)")
     parser.add_argument(
-        "--embed-frames", action="store_true", help="Embed frames in the HTM report"
+        "--embed-frames",
+        action="store_true",
+        help="Embed original frames in the HTM report (alias for --html-report full)",
+    )
+    parser.add_argument(
+        "--html-report",
+        choices=("lean", "thumbnails", "full", "none"),
+        default=None,
+        help="HTML report mode: lean external frames, small standalone thumbnails, "
+        "full embedded originals, or none",
+    )
+    parser.add_argument(
+        "--teams-url",
+        default="",
+        help="Teams/SharePoint recording link; adds per-entry timestamp links",
     )
     parser.add_argument("--no-filter", action="store_true", help="Disable hallucination filtering")
     parser.add_argument("--topics", choices=TOPIC_METHODS, help="Topic segmentation method")
@@ -185,6 +198,13 @@ def build_request(args, preset: Preset | None = None) -> TranscriptionRequest:
     text_model = args.text_model or (preset.analysis_model_text if preset else "")
     vision_model = args.vision_model or (preset.vision_model_text if preset else "")
     embed_frames = bool(args.embed_frames or (preset.embed_frames if preset else False))
+    html_mode = getattr(args, "html_report", None) or (
+        getattr(preset, "html_mode", "") if preset else ""
+    )
+    if args.embed_frames:
+        html_mode = "full"
+    if html_mode not in {"lean", "thumbnails", "full", "none"}:
+        html_mode = "full" if embed_frames else "lean"
     segment_seconds = args.segment if args.segment is not None else resolve_segment_seconds()
     topic_method, topic_min, topic_max = resolve_topics()
     if getattr(args, "topics", None):
@@ -216,6 +236,8 @@ def build_request(args, preset: Preset | None = None) -> TranscriptionRequest:
         analyze_vision=analyze_vision,
         vision_model=vision_model or "",
         embed_frames=embed_frames,
+        html_mode=html_mode,
+        teams_url=getattr(args, "teams_url", "") or "",
         frame_resolution=_resolve_resolution(args, preset),
         transcript_merge_seconds=segment_seconds,
         output_language=report_language or "",

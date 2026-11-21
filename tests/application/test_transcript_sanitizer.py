@@ -3,6 +3,7 @@ import json
 from app.application.transcript_sanitizer import (
     DEFAULT_BLOCKLIST,
     SanitizerConfig,
+    assess_speech,
     load_segments,
     render_srt,
     render_text,
@@ -55,6 +56,41 @@ def test_low_logprob_flagged_not_removed():
     result = sanitize_segments([seg("uncertain words", logprob=-1.5)], SanitizerConfig())
     assert len(result.kept) == 1
     assert [decision.reason for decision in result.flagged] == ["low_logprob"]
+
+
+def test_assess_speech_flags_hallucinated_silence():
+    segments = [seg("Thank you.") for _ in range(16)]
+    segments += [seg(".") for _ in range(28)]
+    segments += [
+        seg("Transcription by CastingWords"),
+        seg("You"),
+        seg("Thank you very much."),
+        seg("I don't know."),
+    ]
+
+    assessment = assess_speech(segments, duration_seconds=1429.77)
+
+    assert assessment.speech_detected is False
+    assert assessment.words_per_minute < 5
+    assert assessment.unique_words <= 30
+    assert "silence" in assessment.reason
+
+
+def test_assess_speech_accepts_normal_conversation():
+    segments = [
+        seg(f"this is a normal sentence with several words number {index}") for index in range(50)
+    ]
+
+    assessment = assess_speech(segments, duration_seconds=600)
+
+    assert assessment.speech_detected is True
+    assert assessment.words_per_minute > 5
+    assert assessment.reason == ""
+
+
+def test_assess_speech_skips_short_or_unknown_duration():
+    assert assess_speech([seg("short")], duration_seconds=0).speech_detected is True
+    assert assess_speech([seg("short")], duration_seconds=30).speech_detected is True
 
 
 def test_config_from_dict_handles_junk():

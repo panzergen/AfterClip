@@ -14,7 +14,8 @@ from app.infrastructure.openai_compat.client import (
 
 LOGGER = logging.getLogger(__name__)
 
-CHUNK_SIZE = 3500
+#: Conservative default; cloud models have room for more transcript per call.
+CHUNK_SIZE = 5000
 
 __all__ = ["CHUNK_SIZE", "OpenAICompatError", "OpenAICompatTextProvider"]
 
@@ -54,6 +55,8 @@ class OpenAICompatTextProvider:
         language: str,
         on_progress: Callable[[str], None] | None = None,
         cancel_token: CancelToken | None = None,
+        task: str = "",
+        vision_context: str = "",
     ) -> str:
         chunks = chunk_text(transcript, self.chunk_size)
         if not chunks:
@@ -61,13 +64,25 @@ class OpenAICompatTextProvider:
         if len(chunks) == 1:
             if on_progress:
                 on_progress(f"{self.provider_name} is summarizing the transcript")
-            prompt = self.prompts.render("summary", lang=language or "en", transcript=chunks[0])
+            prompt = self.prompts.render(
+                "summary",
+                lang=language or "en",
+                transcript=chunks[0],
+                task=task,
+                vision_context=vision_context,
+            )
             return clean_summary_output(self.client.generate(self._text(prompt), cancel_token))
         partials = []
         for index, chunk in enumerate(chunks, 1):
             if on_progress:
                 on_progress(f"{self.provider_name} is summarizing section {index}/{len(chunks)}")
-            prompt = self.prompts.render("summary", lang=language or "en", transcript=chunk)
+            prompt = self.prompts.render(
+                "summary",
+                lang=language or "en",
+                transcript=chunk,
+                task=task,
+                vision_context=vision_context,
+            )
             partials.append(
                 clean_summary_output(self.client.generate(self._text(prompt), cancel_token))
             )
@@ -77,7 +92,11 @@ class OpenAICompatTextProvider:
             self.client.generate(
                 self._text(
                     self.prompts.render(
-                        "summary_combine", lang=language or "en", summaries="\n\n".join(partials)
+                        "summary_combine",
+                        lang=language or "en",
+                        summaries="\n\n".join(partials),
+                        task=task,
+                        vision_context=vision_context,
                     )
                 ),
                 cancel_token,
@@ -90,6 +109,8 @@ class OpenAICompatTextProvider:
         language: str,
         on_progress: Callable[[str], None] | None = None,
         cancel_token: CancelToken | None = None,
+        task: str = "",
+        vision_context: str = "",
     ) -> str:
         chunks = chunk_text(srt_content, self.chunk_size)
         if not chunks:
@@ -105,7 +126,11 @@ class OpenAICompatTextProvider:
                     self.client.generate(
                         self._text(
                             self.prompts.render(
-                                "highlights", lang=language or "en", srt_content=chunk
+                                "highlights",
+                                lang=language or "en",
+                                srt_content=chunk,
+                                task=task,
+                                vision_context=vision_context,
                             )
                         ),
                         cancel_token,

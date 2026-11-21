@@ -110,9 +110,7 @@ def test_fix_job_reuses_the_existing_job(monkeypatch, tmp_path):
         return TranscriptionResult(job / "Transcripts", ())
 
     monkeypatch.setattr(mcp, "run_request", fake_run)
-    result = mcp.fix_job(
-        str(job), report_language="tr", analyze_text=False, analyze_vision=False
-    )
+    result = mcp.fix_job(str(job), report_language="tr", analyze_text=False, analyze_vision=False)
     assert result["status"] == "succeeded"
     assert captured["resume_dir"] == job
     assert captured["request"].output_language == "tr"

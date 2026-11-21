@@ -1,10 +1,14 @@
 import base64
+import datetime
 import html as html_module
+import io
 import json
 import logging
 import re
 from pathlib import Path
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
+from app.application.markdown_html import render_markdown
 from app.application.summary import clean_summary_output
 from app.domain.models import SpeakerInterval, TimelineEntry
 
@@ -35,6 +39,30 @@ def timestamp_to_ms(timestamp: str, millisecond_separator: str) -> int:
         hours, minutes, second_part = parts
     seconds, millis = second_part.replace(",", ".").split(".")
     return int(hours) * 3600000 + int(minutes) * 60000 + int(seconds) * 1000 + int(millis)
+
+
+def vtt_duration_seconds(vtt_path: Path | str | None) -> float | None:
+    """End timestamp of the last WebVTT cue, or None when it cannot be read.
+
+    Unlike ``parse_speaker_vtt`` this does not require speaker tags: it is used
+    to check whether a supplied transcript file covers the whole media file.
+    """
+    if not vtt_path:
+        return None
+    path = Path(vtt_path)
+    if not path.is_file():
+        return None
+    try:
+        content = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    ends: list[int] = []
+    for timestamp_match in VTT_TIMESTAMP_PATTERN.finditer(content):
+        try:
+            ends.append(timestamp_to_ms(timestamp_match.group(2), "."))
+        except (ValueError, IndexError):
+            continue
+    return max(ends) / 1000.0 if ends else None
 
 
 def parse_speaker_vtt(vtt_path: Path | str | None) -> tuple[SpeakerInterval, ...]:
@@ -220,6 +248,92 @@ def merge_transcript_entries(
 _UNSET = object()
 
 
+def _format_seconds(value) -> str:
+    try:
+        total = int(float(value))
+    except (TypeError, ValueError):
+        return str(value or "Unknown")
+    return f"{total // 3600:02d}:{(total % 3600) // 60:02d}:{total % 60:02d}"
+
+
+def _format_milliseconds(value: int) -> str:
+    seconds = max(0, int(value)) / 1000.0
+    whole = int(seconds)
+    millis = round((seconds - whole) * 1000)
+    return f"{whole // 3600:02d}:{(whole % 3600) // 60:02d}:{whole % 60:02d},{millis:03d}"
+
+
+def _coverage_status(metadata: dict, entries: list[TimelineEntry], clip_end: float | None) -> str:
+    coverage_end = max((entry.end_ms for entry in entries), default=0) / 1000.0
+    expected_end: float | None = None
+    if clip_end is not None:
+        expected_end = float(clip_end)
+    else:
+        try:
+            expected_end = float(metadata.get("duration"))
+        except (TypeError, ValueError):
+            expected_end = None
+    if expected_end is None or expected_end <= 0:
+        return "coverage end unknown"
+    # Trailing silence can end the last entry slightly before the container
+    # duration; only call it incomplete when more than 5% (or 30 s) is missing.
+    tolerance = max(30.0, expected_end * 0.05)
+    if coverage_end >= expected_end - tolerance:
+        return "complete"
+    missing = expected_end - coverage_end
+    return f"incomplete — timeline ends {_format_seconds(missing)} before the expected end"
+
+
+def _source_metadata_lines(
+    metadata: dict,
+    report_language: str,
+    transcript_language: str,
+    clip_start: float | None,
+    clip_end: float | None,
+    entries: list[TimelineEntry],
+    transcript_count: int,
+    vision_count: int,
+    topic_count: int,
+) -> list[str]:
+    """A compact, AI-readable provenance block for Master_Timeline.md."""
+    media_type = metadata.get("media_type") if isinstance(metadata.get("media_type"), dict) else {}
+    file_name = str(metadata.get("file_name") or "Unknown")
+    creation_date = str(metadata.get("creation_date") or "Unknown")
+    duration = _format_seconds(metadata.get("duration"))
+    media_label = str(media_type.get("media_type") or "Unknown")
+    confidence = media_type.get("confidence")
+    if confidence is not None:
+        media_label += f" (confidence {confidence})"
+    clip_label = (
+        "Full file"
+        if clip_start is None and clip_end is None
+        else f"{clip_start or 0} --> {clip_end if clip_end is not None else 'end'}"
+    )
+    coverage_end = max((entry.end_ms for entry in entries), default=0)
+    coverage_status = _coverage_status(metadata, entries, clip_end)
+    generated = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    lines = [
+        f"> **Source file:** `{file_name}`  \n",
+        f"> **Source creation date:** `{creation_date}`  \n",
+        f"> **Duration:** `{duration}`  \n",
+        f"> **Media type:** {media_label}  \n",
+        f"> **File size:** `{metadata.get('file_size_mb', 'Unknown')} MB`  \n",
+        f"> **Format:** `{metadata.get('format', 'Unknown')}`  \n",
+        f"> **Clip range:** `{clip_label}`  \n",
+        f"> **Transcription language:** `{transcript_language or 'Unknown'}`  \n",
+        f"> **Report language:** `{report_language or 'Unknown'}`  \n",
+        f"> **Generated:** `{generated}`  \n",
+        f"> **Coverage:** `00:00:00,000 --> {_format_milliseconds(coverage_end)}` · "
+        f"{coverage_status} · {transcript_count} transcription blocks · "
+        f"{vision_count} vision frames · {topic_count} topic sections  \n",
+        "> **Related files:** `AI_Analysis.md`, `Topics.md`, `Summary_Report.md`, "
+        "`multimodal_timeline.jsonl`, `multimodal_timeline.meta.json`, "
+        "`FullReportAndTimeline.htm`, `Transcripts/converted_audio.txt`, "
+        "`Transcripts/converted_audio.srt`, `Vision/frames/`\n\n",
+    ]
+    return lines
+
+
 def write_master_timeline(
     job_dir: Path,
     transcript_srt: Path | None,
@@ -229,13 +343,21 @@ def write_master_timeline(
     transcript_merge_seconds: float | None = None,
     analysis_markdown: str | None = None,
     topics: tuple = (),
+    source_metadata: dict | None = None,
+    report_language: str = "",
+    transcript_language: str = "",
+    clip_start: float | None = None,
+    clip_end: float | None = None,
+    html_mode: str = "",
+    source_video_uri: str = "",
+    teams_url: str = "",
 ) -> tuple[Path, Path]:
     """Write ``Master_Timeline.md`` and ``multimodal_timeline.jsonl``.
 
     The Markdown stays lean for AI consumption: relative frame paths only, no
-    binary data. Topic sections add ``## title`` headings. When `embed_frames`
-    is set, a human-readable ``FullReportAndTimeline.htm`` is written alongside
-    with frames embedded as base64 plus the AI summary, highlights and topics.
+    binary data. Topic sections add ``## title`` headings. The HTML report mode
+    is ``lean`` (external frame links), ``thumbnails`` (small embedded previews),
+    ``full`` (original frames embedded) or ``none``.
     """
     all_entries: list[TimelineEntry] = []
     if transcript_srt:
@@ -254,46 +376,132 @@ def write_master_timeline(
     timeline_path = job_dir / "Master_Timeline.md"
     jsonl_path = job_dir / "multimodal_timeline.jsonl"
     payloads: list[dict] = []
+    topic_list = list(topics)
+    metadata = source_metadata or {}
     markdown_lines = [
         "# Master Chronological Timeline\n\n",
-        "This document combines **Audio Transcription**, **Speaker Diarization**, "
-        "and **Vision AI Scene Analysis**"
-        " in a unified chronological sequence.\n\n---\n\n",
+        *_source_metadata_lines(
+            metadata,
+            report_language,
+            transcript_language,
+            clip_start,
+            clip_end,
+            entries,
+            len(transcript_entries),
+            len(vision_entries),
+            len(topic_list),
+        ),
+        "## How to read this timeline\n\n",
+        "- Entries are ordered by **start time**. A `TRANSCRIPTION` entry and a "
+        "`VISION` entry can overlap; vision time is the frame timestamp, not a "
+        "separate speech event.\n",
+        "- A `TRANSCRIPTION` entry is the cleaned Whisper transcript. A "
+        "`SPEAKER: name` label comes from the supplied VTT or voiceprints; it is "
+        "absent when no diarization source was supplied.\n",
+        "- The transcript is machine-generated ASR. Treat names and technical "
+        "terms as potentially misspelled unless they also appear in a vision "
+        "description.\n",
+        "- A `VISION` entry describes a screen frame. The image link is relative to "
+        "this job folder. `[unreadable]` means the text could not be read; "
+        "`(no visible screen content)` means the frame had no usable screen content.\n",
+        "- `##` headings are topic sections, not timeline entries. Each heading "
+        "includes its topic time range. Cite an entry by its start timestamp.\n",
+        "- Timestamps use `HH:MM:SS,mmm`, relative to the source file (or the "
+        "selected clip start).\n",
+        "- The machine-readable companion is `multimodal_timeline.jsonl` "
+        "(one JSON object per line).\n\n---\n\n",
     ]
-    topic_list = list(topics)
+    mode = html_mode if html_mode in {"lean", "thumbnails", "full", "none"} else ""
+    if not mode:
+        mode = "full" if embed_frames else "lean"
     topic_index = 0
+    html_path = job_dir / "FullReportAndTimeline.htm"
     # Stream the HTML report instead of accumulating every embedded frame in
     # memory: a large job otherwise holds all base64 frames at once.
     html_file = None
-    if embed_frames:
+    if mode != "none":
         summary, highlights = split_ai_analysis(analysis_markdown or "")
-        topics_summary = "\n".join(
-            f"- `[{topic.start_str} --> {topic.end_str}]` {topic.title}" for topic in topic_list
+        topic_anchors = _topic_anchor_ids(topic_list, entries)
+        topics_html = _html_topic_list(topic_list, topic_anchors)
+        speaker_stats = _speaker_stats(speaker_intervals, transcript_entries)
+        html_file = html_path.open("w", encoding="utf-8")
+        html_file.write(_html_head(str(metadata.get("file_name") or "")))
+        html_file.write(
+            _html_report_sections(
+                summary,
+                highlights,
+                topics_html,
+                speaker_stats=speaker_stats,
+                metadata=metadata,
+                report_language=report_language,
+                transcript_language=transcript_language,
+                clip_start=clip_start,
+                clip_end=clip_end,
+            )
         )
-        html_file = (job_dir / "FullReportAndTimeline.htm").open("w", encoding="utf-8")
-        html_file.write(_html_head())
-        html_file.write(_html_report_sections(summary, highlights, topics_summary))
+        html_file.write(
+            _html_video_player(
+                source_video_uri,
+                str(metadata.get("file_name") or ""),
+            )
+        )
         html_file.write("<h2>Timeline</h2>")
-    for entry in entries:
+        html_file.write(_html_timeline_tools(entries, speaker_intervals, job_dir))
+    else:
+        html_path.unlink(missing_ok=True)
+    for entry_index, entry in enumerate(entries):
+        entry_id = f"entry-{entry_index}"
         while topic_index < len(topic_list) and entry.start_ms >= topic_list[topic_index].start_ms:
             topic = topic_list[topic_index]
-            markdown_lines.append(f"\n## {topic.title}\n\n")
+            markdown_lines.append(f"\n## [{topic.start_str} --> {topic.end_str}] {topic.title}\n\n")
             if html_file is not None:
+                topic_anchor = (
+                    topic_anchors[topic_index]
+                    if topic_index < len(topic_anchors) and topic_anchors[topic_index]
+                    else entry_id
+                )
                 html_file.write(
-                    "<h2 class='topic'>"
-                    f"{html_module.escape(topic.title)}"
+                    "<h2 class='topic' id='topic-"
+                    f"{topic_index}'>"
+                    f"<a class='topic-link' href='#{topic_anchor}' "
+                    "title='Jump to transcript'>"
+                    f"{html_module.escape(topic.title)} ↓</a>"
                     f"<span class='badge'>[{html_module.escape(topic.start_str)} --&gt; "
-                    f"{html_module.escape(topic.end_str)}]</span></h2>"
+                    f"{html_module.escape(topic.end_str)}]</span>"
+                    "<button class='copy-section topic-copy' type='button'>Copy</button>"
+                    "</h2>"
                 )
             topic_index += 1
-        payload, html_row, lines = _render_entry(entry, speaker_intervals, job_dir, embed_frames)
+        payload, html_row, lines = _render_entry(
+            entry,
+            speaker_intervals,
+            job_dir,
+            mode,
+            entry_id,
+            teams_url=teams_url,
+        )
         if html_file is not None:
             html_file.write(html_row)
         payloads.append(payload)
         markdown_lines.extend(lines)
     timeline_path.write_text("".join(markdown_lines), encoding="utf-8")
     _write_jsonl(jsonl_path, payloads)
+    _write_timeline_meta(
+        job_dir / "multimodal_timeline.meta.json",
+        metadata,
+        report_language,
+        transcript_language,
+        clip_start,
+        clip_end,
+        entries,
+        len(transcript_entries),
+        len(vision_entries),
+        len(topic_list),
+    )
     if html_file is not None:
+        html_file.write("</main>")
+        html_file.write(_html_seek_script())
+        html_file.write(_html_interaction_script())
         html_file.write("</body></html>")
         html_file.close()
     return timeline_path, jsonl_path
@@ -305,36 +513,182 @@ def _write_jsonl(jsonl_path: Path, payloads: list[dict]) -> None:
             jsonl.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
+def _write_timeline_meta(
+    path: Path,
+    metadata: dict,
+    report_language: str,
+    transcript_language: str,
+    clip_start: float | None,
+    clip_end: float | None,
+    entries: list[TimelineEntry],
+    transcript_count: int,
+    vision_count: int,
+    topic_count: int,
+) -> None:
+    """Machine-readable provenance for the JSONL timeline."""
+    media_type = metadata.get("media_type") if isinstance(metadata.get("media_type"), dict) else {}
+    duration = metadata.get("duration")
+    expected_end_seconds = clip_end
+    if expected_end_seconds is None:
+        try:
+            expected_end_seconds = float(duration)
+        except (TypeError, ValueError):
+            expected_end_seconds = None
+    coverage_end_ms = max((entry.end_ms for entry in entries), default=0)
+    payload = {
+        "schema_version": 1,
+        "generated_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "source": {
+            "file_name": metadata.get("file_name") or "Unknown",
+            "creation_date": metadata.get("creation_date") or "Unknown",
+            "duration_seconds": duration,
+            "file_size_mb": metadata.get("file_size_mb"),
+            "format": metadata.get("format"),
+            "bit_rate": metadata.get("bit_rate"),
+            "media_type": media_type.get("media_type"),
+            "media_type_confidence": media_type.get("confidence"),
+        },
+        "languages": {
+            "transcription": transcript_language or None,
+            "report": report_language or None,
+        },
+        "clip": {"start_seconds": clip_start, "end_seconds": clip_end},
+        "coverage": {
+            "start_ms": 0,
+            "end_ms": coverage_end_ms,
+            "expected_end_ms": int(expected_end_seconds * 1000)
+            if expected_end_seconds is not None
+            else None,
+            "status": _coverage_status(metadata, entries, clip_end),
+            "entries": len(entries),
+            "transcription_blocks": transcript_count,
+            "vision_frames": vision_count,
+            "topic_sections": topic_count,
+        },
+        "related_files": [
+            "Master_Timeline.md",
+            "multimodal_timeline.jsonl",
+            "AI_Analysis.md",
+            "Topics.md",
+            "Summary_Report.md",
+            "FullReportAndTimeline.htm",
+            "Transcripts/converted_audio.txt",
+            "Transcripts/converted_audio.srt",
+            "Vision/frames/",
+        ],
+        "entry_schema": {
+            "timestamp_start_ms": "integer",
+            "timestamp_end_ms": "integer",
+            "event_type": "transcription | vision",
+            "transcription": {"speaker": "string | null", "text": "string"},
+            "vision": {"frame_path": "string | null", "description": "string"},
+        },
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def build_teams_playback_url(base_url: str, seconds: int) -> str:
+    """Point a Teams/SharePoint recording link at ``seconds``.
+
+    Teams stores the seek position in the URL-encoded ``nav`` JSON parameter,
+    for example ``{"playbackOptions":{"startTimeInSeconds":120}}``. Existing
+    query parameters (including the SharePoint ``id`` path) are preserved.
+    """
+    value = (base_url or "").strip()
+    if not value:
+        return ""
+    parts = urlsplit(value)
+    if parts.scheme.lower() not in {"http", "https"} or not parts.netloc:
+        return ""
+    params = parse_qsl(parts.query, keep_blank_values=True)
+    nav: dict = {}
+    for key, raw in params:
+        if key != "nav" or not raw:
+            continue
+        try:
+            loaded = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(loaded, dict):
+            nav = loaded
+    options = nav.get("playbackOptions")
+    if not isinstance(options, dict):
+        options = {}
+        nav["playbackOptions"] = options
+    options["startTimeInSeconds"] = max(0, int(seconds))
+    params = [(key, raw) for key, raw in params if key != "nav"]
+    params.append(("nav", json.dumps(nav, ensure_ascii=False, separators=(",", ":"))))
+    query = urlencode(params, doseq=True, quote_via=quote)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+
+
 def _render_entry(
     entry: TimelineEntry,
     speaker_intervals: tuple[SpeakerInterval, ...],
     job_dir: Path,
-    embed_frames: bool,
+    html_mode: str,
+    entry_id: str = "",
+    teams_url: str = "",
 ):
     """One entry -> (jsonl payload, html row, markdown lines)."""
     speaker = resolve_speaker(speaker_intervals, entry.start_ms, entry.end_ms)
     speaker_badge = f" `[SPEAKER: {speaker}]`" if speaker else ""
     start_badge = f"[{entry.start_str} --> {entry.end_str}]"
+    teams_action = ""
+    if entry.context_type != "VISION" and teams_url:
+        playback_url = build_teams_playback_url(teams_url, entry.start_ms // 1000)
+        if playback_url:
+            teams_action = (
+                f"<a class='teams-link' href='{html_module.escape(playback_url, quote=True)}' "
+                "target='_blank' rel='noopener' title='Open in Teams at this timestamp'>"
+                "Teams &#8599;</a>"
+            )
+    entry_actions = (
+        "<div class='entry-actions'>"
+        f"<button class='play' type='button' data-start-ms='{entry.start_ms}'>Play</button>"
+        + teams_action
+        + "<button class='copy-entry' type='button'>Copy</button>"
+        "<button class='quote-entry' type='button' aria-pressed='false'>Quote</button>"
+        "</div>"
+    )
+    id_attr = f" id='{entry_id}'" if entry_id else ""
     if entry.context_type == "VISION":
         file_match = VISION_FILE_PATTERN.search(entry.text)
         description_match = VISION_DESCRIPTION_PATTERN.search(entry.text)
         frame_name = file_match.group(1).strip() if file_match else None
         description = description_match.group(1).strip() if description_match else entry.text
         frame_link = f"Vision/frames/{frame_name}" if frame_name else None
-        html_frame_link = frame_link
-        if embed_frames and frame_name:
-            embedded = _embedded_frame_data(job_dir / "Vision" / "frames" / frame_name)
+        frame_path = job_dir / "Vision" / "frames" / frame_name if frame_name else None
+        frame_available = bool(frame_path and frame_path.is_file())
+        html_frame_link = frame_link if frame_available else None
+        thumbnail_link = None
+        if frame_available and html_mode == "full":
+            embedded = _embedded_frame_data(frame_path)
             if embedded:
                 html_frame_link = embedded
+        elif frame_available and html_mode == "thumbnails":
+            thumbnail_link = _embedded_thumbnail_data(frame_path)
+            if thumbnail_link:
+                html_frame_link = thumbnail_link
         lines = [f"### `{start_badge}` `[VISION]`\n"]
         if frame_link:
             lines.append(f"![Frame]({frame_link})\n")
         lines.append(f"> {description}\n\n---\n\n")
+        image_html = ""
+        if frame_available and html_frame_link:
+            image = f"<img src='{html_frame_link}' alt='Frame' loading='lazy'>"
+            if thumbnail_link and frame_link:
+                image = f"<a href='{frame_link}' target='_blank' rel='noopener'>{image}</a>"
+            image_html = image
+        body_class = "vision-body has-image" if image_html else "vision-body"
         html_row = (
-            f"<div class='entry'><span class='badge'>[{html_module.escape(entry.start_str)} --> "
+            f"<div class='entry'{id_attr} data-event-type='vision' "
+            f"data-start-ms='{entry.start_ms}' data-has-frame='{1 if frame_available else 0}'>"
+            f"<span class='badge'>[{html_module.escape(entry.start_str)} --> "
             f"{html_module.escape(entry.end_str)}] VISION</span>"
-            + (f"<img src='{html_frame_link}' alt='Frame'>" if html_frame_link else "")
-            + f"<blockquote>{html_module.escape(description)}</blockquote></div>"
+            + entry_actions
+            + f"<div class='{body_class}'>{image_html}"
+            f"<blockquote>{html_module.escape(description)}</blockquote></div></div>"
         )
         payload = {
             "timestamp_start_ms": entry.start_ms,
@@ -351,10 +705,14 @@ def _render_entry(
         f"> {entry.text}\n\n---\n\n",
     ]
     speaker_html = f" &middot; {html_module.escape(speaker)}" if speaker else ""
+    speaker_attr = html_module.escape(speaker or "")
     html_row = (
-        f"<div class='entry'><span class='badge'>[{html_module.escape(entry.start_str)} --> "
+        f"<div class='entry'{id_attr} data-event-type='transcription' "
+        f"data-start-ms='{entry.start_ms}' data-speaker='{speaker_attr}'>"
+        f"<span class='badge'>[{html_module.escape(entry.start_str)} --> "
         f"{html_module.escape(entry.end_str)}] TRANSCRIPTION{speaker_html}</span>"
-        f"<blockquote>{html_module.escape(entry.text)}</blockquote></div>"
+        + entry_actions
+        + f"<blockquote>{html_module.escape(entry.text)}</blockquote></div>"
     )
     payload = {
         "timestamp_start_ms": entry.start_ms,
@@ -407,44 +765,512 @@ def split_ai_analysis(markdown: str | None) -> tuple[str, str]:
     return clean_summary_output(summary), highlights
 
 
-def _html_head() -> str:
+def _html_video_player(source_uri: str = "", file_name: str = "") -> str:
+    primary = source_uri
+    fallback = quote(file_name, safe="") if file_name else ""
+    src = primary or fallback
+    src_attr = f" src='{src}'" if src else ""
+    fallback_attr = f" data-fallback-src='{fallback}'" if fallback else ""
     return (
-        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-        "<title>AfterClip Full Report & Timeline</title>"
-        f"<style>{HTML_STYLE}</style></head><body>"
+        "<section id='big-player' class='player' "
+        "title='Drop the source video here, or choose it to enable timestamp seeking.'>"
+        "<div class='player-head'><strong>Source video</strong>"
+        "<span class='hint'>Drop the original file here, or choose it. "
+        "It is not uploaded and is not embedded in this report.</span></div>"
+        "<input id='video-file' type='file' accept='video/*'>"
+        "<div id='video-status' class='hint'>"
+        "The report uses the original source address by default; if it was "
+        "moved, drop the video here or choose it.</div>"
+        "<div id='big-video-slot' class='video-slot'>"
+        f"<video id='source-video' controls playsinline preload='metadata'{src_attr}"
+        f"{fallback_attr}></video>"
+        "</div></section>"
+        "<div id='mini-player' class='mini-player' aria-hidden='true'>"
+        "<div class='mini-head'><strong>Source video</strong>"
+        "<span class='mini-actions'>"
+        "<button id='maximize-video' type='button'>View on top</button>"
+        "<button id='follow-transcript' type='button' aria-pressed='false'>"
+        "Scroll transcript</button>"
+        "<button id='close-mini' class='mini-close' type='button' "
+        "aria-label='Close video panel' title='Close video panel'>&times;</button>"
+        "</span></div>"
+        "<div id='mini-video-slot' class='mini-slot'></div></div>"
     )
 
 
-def _html_report_sections(summary: str, highlights: str, topics_summary: str) -> str:
+def _html_seek_script() -> str:
+    return (
+        "<script>(function(){"
+        "const video=document.getElementById('source-video');"
+        "const picker=document.getElementById('video-file');"
+        "const status=document.getElementById('video-status');"
+        "const big=document.getElementById('big-player');"
+        "const bigSlot=document.getElementById('big-video-slot');"
+        "const mini=document.getElementById('mini-player');"
+        "const miniSlot=document.getElementById('mini-video-slot');"
+        "const maximize=document.getElementById('maximize-video');"
+        "const closeMini=document.getElementById('close-mini');"
+        "let objectUrl=null,fallbackTried=false;"
+        "if(!video||!picker||!status||!big||!bigSlot||!mini||!miniSlot)return;"
+        "function loadFile(file){"
+        "if(!file||!file.type||file.type.indexOf('video/')!==0){"
+        "status.textContent='That file is not a video.';return;}"
+        "if(objectUrl)URL.revokeObjectURL(objectUrl);"
+        "objectUrl=URL.createObjectURL(file);fallbackTried=true;"
+        "video.src=objectUrl;status.textContent='Loaded: '+file.name;video.load();"
+        "}"
+        "picker.addEventListener('change',function(){"
+        "loadFile(picker.files&&picker.files[0]);});"
+        "['dragenter','dragover'].forEach(function(name){"
+        "big.addEventListener(name,function(event){event.preventDefault();"
+        "big.classList.add('dragover');});});"
+        "['dragleave','drop'].forEach(function(name){"
+        "big.addEventListener(name,function(event){event.preventDefault();"
+        "big.classList.remove('dragover');});});"
+        "big.addEventListener('drop',function(event){"
+        "loadFile(event.dataTransfer.files&&event.dataTransfer.files[0]);});"
+        "video.addEventListener('error',function(){"
+        "const fallback=video.dataset.fallbackSrc||'';"
+        "if(!fallbackTried&&fallback){fallbackTried=true;"
+        "status.textContent='Primary source not found; trying '+fallback;"
+        "video.src=fallback;video.load();return;}"
+        "status.textContent='Video not found. Drop the source file here or choose it.';"
+        "});"
+        "function moveVideo(target){"
+        "const time=video.currentTime||0;const playing=!video.paused;"
+        "const rate=video.playbackRate;target.appendChild(video);"
+        "try{video.currentTime=time;}catch(error){}"
+        "video.playbackRate=rate;if(playing){const p=video.play();"
+        "if(p&&p.catch)p.catch(function(){});}}"
+        "let inMini=false,miniDismissed=false;"
+        "function setMini(value){if(value===inMini)return;"
+        "inMini=value;if(value){mini.classList.add('visible');"
+        "mini.setAttribute('aria-hidden','false');moveVideo(miniSlot);}"
+        "else{mini.classList.remove('visible');mini.setAttribute('aria-hidden','true');"
+        "moveVideo(bigSlot);}"
+        "document.body.classList.toggle('mini-active',value);}"
+        # Show only after the source player is well above the viewport, and hide
+        # only after it is nearly back. Using its top edge (not intersection
+        # ratio) keeps the mini-player from oscillating when the page reflows.
+        "function updateMini(){if(!video.src){setMini(false);return;}"
+        "const top=big.getBoundingClientRect().top;"
+        "if(miniDismissed){if(top>-20)miniDismissed=false;setMini(false);return;}"
+        "if(inMini){if(top>-40)setMini(false);}"
+        "else if(top<-160)setMini(true);}"
+        "window.addEventListener('scroll',updateMini,{passive:true});"
+        "window.addEventListener('resize',updateMini);"
+        "video.addEventListener('loadedmetadata',updateMini);"
+        "if(closeMini)closeMini.addEventListener('click',function(){"
+        "video.pause();miniDismissed=true;setMini(false);});"
+        "if(maximize)maximize.addEventListener('click',function(){miniDismissed=false;"
+        "setMini(false);big.scrollIntoView({behavior:'smooth',block:'start'});});"
+        "document.addEventListener('click',function(event){"
+        "const button=event.target.closest('button.play');if(!button)return;"
+        "if(!video.src){status.textContent='Choose the source video first.';"
+        "picker.click();return;}"
+        "const ms=Number(button.dataset.startMs||0);"
+        "video.currentTime=ms/1000;const play=video.play();"
+        "if(play&&play.catch)play.catch(function(){});"
+        "miniDismissed=false;updateMini();"
+        "});"
+        "updateMini();"
+        "})();</script>"
+    )
+
+
+def _html_interaction_script() -> str:
+    return (
+        "<script>(function(){"
+        "function fallback(text){"
+        "const area=document.createElement('textarea');area.value=text;"
+        "area.style.position='fixed';area.style.opacity='0';document.body.appendChild(area);"
+        "area.select();try{document.execCommand('copy');}catch(error){}area.remove();}"
+        "function copyText(text){text=String(text||'').trim();if(!text)return;"
+        "if(navigator.clipboard&&navigator.clipboard.writeText){"
+        "navigator.clipboard.writeText(text).catch(function(){fallback(text);});"
+        "}else{fallback(text);}}"
+        "document.addEventListener('click',function(event){"
+        "const copyEntry=event.target.closest('button.copy-entry');"
+        "if(copyEntry){const row=copyEntry.closest('.entry');"
+        "const quote=row&&row.querySelector('blockquote');"
+        "copyText(quote?quote.innerText:row?row.innerText:'');"
+        "copyEntry.textContent='Copied';setTimeout(function(){copyEntry.textContent='Copy';},1200);"
+        "return;}"
+        "const sectionCopy=event.target.closest('button.copy-section');"
+        "if(sectionCopy){const target=sectionCopy.dataset.copyTarget;"
+        "if(target){copyText((document.getElementById(target)||{}).innerText||'');}"
+        "else if(sectionCopy.classList.contains('topic-copy')){"
+        "const heading=sectionCopy.closest('.topic');let text=heading?heading.innerText:'';"
+        "let node=heading?heading.nextElementSibling:null;"
+        "while(node&&!node.classList.contains('topic')&&!node.classList.contains('timeline-tools')){"
+        "text+='\\n'+node.innerText;node=node.nextElementSibling;}copyText(text);}"
+        "return;}"
+        "const quoteButton=event.target.closest('button.quote-entry');"
+        "if(quoteButton){const on=quoteButton.getAttribute('aria-pressed')!=='true';"
+        "quoteButton.setAttribute('aria-pressed',on?'true':'false');"
+        "quoteButton.classList.toggle('active',on);}"
+        "});"
+        "document.querySelectorAll('img').forEach(function(image){"
+        "image.addEventListener('error',function(){image.style.display='none';"
+        "const row=image.closest('.entry');if(row)row.dataset.hasFrame='0';});});"
+        "const visionToggle=document.getElementById('vision-toggle');"
+        "const speakerFilter=document.getElementById('speaker-filter');"
+        "const filterCount=document.getElementById('filter-count');"
+        "function applyFilters(){"
+        "const showVision=visionToggle?visionToggle.checked:true;"
+        "const speaker=speakerFilter?speakerFilter.value:'';let visible=0;"
+        "document.querySelectorAll('.entry').forEach(function(row){"
+        "const isVision=row.dataset.eventType==='vision';"
+        "const matchSpeaker=!speaker||row.dataset.speaker===speaker;"
+        "const show=isVision?showVision:matchSpeaker;row.hidden=!show;if(show)visible++;});"
+        "if(filterCount)filterCount.textContent=visible+' entries shown';}"
+        "if(visionToggle)visionToggle.addEventListener('change',applyFilters);"
+        "if(speakerFilter)speakerFilter.addEventListener('change',applyFilters);"
+        "document.querySelectorAll('[data-speaker-card]').forEach(function(card){"
+        "card.addEventListener('click',function(){"
+        "if(speakerFilter){speakerFilter.value=card.dataset.speakerCard;applyFilters();}"
+        "const tools=document.getElementById('timeline-tools');"
+        "if(tools)tools.scrollIntoView({behavior:'smooth',block:'start'});});});"
+        "applyFilters();"
+        "function updateVisionAvailability(){"
+        "const rows=Array.prototype.slice.call("
+        "document.querySelectorAll(\".entry[data-event-type='vision']\"));"
+        "const images=rows.reduce(function(list,row){return list.concat("
+        "Array.prototype.slice.call(row.querySelectorAll('img')));},[]);"
+        "const missing=images.length===0||images.every(function(image){"
+        "return image.style.display==='none'||(image.complete&&image.naturalWidth===0);});"
+        "if(rows.length&&missing&&visionToggle&&visionToggle.checked){"
+        "visionToggle.checked=false;applyFilters();}}"
+        "window.addEventListener('load',function(){setTimeout(updateVisionAvailability,1200);});"
+        "const follow=document.getElementById('follow-transcript');"
+        "const video=document.getElementById('source-video');"
+        "let following=false,lastTarget=null;"
+        "function scrollToCurrent(){if(!video)return;const ms=video.currentTime*1000;"
+        "const rows=Array.prototype.slice.call(document.querySelectorAll("
+        "'.entry[data-start-ms]'));let target=null;"
+        "for(let i=0;i<rows.length;i++){const row=rows[i];if(row.hidden)continue;"
+        "if(Number(row.dataset.startMs)<=ms)target=row;else break;}"
+        "if(target&&target!==lastTarget){lastTarget=target;"
+        "target.scrollIntoView({behavior:'smooth',block:'center'});}}"
+        "if(follow)follow.addEventListener('click',function(){"
+        "following=!following;follow.setAttribute('aria-pressed',following?'true':'false');"
+        "follow.textContent=following?'Stop scrolling':'Scroll transcript';"
+        "follow.classList.toggle('active',following);if(following)scrollToCurrent();});"
+        "if(video)video.addEventListener('timeupdate',function(){if(following)scrollToCurrent();});"
+        "})();</script>"
+    )
+
+
+def _html_head(file_name: str = "") -> str:
+    title = f"AfterClip — {file_name}" if file_name else "AfterClip Full Report & Timeline"
+    return (
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        f"<title>{html_module.escape(title)}</title>"
+        f"<style>{HTML_STYLE}</style></head><body><main id='report-content'>"
+    )
+
+
+def _section_head(title: str, target_id: str) -> str:
+    return (
+        f"<div class='section-head'><h2>{html_module.escape(title)}</h2>"
+        f"<button class='copy-section' type='button' data-copy-target='{target_id}'>"
+        "Copy</button></div>"
+    )
+
+
+def _topic_anchor_ids(topic_list: list, entries: list[TimelineEntry]) -> list[str]:
+    anchors: list[str] = []
+    for topic in topic_list:
+        anchor = ""
+        for index, entry in enumerate(entries):
+            if entry.start_ms >= topic.start_ms:
+                anchor = f"entry-{index}"
+                break
+        anchors.append(anchor)
+    return anchors
+
+
+def _html_topic_list(topic_list: list, anchors: list[str]) -> str:
+    if not topic_list:
+        return ""
+    items = []
+    for topic, anchor in zip(topic_list, anchors, strict=False):
+        title = html_module.escape(topic.title)
+        if anchor:
+            title = f"<a href='#{anchor}' title='Jump to transcript'>{title} ↓</a>"
+        items.append(
+            f"<li>{title} <span class='badge'>[{html_module.escape(topic.start_str)} "
+            f"--&gt; {html_module.escape(topic.end_str)}]</span></li>"
+        )
+    return "<ul class='topic-list'>" + "".join(items) + "</ul>"
+
+
+def _speaker_stats(
+    speaker_intervals: tuple[SpeakerInterval, ...],
+    transcript_entries: list[TimelineEntry],
+) -> list[dict]:
+    """Per-speaker speaking time, segment count and first/last timestamps."""
+    spans: dict[str, list[tuple[int, int]]] = {}
+    for interval in speaker_intervals:
+        if interval.speaker:
+            spans.setdefault(interval.speaker, []).append((interval.start_ms, interval.end_ms))
+    stats: dict[str, dict] = {}
+    for speaker, values in spans.items():
+        values.sort()
+        merged: list[list[int]] = []
+        for start, end in values:
+            if merged and start <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+        stats[speaker] = {
+            "speaker": speaker,
+            "talk_ms": sum(end - start for start, end in merged),
+            "segments": 0,
+            "first_ms": merged[0][0],
+            "last_ms": merged[-1][1],
+        }
+    for entry in transcript_entries:
+        speaker = resolve_speaker(speaker_intervals, entry.start_ms, entry.end_ms)
+        if not speaker:
+            continue
+        stat = stats.setdefault(
+            speaker,
+            {
+                "speaker": speaker,
+                "talk_ms": 0,
+                "segments": 0,
+                "first_ms": entry.start_ms,
+                "last_ms": entry.end_ms,
+            },
+        )
+        stat["segments"] += 1
+        stat["first_ms"] = min(stat["first_ms"], entry.start_ms)
+        stat["last_ms"] = max(stat["last_ms"], entry.end_ms)
+        if not spans:
+            stat["talk_ms"] += max(0, entry.end_ms - entry.start_ms)
+    return sorted(stats.values(), key=lambda stat: stat["talk_ms"], reverse=True)
+
+
+def _html_timeline_tools(
+    entries: list[TimelineEntry],
+    speaker_intervals: tuple[SpeakerInterval, ...],
+    job_dir: Path,
+) -> str:
+    speaker_values = {
+        resolve_speaker(speaker_intervals, entry.start_ms, entry.end_ms)
+        for entry in entries
+        if entry.context_type != "VISION"
+    }
+    speakers = sorted(speaker for speaker in speaker_values if speaker)
+    options = "".join(
+        f"<option value='{html_module.escape(speaker)}'>{html_module.escape(speaker)}</option>"
+        for speaker in speakers
+    )
+    speaker_disabled = "" if speakers else " disabled"
+    vision_entries = [entry for entry in entries if entry.context_type == "VISION"]
+    vision_available = any(
+        (
+            job_dir
+            / "Vision"
+            / "frames"
+            / (VISION_FILE_PATTERN.search(entry.text).group(1).strip())
+        ).is_file()
+        for entry in vision_entries
+        if VISION_FILE_PATTERN.search(entry.text)
+    )
+    checked = " checked" if vision_available else ""
+    return (
+        "<div class='timeline-tools' id='timeline-tools'>"
+        "<label><input type='checkbox' id='vision-toggle'"
+        f"{checked}> Vision entries</label>"
+        "<label>Speaker <select id='speaker-filter'"
+        f"{speaker_disabled}><option value=''>All speakers</option>{options}</select></label>"
+        "<span id='filter-count' class='hint'></span></div>"
+    )
+
+
+def _html_metadata(
+    metadata: dict,
+    report_language: str,
+    transcript_language: str,
+    clip_start: float | None,
+    clip_end: float | None,
+) -> str:
+    media_type = metadata.get("media_type") if isinstance(metadata.get("media_type"), dict) else {}
+    media_label = str(media_type.get("media_type") or "Unknown")
+    if media_type.get("confidence") is not None:
+        media_label += f" (confidence {media_type.get('confidence')})"
+    clip_label = (
+        "Full file"
+        if clip_start is None and clip_end is None
+        else f"{clip_start or 0} --> {clip_end if clip_end is not None else 'end'}"
+    )
+    fields = (
+        ("Source file", metadata.get("file_name") or "Unknown"),
+        ("Source creation date", metadata.get("creation_date") or "Unknown"),
+        ("Duration", _format_seconds(metadata.get("duration"))),
+        ("Media type", media_label),
+        ("Transcription language", transcript_language or "Unknown"),
+        ("Report language", report_language or "Unknown"),
+        ("Clip range", clip_label),
+        (
+            "Generated",
+            datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        ),
+    )
+    cells = "".join(
+        f"<div><span>{html_module.escape(label)}</span>"
+        f"<strong>{html_module.escape(str(value))}</strong></div>"
+        for label, value in fields
+    )
+    return (
+        "<div class='meta-wrap'><div class='section-head'><h3>Source</h3>"
+        "<button class='copy-section' type='button' data-copy-target='source-meta'>"
+        "Copy</button></div>"
+        f"<div class='meta' id='source-meta'>{cells}</div></div>"
+    )
+
+
+def _html_report_sections(
+    summary: str,
+    highlights: str,
+    topics_html: str,
+    *,
+    speaker_stats: list[dict] | None = None,
+    metadata: dict | None = None,
+    report_language: str = "",
+    transcript_language: str = "",
+    clip_start: float | None = None,
+    clip_end: float | None = None,
+) -> str:
     sections = "<h1>AfterClip Full Report &amp; Timeline</h1>"
+    sections += _html_metadata(
+        metadata or {},
+        report_language,
+        transcript_language,
+        clip_start,
+        clip_end,
+    )
+    if speaker_stats is not None:
+        cards = "".join(
+            f"<button class='speaker-card' type='button' "
+            f"data-speaker-card='{html_module.escape(stat['speaker'])}'>"
+            f"<strong>{html_module.escape(stat['speaker'])}</strong>"
+            f"<span>{_format_seconds(stat['talk_ms'] / 1000)} speaking</span>"
+            f"<span>{stat['segments']} blocks · "
+            f"{_format_milliseconds(stat['first_ms'])} → "
+            f"{_format_milliseconds(stat['last_ms'])}</span></button>"
+            for stat in speaker_stats
+        )
+        if not cards:
+            cards = (
+                "<p class='hint'>No speaker labels available. Supply a speaker VTT "
+                "or enable voiceprints to populate this section.</p>"
+            )
+        sections += _section_head("Speakers", "speakers-content")
+        sections += f"<div id='speakers-content' class='speaker-cards'>{cards}</div>"
     if summary:
+        sections += _section_head("Summary", "summary-content")
         sections += (
-            f"<h2>Summary</h2><div class='prose'>"
-            f"{html_module.escape(summary).replace(chr(10), '<br>')}</div>"
+            f"<div id='summary-content' class='prose'>"
+            f"{render_markdown(summary, heading_offset=1)}</div>"
         )
     if highlights:
+        sections += _section_head("Key Highlights", "highlights-content")
         sections += (
-            f"<h2>Key Highlights</h2><div class='prose'>"
-            f"{html_module.escape(highlights).replace(chr(10), '<br>')}</div>"
+            f"<div id='highlights-content' class='prose'>"
+            f"{render_markdown(highlights, heading_offset=1)}</div>"
         )
-    if topics_summary:
-        topics_html = html_module.escape(topics_summary).replace(chr(10), "<br>")
-        sections += f"<h2>Topics</h2><div class='prose'>{topics_html}</div>"
+    if topics_html:
+        sections += _section_head("Topics", "topics-content")
+        sections += f"<div id='topics-content' class='prose'>{topics_html}</div>"
     return sections
 
 
 HTML_STYLE = (
-    "body{font-family:'Segoe UI',sans-serif;margin:24px auto;max-width:900px;"
-    "background:#f5f6f8;color:#222}"
+    "html{scroll-behavior:smooth}body{font-family:'Segoe UI',sans-serif;margin:0;"
+    "background:#f5f6f8;color:#222}#report-content{max-width:900px;margin:24px auto;"
+    "padding:0 16px;transition:margin-left .2s ease,max-width .2s ease}"
+    ".mini-active #report-content{max-width:calc(100% - 360px);margin-left:340px}"
     "h1{margin-bottom:4px}h2{margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px}"
+    ".section-head{display:flex;align-items:center;justify-content:space-between;gap:10px}"
+    ".section-head h2,.section-head h3{margin:0;border:0;padding:0}"
+    ".meta-wrap{margin-top:20px}.meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));"
+    "gap:8px 16px;background:#fff;border:1px solid #ddd;border-radius:8px;"
+    "padding:12px 16px;margin:8px 0}.meta span{display:block;color:#666;font-size:11px;"
+    "text-transform:uppercase;letter-spacing:.04em}.meta strong{font-weight:600}"
     ".prose{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px 16px}"
+    ".prose h2,.prose h3,.prose h4{margin:18px 0 8px;border:0;padding:0}"
+    ".prose ul,.prose ol{margin:8px 0 12px 22px;padding:0}"
+    ".prose li{margin:4px 0}.prose p{margin:8px 0}"
+    ".prose table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px}"
+    ".prose th,.prose td{border:1px solid #ddd;padding:6px 8px;text-align:left;vertical-align:top}"
+    ".prose th{background:#f0f2f5}.prose code{background:#f0f2f5;padding:1px 4px;border-radius:3px}"
     ".entry{background:#fff;border:1px solid #ddd;border-radius:8px;"
-    "padding:12px 16px;margin:12px 0}"
+    "padding:12px 16px;margin:12px 0;scroll-margin-top:18px}"
+    ".entry-actions{float:right;display:flex;gap:4px;opacity:0;transition:opacity .15s}"
+    ".entry:hover .entry-actions{opacity:1}.entry-actions button{background:#eef3fb;"
+    "color:#245b9e;border:1px solid #b9cdea;border-radius:5px;padding:2px 7px;"
+    "font-size:11px;cursor:pointer}.entry-actions button:hover{background:#dfeafb}"
+    ".entry-actions .teams-link{background:#eef3fb;color:#245b9e;border:1px solid #b9cdea;"
+    "border-radius:5px;padding:2px 7px;font-size:11px;text-decoration:none}"
+    ".entry-actions .teams-link:hover{background:#dfeafb}"
+    ".entry-actions .quote-entry.active{background:#245b9e;color:#fff}"
     ".badge{font-size:12px;color:#666;letter-spacing:.4px}"
-    ".topic{margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px}"
-    ".topic .badge{margin-left:8px;font-weight:400}"
+    ".topic{margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px;"
+    "display:flex;align-items:center;flex-wrap:wrap;gap:8px}"
+    ".topic .badge{margin-left:4px;font-weight:400}.topic-link{color:inherit;"
+    "text-decoration:none}.topic-link:hover{text-decoration:underline}"
+    ".copy-section{background:#eef3fb;color:#245b9e;border:1px solid #b9cdea;"
+    "border-radius:5px;padding:2px 7px;font-size:11px;cursor:pointer;margin-left:auto;"
+    "opacity:0;transition:opacity .15s}.section-head:hover .copy-section,"
+    ".meta-wrap:hover .copy-section,.topic:hover .copy-section{opacity:1}"
+    ".copy-section:hover{background:#dfeafb}"
+    ".timeline-tools{display:flex;flex-wrap:wrap;align-items:center;gap:14px;"
+    "background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px 12px;"
+    "margin:10px 0}.timeline-tools label{font-size:13px}"
+    ".timeline-tools select{margin-left:4px}"
+    ".speaker-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));"
+    "gap:8px;margin:8px 0}.speaker-card{display:flex;flex-direction:column;gap:3px;"
+    "text-align:left;background:#fff;border:1px solid #ddd;border-radius:8px;"
+    "padding:8px 10px;cursor:pointer;font:inherit;color:inherit}"
+    ".speaker-card:hover{background:#eef3fb;border-color:#b9cdea}"
+    ".speaker-card strong{font-size:13px}.speaker-card span{font-size:11px;color:#666}"
+    ".topic-list a{color:#245b9e;text-decoration:underline}"
+    ".topic-link{color:#245b9e!important;text-decoration:none}"
+    ".topic-link:hover{text-decoration:underline}"
+    ".vision-body{min-width:0}"
     "img{max-width:640px;border-radius:6px;display:block;margin:8px 0}"
-    "blockquote{margin:8px 0 0}"
+    "blockquote{margin:8px 0 0}.hint{color:#666;font-size:12px}"
+    ".player{background:#fff;border:2px dashed #b9cdea;border-radius:8px;padding:12px 16px;"
+    "margin:12px 0;scroll-margin-top:16px}.player.dragover{background:#eef3fb;"
+    "border-color:#245b9e}.player-head{display:flex;flex-wrap:wrap;gap:8px;"
+    "align-items:baseline}.player video{width:100%;max-height:420px;background:#000;"
+    "border-radius:6px;display:block;margin-top:8px}.player .hint{color:#666;"
+    "font-size:12px;margin-top:4px}.video-slot{min-height:1px}"
+    ".mini-player{position:fixed;left:16px;bottom:16px;width:320px;z-index:50;"
+    "background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px;"
+    "box-shadow:0 6px 24px rgba(0,0,0,.18);display:none}"
+    ".mini-player.visible{display:block}.mini-head{display:flex;align-items:center;"
+    "justify-content:space-between;gap:8px;font-size:12px;margin-bottom:6px;"
+    "flex-wrap:wrap}.mini-actions{display:flex;gap:4px}"
+    ".mini-head button{background:#eef3fb;color:#245b9e;border:1px solid #b9cdea;"
+    "border-radius:5px;padding:2px 7px;font-size:11px;cursor:pointer}"
+    ".mini-head button.active{background:#245b9e;color:#fff}"
+    ".mini-head .mini-close{width:24px;height:24px;padding:0;font-size:16px;"
+    "line-height:1;background:#fff;color:#555;border-color:#ccc}"
+    ".mini-head .mini-close:hover{background:#f1f1f1;color:#111}"
+    ".mini-slot video{max-height:170px;margin:0}"
+    "@media (min-width:1300px){#report-content{max-width:1100px}"
+    ".vision-body.has-image{display:grid;grid-template-columns:minmax(0,1.1fr) "
+    "minmax(0,.9fr);gap:16px;align-items:start}"
+    ".vision-body.has-image img{max-width:100%;margin:0}}"
+    "@media (max-width:1000px){.mini-active #report-content{margin:24px auto;"
+    "max-width:900px}}"
+    "@media (max-width:700px){.mini-player{left:12px;right:12px;bottom:12px;width:auto}"
+    ".entry-actions{opacity:1}}@media (hover:none){.entry-actions{opacity:1}"
+    ".copy-section{opacity:1}}[hidden]{display:none!important}"
 )
 
 
@@ -455,3 +1281,20 @@ def _embedded_frame_data(frame_path: Path) -> str | None:
     except OSError:
         return None
     return f"data:image/png;base64,{encoded}"
+
+
+def _embedded_thumbnail_data(frame_path: Path, max_width: int = 640, quality: int = 72):
+    """Small JPEG data URI for the standalone report; None on failure."""
+    try:
+        from PIL import Image
+
+        with Image.open(frame_path) as image:
+            image = image.convert("RGB")
+            image.thumbnail((max_width, max_width))
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=quality, optimize=True)
+    except Exception as error:
+        LOGGER.warning("Could not create thumbnail for %s: %s", frame_path, error)
+        return None
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"

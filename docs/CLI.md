@@ -27,8 +27,19 @@ Common flags: `--model`, `--language`, `--report-language`, `--task`,
 `--text-model`, `--vision-model`, `--analyze-text`, `--analyze-vision`, `--frames`
 (`none`/`interval`/`scene`/`both`), `--frame-interval`, `--scene-sensitivity`,
 `--frame-resolution`, `--clip-start`, `--clip-end`, `--vtt`, `--segment`,
-`--embed-frames`, `--no-filter`, `--preset`, `--output-name`,
-`--reuse-transcription`, `--json`, `--quiet`.
+`--html-report` (`lean`/`thumbnails`/`full`/`none`), `--embed-frames`
+(alias for `--html-report full`), `--teams-url`, `--no-filter`, `--preset`,
+`--output-name`, `--reuse-transcription`, `--json`, `--quiet`.
+
+- **HTML report modes**: `lean` (default) links to frames on disk,
+  `thumbnails` embeds small previews suitable for sharing, `full` embeds the
+  original frames, and `none` skips the HTML report. All modes include the
+  source metadata, summary, topics and a video file picker for timestamp
+  seeking; the video itself is never embedded.
+- **Teams links**: `--teams-url URL` accepts a Teams/SharePoint recording link
+  and adds a timestamped **Teams** button to every transcript entry. The
+  SharePoint `id` and other query parameters are preserved; only
+  `nav.playbackOptions.startTimeInSeconds` is replaced with the entry time.
 
 - **Reusing a transcription**: `--reuse-transcription` (or `--reuse`) picks the
   latest job for the same input under `--output` whose transcription completed

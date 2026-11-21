@@ -7,6 +7,11 @@ user creates a preset and loads a starter into it.
 
 **Target release:** `0.5.0` (see [PLAN_ROADMAP.md](PLAN_ROADMAP.md)).
 
+Status: **in progress**. All six starter packs are available in the prompt
+editor (“Starter text → Load starter…”), including their recommended frame
+defaults, and `{task}`, `{timestamp}` and `{vision_context}` are optional
+placeholders. The JSON sidecar and vision-context values are still planned.
+
 ## 1. Common rules for every pack
 
 Every new prompt must follow these rules:
